@@ -1,0 +1,92 @@
+# @format
+# Traefik Helm Values — DaemonSet with hostNetwork (Hybrid-HA)
+#
+# Ensures every node in the kubeadm cluster listens on ports 80/443,
+# enabling seamless EIP failover between nodes. When the EIP moves to
+# a different node, Traefik is already running and serving traffic.
+#
+# Key design decisions:
+#   - DaemonSet (not Deployment): 1 Traefik pod per node
+#   - hostNetwork: true — binds directly to node ethernet (no kube-proxy hop)
+#   - dnsPolicy: ClusterFirstWithHostNet — resolves K8s services in host net mode
+#   - Control plane toleration — Traefik must also run on the control plane node
+#   - Prometheus metrics on port 9100 (matches existing scrape targets)
+#   - OTLP tracing to Tempo (preserves existing observability)
+#
+# Install: helm install traefik traefik/traefik -n kube-system -f traefik-values.yaml
+# Chart:   https://traefik.github.io/charts
+
+# DaemonSet ensures one Traefik pod per node
+deployment:
+  kind: DaemonSet
+
+# Bind directly to node network — ports 80/443 available as-is
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
+# Run on ALL nodes including control plane (required for EIP failover)
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+# Entry points (bound to host network)
+ports:
+  web:
+    port: 8000
+    hostPort: 80
+    expose:
+      default: true
+    exposedPort: 80
+    protocol: TCP
+  websecure:
+    port: 8443
+    hostPort: 443
+    expose:
+      default: true
+    exposedPort: 443
+    protocol: TCP
+    tls:
+      enabled: false # TLS terminated at CloudFront, not Traefik
+  metrics:
+    port: 9100
+    expose:
+      default: false
+    exposedPort: 9100
+    protocol: TCP
+
+# Disable LoadBalancer service (using hostNetwork + EIP instead)
+service:
+  enabled: false
+
+# Prometheus metrics
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+
+# OTLP tracing → Tempo (in-cluster)
+tracing:
+  otlp:
+    grpc:
+      endpoint: "tempo.monitoring.svc.cluster.local:4317"
+      insecure: true
+
+# Additional CLI arguments
+additionalArguments:
+  - "--tracing.otlp.grpc.endpoint=tempo.monitoring.svc.cluster.local:4317"
+  - "--tracing.otlp.grpc.insecure=true"
+  - "--metrics.prometheus=true"
+  - "--metrics.prometheus.entryPoint=metrics"
+  - "--metrics.prometheus.addEntryPointsLabels=true"
+  - "--metrics.prometheus.addRoutersLabels=true"
+  - "--metrics.prometheus.addServicesLabels=true"
+
+# Logging
+logs:
+  general:
+    level: INFO
+  access:
+    enabled: true

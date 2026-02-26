@@ -1,0 +1,36 @@
+# @format
+# ArgoCD Traefik IngressRoute
+#
+# Exposes the ArgoCD UI at /argocd path via Traefik.
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-ingress
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/argocd`)
+      kind: Rule
+      priority: 10
+      services:
+        - name: argocd-server
+          port: 80
+      middlewares:
+        - name: argocd-strip-prefix
+
+---
+# Strip /argocd prefix before forwarding to ArgoCD server
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: argocd-strip-prefix
+  namespace: argocd
+spec:
+  stripPrefix:
+    prefixes:
+      - /argocd

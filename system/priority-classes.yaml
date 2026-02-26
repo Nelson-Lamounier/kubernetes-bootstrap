@@ -1,0 +1,44 @@
+# @format
+# Priority Classes for workload tier isolation
+#
+# Ensures monitoring pods survive under resource pressure by assigning
+# higher priority to observability workloads. Under memory pressure,
+# the scheduler evicts application pods first, keeping Grafana/Prometheus
+# alive so you never lose observability during an incident.
+#
+# Layer 5 of the 5-layer isolation model:
+#   1. Namespaces (blast-radius boundary)
+#   2. NetworkPolicies (network isolation)
+#   3. ResourceQuotas (resource caps)
+#   4. Container resource limits
+#   5. PriorityClasses (eviction order) ← this file
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: monitoring-critical
+  labels:
+    app.kubernetes.io/part-of: system
+    app.kubernetes.io/managed-by: kustomize
+value: 1000
+globalDefault: false
+description: >-
+  Monitoring workloads — preempt application pods before
+  shedding observability. Applied to Prometheus, Grafana,
+  Loki, Tempo, and Node Exporter.
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: application-standard
+  labels:
+    app.kubernetes.io/part-of: system
+    app.kubernetes.io/managed-by: kustomize
+value: 500
+globalDefault: true
+description: >-
+  Application workloads — may be preempted by monitoring
+  pods under resource pressure. Applied to Next.js and
+  other application deployments.

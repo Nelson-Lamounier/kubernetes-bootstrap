@@ -1,0 +1,13 @@
+# @format
+# ArgoCD Namespace
+#
+# Created before ArgoCD installation so that repo credentials
+# and other pre-requisites can be applied first.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    app.kubernetes.io/managed-by: kustomize
