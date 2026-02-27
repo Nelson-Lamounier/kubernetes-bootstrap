@@ -98,3 +98,18 @@ logs:
     level: INFO
   access:
     enabled: true
+
+# Security context — allow binding to privileged ports 80/443
+# The chart defaults to non-root (uid 65532) with all capabilities dropped,
+# which prevents binding to ports < 1024. We add NET_BIND_SERVICE.
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+    add: [NET_BIND_SERVICE]
+  readOnlyRootFilesystem: true
+
+podSecurityContext:
+  runAsGroup: 0
+  runAsNonRoot: false
+  runAsUser: 0
