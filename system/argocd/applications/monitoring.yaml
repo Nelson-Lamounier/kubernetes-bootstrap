@@ -1,11 +1,13 @@
 # @format
 # ArgoCD Application: Monitoring Stack
 #
-# Points ArgoCD at the monitoring manifests directory in Git.
-# ArgoCD watches this path and auto-syncs changes (selfHeal + prune).
+# Points ArgoCD at the monitoring Helm chart directory in Git.
+# ArgoCD recognizes this as a Helm-type source and renders the chart
+# with values from values-development.yaml.
 #
 # Secrets (Grafana password, GitHub token) are pre-seeded by boot-k8s.sh
-# on first boot. ArgoCD manages all declarative YAML manifests.
+# on first boot via deploy.py. ArgoCD manages all declarative Helm-rendered
+# manifests from Day-2 onwards.
 #
 # Credential: SSH Deploy Key (read-only) — stored in K8s secret
 # via bootstrap-argocd.sh from SSM parameter.
@@ -27,7 +29,10 @@ spec:
   source:
     repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
     targetRevision: HEAD
-    path: kubernetes-app/app-deploy/monitoring/manifests
+    path: kubernetes-app/app-deploy/monitoring/chart
+    helm:
+      valueFiles:
+        - values-development.yaml
 
   destination:
     server: https://kubernetes.default.svc
