@@ -40,9 +40,7 @@ send_failure_signal() {
         echo "=== FATAL: boot-worker.sh exited with code $EXIT_CODE ==="
         echo "Sending FAILURE signal to CloudFormation..."
 
-        if ! command -v /opt/aws/bin/cfn-signal &> /dev/null; then
-            dnf install -y aws-cfn-bootstrap 2>/dev/null || true
-        fi
+        # cfn-bootstrap is pre-installed in the Golden AMI
 
         /opt/aws/bin/cfn-signal --success false \
             --stack "${STACK_NAME}" \
@@ -91,24 +89,9 @@ REGION=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
 echo "Instance: $INSTANCE_ID, Private IP: $PRIVATE_IP, Region: $REGION"
 echo "Node label: $NODE_LABEL"
 
-# Enable IP forwarding (required for kubeadm preflight)
-echo "Configuring networking prerequisites..."
-modprobe overlay 2>/dev/null || true
-modprobe br_netfilter 2>/dev/null || true
-
-cat > /etc/modules-load.d/k8s.conf <<MODULES
-overlay
-br_netfilter
-MODULES
-
-cat > /etc/sysctl.d/k8s.conf <<SYSCTL
-net.bridge.bridge-nf-call-iptables  = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward                 = 1
-SYSCTL
-
-sysctl --system > /dev/null 2>&1
-echo "Networking prerequisites configured"
+# Networking prerequisites (modprobe, sysctl) are baked into the Golden AMI.
+# systemd-modules-load.service loads /etc/modules-load.d/k8s.conf at boot.
+# systemd-sysctl.service applies /etc/sysctl.d/k8s.conf at boot.
 
 # =============================================================================
 # 2. Resolve Control Plane Endpoint from SSM
@@ -158,6 +141,12 @@ echo "Join config: max_retries=${JOIN_MAX_RETRIES}, retry_interval=${JOIN_RETRY_
 # Start containerd
 systemctl start containerd
 echo "containerd started"
+
+# Configure kubelet with node labels BEFORE joining
+# kubeadm join does NOT support --node-labels; labels must be set via kubelet extra args
+echo "Configuring kubelet with node label: ${NODE_LABEL}"
+echo "KUBELET_EXTRA_ARGS=--node-labels=${NODE_LABEL}" > /etc/sysconfig/kubelet
+echo "Kubelet extra args configured"
 
 TOKEN_SSM="${SSM_PREFIX}/join-token"
 CA_HASH_SSM="${SSM_PREFIX}/ca-hash"
@@ -215,7 +204,6 @@ for ATTEMPT in $(seq 1 $JOIN_MAX_RETRIES); do
     kubeadm join "${CONTROL_PLANE_ENDPOINT}" \
         --token "$JOIN_TOKEN" \
         --discovery-token-ca-cert-hash "$CA_HASH" \
-        --node-labels "${NODE_LABEL}" \
         2>&1 | tee /tmp/kubeadm-join.log
     JOIN_EXIT=${PIPESTATUS[0]}
     set -e
@@ -277,10 +265,7 @@ trap - EXIT  # Disable failure trap — we succeeded
 
 echo "=== Sending CloudFormation SUCCESS signal ==="
 
-if ! command -v /opt/aws/bin/cfn-signal &> /dev/null; then
-    echo "Installing aws-cfn-bootstrap..."
-    dnf install -y aws-cfn-bootstrap 2>/dev/null || true
-fi
+# cfn-bootstrap is pre-installed in the Golden AMI
 
 /opt/aws/bin/cfn-signal --success true \
     --stack "${STACK_NAME}" \

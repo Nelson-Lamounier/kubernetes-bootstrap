@@ -240,10 +240,7 @@ fi
 
 echo "=== Sending CloudFormation SUCCESS signal (infrastructure ready) ==="
 
-if ! command -v /opt/aws/bin/cfn-signal &> /dev/null; then
-    echo "Installing aws-cfn-bootstrap..."
-    dnf install -y aws-cfn-bootstrap 2>/dev/null || true
-fi
+# cfn-bootstrap is pre-installed in the Golden AMI
 
 /opt/aws/bin/cfn-signal --success true \
     --stack "${STACK_NAME}" \
@@ -253,16 +250,11 @@ fi
 echo "=== Infrastructure setup complete, proceeding to app config... ==="
 
 # =============================================================================
-# 3. System Update
+# 3. System Checks
+#
+# System updates (dnf update) and /usr/bin/sh symlink are baked into the
+# Golden AMI. No runtime patching needed — AMI is rebuilt weekly.
 # =============================================================================
-
-# Ensure /usr/bin/sh exists (required by SSM Agent)
-if [ ! -e /usr/bin/sh ]; then
-    ln -sf /bin/bash /usr/bin/sh
-    echo "Created /usr/bin/sh -> /bin/bash symlink for SSM Agent compatibility"
-fi
-
-dnf update -y
 
 # =============================================================================
 # 4. Initialize kubeadm Kubernetes Control Plane
@@ -626,12 +618,12 @@ echo "=== k8s first-boot deployment complete ==="
 
 echo "=== Installing Helm ==="
 
+# Helm is pre-installed in the Golden AMI
 if ! command -v helm &>/dev/null; then
-    curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-    echo "Helm installed: $(helm version --short)"
-else
-    echo "Helm already installed: $(helm version --short)"
+    echo "ERROR: Helm not found — expected in Golden AMI"
+    exit 1
 fi
+echo "Helm version: $(helm version --short)"
 
 echo "=== Installing Traefik Ingress Controller (DaemonSet) ==="
 
