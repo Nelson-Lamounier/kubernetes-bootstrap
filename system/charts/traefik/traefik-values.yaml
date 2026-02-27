@@ -40,18 +40,16 @@ tolerations:
     operator: Exists
     effect: NoSchedule
 
-# Entry points (bound to host network)
+# Entry points (bound to host network — port IS the host port)
 ports:
   web:
-    port: 8000
-    hostPort: 80
+    port: 80
     expose:
       default: true
     exposedPort: 80
     protocol: TCP
   websecure:
-    port: 8443
-    hostPort: 443
+    port: 443
     expose:
       default: true
     exposedPort: 443
