@@ -482,7 +482,8 @@ CALICO_EOF
 
 echo "Waiting for Calico pods to become ready..."
 for i in {1..120}; do
-    READY=$(kubectl get pods -n calico-system --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+    READY=$(kubectl get pods -n calico-system --no-headers 2>/dev/null | { grep -c "Running" || true; })
+    READY=${READY:-0}
     TOTAL=$(kubectl get pods -n calico-system --no-headers 2>/dev/null | wc -l | tr -d ' ')
     if [ "$TOTAL" -gt 0 ] && [ "$READY" -eq "$TOTAL" ]; then
         echo "Calico pods ready (${READY}/${TOTAL}, waited ${i} seconds)"
@@ -537,10 +538,16 @@ chown ec2-user:ec2-user /home/ec2-user/.kube/config
 chmod 600 /home/ec2-user/.kube/config
 
 # Configure kubectl for ssm-user (SSM Session Manager default user)
-mkdir -p /home/ssm-user/.kube
-cp -f $KUBECONFIG_SRC /home/ssm-user/.kube/config
-chown ssm-user:ssm-user /home/ssm-user/.kube/config
-chmod 600 /home/ssm-user/.kube/config
+# ssm-user is created dynamically by SSM agent on first session,
+# so it may not exist yet at boot time.
+if id ssm-user &>/dev/null; then
+    mkdir -p /home/ssm-user/.kube
+    cp -f $KUBECONFIG_SRC /home/ssm-user/.kube/config
+    chown ssm-user:ssm-user /home/ssm-user/.kube/config
+    chmod 600 /home/ssm-user/.kube/config
+else
+    echo "ssm-user does not exist yet — will be configured on first SSM session"
+fi
 
 echo "export KUBECONFIG=$KUBECONFIG_SRC" > /etc/profile.d/kubernetes.sh
 chmod 644 /etc/profile.d/kubernetes.sh
