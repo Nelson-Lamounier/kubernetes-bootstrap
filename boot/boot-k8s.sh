@@ -560,6 +560,26 @@ kubectl get namespaces
 fi # End SKIP_CLUSTER_INIT guard (sections 4-6)
 
 # =============================================================================
+# 6b. Install local-path StorageClass provisioner
+#
+# kubeadm clusters have no dynamic volume provisioner. PVCs for Grafana,
+# Prometheus, Loki, and Tempo need a StorageClass to bind. local-path-provisioner
+# provides lightweight dynamic PV provisioning using host-local storage.
+# =============================================================================
+
+echo "=== Installing local-path-provisioner ==="
+
+if kubectl get storageclass local-path &>/dev/null; then
+    echo "local-path StorageClass already exists — skipping"
+else
+    kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.30/deploy/local-path-storage.yaml
+    kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+    echo "✓ local-path-provisioner installed and set as default StorageClass"
+fi
+
+echo "=== local-path-provisioner ready ==="
+
+# =============================================================================
 # 7. Deploy k8s Monitoring Manifests
 # =============================================================================
 
