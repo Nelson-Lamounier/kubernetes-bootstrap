@@ -1,6 +1,8 @@
 # @format
 # Traefik Helm Values — DaemonSet with hostNetwork (Hybrid-HA)
 #
+# Compatible with Traefik Helm chart v3.x (traefik/traefik)
+#
 # Ensures every node in the kubeadm cluster listens on ports 80/443,
 # enabling seamless EIP failover between nodes. When the EIP moves to
 # a different node, Traefik is already running and serving traffic.
@@ -19,10 +21,11 @@
 # DaemonSet ensures one Traefik pod per node
 deployment:
   kind: DaemonSet
+  # Required when hostNetwork: true — resolves K8s service DNS in host net mode
+  dnsPolicy: ClusterFirstWithHostNet
 
 # Bind directly to node network — ports 80/443 available as-is
 hostNetwork: true
-dnsPolicy: ClusterFirstWithHostNet
 
 # Run on ALL nodes including control plane (required for EIP failover)
 tolerations:
@@ -46,8 +49,7 @@ ports:
       default: true
     exposedPort: 443
     protocol: TCP
-    tls:
-      enabled: false # TLS terminated at CloudFront, not Traefik
+    # TLS terminated at CloudFront, not Traefik — no TLS config needed here
   metrics:
     port: 9100
     expose:
