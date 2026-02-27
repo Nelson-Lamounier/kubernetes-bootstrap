@@ -30,6 +30,7 @@ updateStrategy:
   type: RollingUpdate
   rollingUpdate:
     maxUnavailable: 1
+    maxSurge: 0
 
 # Bind directly to node network — ports 80/443 available as-is
 hostNetwork: true
