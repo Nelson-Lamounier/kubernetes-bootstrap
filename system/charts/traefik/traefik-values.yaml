@@ -24,6 +24,13 @@ deployment:
   # Required when hostNetwork: true — resolves K8s service DNS in host net mode
   dnsPolicy: ClusterFirstWithHostNet
 
+# Rolling update strategy — required when hostNetwork: true
+# Two pods cannot bind the same host port, so maxUnavailable must be > 0
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+
 # Bind directly to node network — ports 80/443 available as-is
 hostNetwork: true
 
