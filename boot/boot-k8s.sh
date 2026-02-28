@@ -26,6 +26,31 @@
 
 set -euxo pipefail
 
+# =============================================================================
+# Trap: send FAILURE signal on unexpected exit
+#
+# If the script exits non-zero before reaching completion,
+# CloudFormation learns immediately instead of waiting for the full
+# signalsTimeoutMinutes to elapse.
+# =============================================================================
+send_failure_signal() {
+    local EXIT_CODE=$?
+    if [ "$EXIT_CODE" -ne 0 ]; then
+        echo ""
+        echo "=== FATAL: boot-k8s.sh exited with code $EXIT_CODE ==="
+        echo "Sending FAILURE signal to CloudFormation..."
+
+        # cfn-bootstrap is pre-installed in the Golden AMI
+        /opt/aws/bin/cfn-signal --success false \
+            --stack "${STACK_NAME}" \
+            --resource "${ASG_LOGICAL_ID}" \
+            --region "${AWS_REGION}" \
+            --reason "boot-k8s.sh failed with exit code $EXIT_CODE" \
+            2>/dev/null || echo "WARNING: cfn-signal --success false also failed"
+    fi
+}
+trap send_failure_signal EXIT
+
 # Defaults
 MOUNT_POINT="${MOUNT_POINT:-/data}"
 DEVICE_NAME="${DEVICE_NAME:-/dev/xvdf}"
@@ -627,6 +652,8 @@ fi
 # =============================================================================
 # Done
 # =============================================================================
+
+trap - EXIT  # Disable failure trap — boot completed successfully
 
 echo ""
 echo "=============================================="
