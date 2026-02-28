@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Union
 
 
 # =============================================================================
@@ -72,7 +72,7 @@ class CmdResult:
 
 
 def run_cmd(
-    cmd: list[str] | str,
+    cmd: Union[List[str], str],
     *,
     shell: bool = False,
     check: bool = True,
