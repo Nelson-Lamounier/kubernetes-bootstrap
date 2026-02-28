@@ -182,7 +182,16 @@ def create_repo_secret(cfg: Config, deploy_key: str) -> None:
 def install_argocd(cfg: Config) -> None:
     log("=== Step 4: Installing ArgoCD ===")
     install_yaml = Path(cfg.argocd_dir) / "install.yaml"
-    run(["kubectl", "apply", "-n", "argocd", "-f", str(install_yaml)], cfg=cfg)
+    # --server-side: ArgoCD CRDs (applicationsets.argoproj.io) exceed the 262KB
+    # annotation limit imposed by client-side kubectl apply. Server-side apply
+    # avoids the last-applied-configuration annotation entirely.
+    # --force-conflicts: Required on re-apply to take ownership of fields that
+    # were previously managed by client-side apply.
+    run(
+        ["kubectl", "apply", "-n", "argocd", "-f", str(install_yaml),
+         "--server-side", "--force-conflicts"],
+        cfg=cfg,
+    )
     log("✓ ArgoCD core installed\n")
 
 
