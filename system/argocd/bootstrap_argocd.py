@@ -393,6 +393,14 @@ def generate_ci_token(cfg: Config) -> None:
         return
 
     log("  → Generating API token for ci-bot...")
+
+    # ArgoCD CLI in --core mode uses the kubectl context's current namespace.
+    # Set it to argocd so the CLI can find argocd-cm.
+    run(
+        ["kubectl", "config", "set-context", "--current", "--namespace=argocd"],
+        cfg=cfg, check=False,
+    )
+
     result = run(
         ["argocd", "account", "generate-token", "--account", "ci-bot", "--core", "--grpc-web"],
         cfg=cfg, check=False, capture=True,
