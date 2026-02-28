@@ -270,56 +270,38 @@ PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.16
 PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/local-ipv4)
 
 # =====================================================================
-# Day-0 Resilience: Install missing K8s toolchain if not pre-baked
-# On Golden AMI (Day-1+), this block is a no-op (~0 seconds).
-# On parent AMI (Day-0), installs containerd + kubeadm (~2-3 minutes).
+# Golden AMI Validation Gate
+#
+# 2026 Standard: All binaries (containerd, kubeadm, kubelet, kubectl)
+# MUST be pre-baked in the Golden AMI. Installing packages at boot time
+# creates a dependency on external repos (pkgs.k8s.io) — if those repos
+# are down, Auto Scaling fails silently. Bootstrap scripts should only
+# contain configuration strings (IPs, Tokens, IDs), never package installs.
 # =====================================================================
-if ! command -v containerd &>/dev/null; then
-    echo "WARNING: containerd not found — Day-0 bootstrap from parent AMI"
+REQUIRED_BINARIES=("containerd" "kubeadm" "kubelet" "kubectl" "helm")
+MISSING=()
 
-    # Configure networking prerequisites (normally baked by Golden AMI)
-    # Required by kubeadm preflight: overlay + br_netfilter modules, ip_forward=1
-    echo "Configuring kernel modules and sysctl for Kubernetes..."
-    cat > /etc/modules-load.d/k8s.conf <<MODULES_EOF
-overlay
-br_netfilter
-MODULES_EOF
-    modprobe overlay
-    modprobe br_netfilter
+for bin in "${REQUIRED_BINARIES[@]}"; do
+    if ! command -v "$bin" &>/dev/null; then
+        MISSING+=("$bin")
+    fi
+done
 
-    cat > /etc/sysctl.d/k8s.conf <<SYSCTL_EOF
-net.bridge.bridge-nf-call-iptables  = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-net.ipv4.ip_forward                 = 1
-SYSCTL_EOF
-    sysctl --system
-    echo "Kernel modules and sysctl configured"
-
-    echo "Installing containerd, kubeadm, kubelet, kubectl..."
-
-    # Install containerd from Amazon Linux repo
-    dnf install -y containerd
-    mkdir -p /etc/containerd
-    containerd config default > /etc/containerd/config.toml
-    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-    systemctl daemon-reload
-    systemctl enable containerd
-
-    # Install kubeadm toolchain from Kubernetes repo
-    K8S_MINOR=$(echo "${K8S_VERSION}" | cut -d. -f1,2)
-    cat > /etc/yum.repos.d/kubernetes.repo <<REPO_EOF
-[kubernetes]
-name=Kubernetes
-baseurl=https://pkgs.k8s.io/core:/stable:/v${K8S_MINOR}/rpm/
-enabled=1
-gpgcheck=1
-gpgkey=https://pkgs.k8s.io/core:/stable:/v${K8S_MINOR}/rpm/repodata/repomd.xml.key
-REPO_EOF
-    dnf install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
-    systemctl enable kubelet
-
-    echo "Day-0 software installation complete"
+if [ ${#MISSING[@]} -gt 0 ]; then
+    echo "ERROR: Golden AMI is missing required binaries: ${MISSING[*]}"
+    echo ""
+    echo "  The bootstrap script does NOT install packages at boot time."
+    echo "  All binaries must be pre-baked into the Golden AMI."
+    echo ""
+    echo "  Missing: ${MISSING[*]}"
+    echo "  Expected: ${REQUIRED_BINARIES[*]}"
+    echo ""
+    echo "  Resolution: Rebuild the Golden AMI with the missing binaries."
+    echo "  See: infra-ami/ pipeline for AMI build instructions."
+    exit 1
 fi
+
+echo "✓ Golden AMI validated — all required binaries present"
 
 # =============================================================================
 # Second-Run Guard — Idempotency for SSM State Manager / Reboots
@@ -330,8 +312,9 @@ fi
 # cluster (e.g., ASG instance reboot or SSM re-invocation).
 # =============================================================================
 if [ -f /etc/kubernetes/admin.conf ]; then
-    echo "=== Cluster already initialized — skipping kubeadm init, Calico, kubectl setup ==="
+    echo "=== Cluster already initialized — skipping to exit ==="
     echo "  (This is a second-run via SSM State Manager or instance reboot)"
+    echo "  ArgoCD manages all application workloads — no imperative deploy needed."
     export KUBECONFIG=/etc/kubernetes/admin.conf
 
     # Refresh ssm-user kubeconfig (may have been updated by cert renewal)
@@ -354,12 +337,13 @@ if [ -f /etc/kubernetes/admin.conf ]; then
     kubeadm certs check-expiration 2>&1 || true
     echo ""
 
-    SKIP_CLUSTER_INIT=true
-else
-    SKIP_CLUSTER_INIT=false
+    echo "=============================================="
+    echo "=== Second-run complete at $(date) ==="
+    echo "=============================================="
+    exit 0
 fi
 
-if [ "$SKIP_CLUSTER_INIT" = "false" ]; then
+# --- First boot: Initialize cluster ---
 
 # Start containerd
 systemctl start containerd
@@ -406,8 +390,11 @@ for i in {1..90}; do
     sleep 1
 done
 
-# Remove control plane taint
-kubectl taint nodes --all node-role.kubernetes.io/control-plane- 2>/dev/null || true
+# Control plane taint is INTENTIONALLY preserved.
+# Only Traefik (via toleration in traefik-values.yaml) and system DaemonSets
+# (kube-proxy, Calico, CoreDNS) will schedule on the control plane node.
+# User workloads use nodeSelector to target application/monitoring worker nodes.
+echo "Control plane taint preserved — only Traefik + system pods will run here"
 
 # Publish join token + CA hash to SSM
 JOIN_TOKEN=$(kubeadm token create --ttl 24h)
@@ -500,25 +487,7 @@ echo "Calico CNI installed successfully"
 kubectl get pods -n calico-system
 kubectl get nodes -o wide
 
-# =============================================================================
-# 5b. Install metrics-server (required for HPA)
-# =============================================================================
-
-echo "=== Installing metrics-server ==="
-
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
-
-# kubeadm uses self-signed kubelet certificates — metrics-server needs
-# --kubelet-insecure-tls to skip TLS verification against kubelet endpoints.
-kubectl patch deployment metrics-server -n kube-system \
-    --type='json' \
-    -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
-
-echo "Waiting for metrics-server to become ready..."
-kubectl wait --for=condition=Available deployment/metrics-server \
-    -n kube-system --timeout=120s || echo "WARNING: metrics-server not ready in 120s"
-
-echo "metrics-server installed successfully"
+# metrics-server is now managed by ArgoCD (applications/metrics-server.yaml)
 
 # =============================================================================
 # 6. Configure kubectl Access
@@ -546,68 +515,85 @@ if id ssm-user &>/dev/null; then
     chown ssm-user:ssm-user /home/ssm-user/.kube/config
     chmod 600 /home/ssm-user/.kube/config
 else
-    echo "ssm-user does not exist yet — will be configured on first SSM session"
+    echo "ssm-user does not exist yet — deferred setup will run on first SSM session"
 fi
 
+# --- Gap 6 Fix: kubeconfig for non-login shells (SSM Session Manager) ---
+# /etc/profile.d/ is only sourced by login shells. SSM drops into a non-login
+# interactive shell, so KUBECONFIG is unset. We write to both locations:
+#   1. /etc/profile.d/kubernetes.sh  — login shells (SSH, su -)
+#   2. /etc/bashrc                   — non-login interactive shells (SSM)
 echo "export KUBECONFIG=$KUBECONFIG_SRC" > /etc/profile.d/kubernetes.sh
 chmod 644 /etc/profile.d/kubernetes.sh
+
+# Append to /etc/bashrc only if not already present (idempotent)
+if ! grep -q "KUBECONFIG=" /etc/bashrc 2>/dev/null; then
+    cat >> /etc/bashrc <<'BASHRC_EOF'
+
+# --- Kubernetes kubeconfig (added by boot-k8s.sh) ---
+export KUBECONFIG=/etc/kubernetes/admin.conf
+BASHRC_EOF
+fi
+
+# Deferred ssm-user kubeconfig provisioning.
+# ssm-user is created by the SSM agent on first session, which is after boot.
+# This script runs once on first SSM login to copy admin.conf into place.
+cat > /usr/local/bin/setup-ssm-kubeconfig.sh <<'SSM_EOF'
+#!/bin/bash
+# One-shot: copy kubeconfig for ssm-user on first SSM session
+if [ "$(whoami)" = "ssm-user" ] && [ ! -f "$HOME/.kube/config" ]; then
+    mkdir -p "$HOME/.kube"
+    sudo cp -f /etc/kubernetes/admin.conf "$HOME/.kube/config"
+    sudo chown "$(id -u):$(id -g)" "$HOME/.kube/config"
+    chmod 600 "$HOME/.kube/config"
+fi
+SSM_EOF
+chmod 755 /usr/local/bin/setup-ssm-kubeconfig.sh
+
+# Hook the deferred setup into bashrc (runs silently, only once)
+if ! grep -q "setup-ssm-kubeconfig" /etc/bashrc 2>/dev/null; then
+    echo "[ -x /usr/local/bin/setup-ssm-kubeconfig.sh ] && /usr/local/bin/setup-ssm-kubeconfig.sh" >> /etc/bashrc
+fi
 
 export KUBECONFIG=$KUBECONFIG_SRC
 echo "kubectl configured. Cluster info:"
 kubectl cluster-info
 kubectl get namespaces
 
-fi # End SKIP_CLUSTER_INIT guard (sections 4-6)
+# End of first-boot cluster initialization (sections 4-6)
+
+# local-path-provisioner is now managed by ArgoCD (applications/local-path-provisioner.yaml)
 
 # =============================================================================
-# 6b. Install local-path StorageClass provisioner
+# 7. S3 Sync + ArgoCD Bootstrap (Handover)
 #
-# kubeadm clusters have no dynamic volume provisioner. PVCs for Grafana,
-# Prometheus, Loki, and Tempo need a StorageClass to bind. local-path-provisioner
-# provides lightweight dynamic PV provisioning using host-local storage.
+# Download the bootstrap manifests from S3, then install ArgoCD.
+# ArgoCD becomes the "sole owner" of all workloads from this point:
+#   - Traefik (DaemonSet ingress controller)
+#   - metrics-server (HPA)
+#   - local-path-provisioner (StorageClass)
+#   - Monitoring stack (Prometheus, Grafana, Loki, Tempo)
+#   - Next.js application
 # =============================================================================
 
-echo "=== Installing local-path-provisioner ==="
+echo "=== Downloading bootstrap manifests from S3 ==="
 
-if kubectl get storageclass local-path &>/dev/null; then
-    echo "local-path StorageClass already exists — skipping"
-else
-    kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.30/deploy/local-path-storage.yaml
-    kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-    echo "✓ local-path-provisioner installed and set as default StorageClass"
-fi
-
-echo "=== local-path-provisioner ready ==="
-
-# =============================================================================
-# 7. Deploy k8s Monitoring Manifests
-# =============================================================================
-
-echo "=== Downloading k8s manifests from S3 ==="
-
-# Sync both content trees from S3:
-#   s3://{bucket}/k8s-bootstrap/ → /data/k8s-bootstrap/  (platform layer)
-#   s3://{bucket}/app-deploy/    → /data/app-deploy/      (workload layer)
 BOOTSTRAP_DIR="${MOUNT_POINT}/k8s-bootstrap"
-APP_DEPLOY_DIR="${MOUNT_POINT}/app-deploy"
-mkdir -p $BOOTSTRAP_DIR $APP_DEPLOY_DIR
+mkdir -p $BOOTSTRAP_DIR
 
 # "Patient" retry for Day-1 coordination — Sync pipeline may not have
 # uploaded manifests yet. Wait up to 5 minutes (15 × 20s) before
-# gracefully skipping (SSM State Manager or ArgoCD will handle it later).
+# gracefully skipping.
 S3_BOOTSTRAP_PREFIX="s3://${S3_BUCKET}/k8s-bootstrap/"
-S3_APPDEPLOY_PREFIX="s3://${S3_BUCKET}/app-deploy/"
 MANIFEST_MAX_RETRIES=15
 MANIFEST_RETRY_INTERVAL=20
 MANIFESTS_FOUND=false
 
 for i in $(seq 1 $MANIFEST_MAX_RETRIES); do
-  # Check if any objects exist under the bootstrap prefix
   OBJ_COUNT=$(aws s3 ls "${S3_BOOTSTRAP_PREFIX}" --recursive --region ${AWS_REGION} 2>/dev/null | wc -l | tr -d ' ')
   if [ "$OBJ_COUNT" -gt 0 ]; then
     echo "✓ Found ${OBJ_COUNT} objects in S3 bootstrap (attempt $i/$MANIFEST_MAX_RETRIES)"
     aws s3 sync "${S3_BOOTSTRAP_PREFIX}" $BOOTSTRAP_DIR/ --region ${AWS_REGION}
-    aws s3 sync "${S3_APPDEPLOY_PREFIX}" $APP_DEPLOY_DIR/ --region ${AWS_REGION} 2>/dev/null || true
     MANIFESTS_FOUND=true
     break
   fi
@@ -616,103 +602,27 @@ for i in $(seq 1 $MANIFEST_MAX_RETRIES); do
 done
 
 if [ "$MANIFESTS_FOUND" = "true" ]; then
-  echo "k8s bundles downloaded: $BOOTSTRAP_DIR, $APP_DEPLOY_DIR"
-
-  # Restore execute permissions lost during S3 sync
+  echo "Bootstrap bundle downloaded: $BOOTSTRAP_DIR"
   find $BOOTSTRAP_DIR -name '*.sh' -exec chmod +x {} +
-  find $APP_DEPLOY_DIR -name '*.sh' -exec chmod +x {} +
-
-  # Run the monitoring deploy script (Day-1 initial apply)
-  export KUBECONFIG=/etc/kubernetes/admin.conf
-  export MANIFESTS_DIR="$APP_DEPLOY_DIR/monitoring/manifests"
-
-  echo "Running monitoring deploy-manifests.sh..."
-  $APP_DEPLOY_DIR/monitoring/deploy-manifests.sh
 else
   echo "WARNING: No manifests found in S3 after $((MANIFEST_MAX_RETRIES * MANIFEST_RETRY_INTERVAL))s"
-  echo "Skipping manifest deployment — ArgoCD will handle it once bootstrapped"
+  echo "ArgoCD bootstrap skipped — run manually when S3 content is available"
 fi
 
-echo "=== k8s first-boot deployment complete ==="
+# --- ArgoCD Handover ---
+# Once ArgoCD is running, it takes ownership of all workloads.
 
-# =============================================================================
-# 8. Install Helm + Traefik Ingress Controller (DaemonSet — Hybrid-HA)
-#
-# Traefik runs as a DaemonSet with hostNetwork=true so every node listens
-# on ports 80/443. This enables seamless EIP failover — when the EIP moves
-# to a different node, Traefik is already there serving traffic.
-# =============================================================================
+if [ "$MANIFESTS_FOUND" = "true" ]; then
+  echo "=== Bootstrapping ArgoCD ==="
 
-echo "=== Installing Helm ==="
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+  export ARGOCD_DIR="$BOOTSTRAP_DIR/system/argocd"
 
-# Helm is pre-installed in the Golden AMI
-if ! command -v helm &>/dev/null; then
-    echo "ERROR: Helm not found — expected in Golden AMI"
-    exit 1
+  $BOOTSTRAP_DIR/system/argocd/bootstrap-argocd.sh || echo "WARNING: ArgoCD bootstrap failed — run manually via SSM"
+
+  echo "=== ArgoCD bootstrap complete ==="
+  echo "ArgoCD now manages: traefik, metrics-server, local-path-provisioner, monitoring, nextjs"
 fi
-echo "Helm version: $(helm version --short)"
-
-echo "=== Installing Traefik Ingress Controller (DaemonSet) ==="
-
-export KUBECONFIG=/etc/kubernetes/admin.conf
-
-# Add Traefik Helm repo
-helm repo add traefik https://traefik.github.io/charts
-helm repo update
-
-# Install Traefik as DaemonSet with hostNetwork
-TRAEFIK_VALUES="$BOOTSTRAP_DIR/system/traefik/traefik-values.yaml"
-
-if helm status traefik -n kube-system &>/dev/null; then
-    echo "Traefik already installed — upgrading"
-    helm upgrade traefik traefik/traefik -n kube-system -f "$TRAEFIK_VALUES" --wait --timeout 5m
-else
-    helm install traefik traefik/traefik -n kube-system -f "$TRAEFIK_VALUES" --wait --timeout 5m
-fi
-
-# Wait for DaemonSet rollout
-echo "Waiting for Traefik DaemonSet to be ready..."
-kubectl rollout status daemonset/traefik -n kube-system --timeout=120s || true
-kubectl get ds traefik -n kube-system
-
-echo "=== Traefik Ingress Controller ready ==="
-
-# =============================================================================
-# 9. Deploy Next.js Application (first boot)
-#
-# Runs the Next.js deploy-manifests.sh after Traefik so IngressRoutes
-# (which use Traefik CRDs) are accepted by the API server. This covers:
-#   - Helm upgrade/install (Deployment, Service, ConfigMap, etc.)
-#   - Helm topology overlay (replicas, anti-affinity, spread constraints)
-#   - Secret creation from SSM parameters
-# =============================================================================
-
-NEXTJS_DEPLOY_SCRIPT="$APP_DEPLOY_DIR/nextjs/deploy-manifests.sh"
-if [ -f "$NEXTJS_DEPLOY_SCRIPT" ]; then
-    echo "=== Deploying Next.js application ==="
-    export MANIFESTS_DIR="$APP_DEPLOY_DIR/nextjs"
-    export SSM_PREFIX="${SSM_PREFIX}"
-    export AWS_REGION="${AWS_REGION}"
-    export KUBECONFIG=/etc/kubernetes/admin.conf
-    $NEXTJS_DEPLOY_SCRIPT
-    echo "=== Next.js application deployment complete ==="
-else
-    echo "WARNING: Next.js deploy script not found at ${NEXTJS_DEPLOY_SCRIPT}"
-    echo "  SSM State Manager or ArgoCD will deploy Next.js on next sync cycle"
-fi
-
-# =============================================================================
-# 10. Bootstrap ArgoCD
-# =============================================================================
-
-echo "=== Bootstrapping ArgoCD ==="
-
-export KUBECONFIG=/etc/kubernetes/admin.conf
-export ARGOCD_DIR="$BOOTSTRAP_DIR/system/argocd"
-
-$BOOTSTRAP_DIR/system/argocd/bootstrap-argocd.sh || echo "WARNING: ArgoCD bootstrap failed -- manifests still applied via deploy scripts above"
-
-echo "=== ArgoCD bootstrap complete ==="
 
 # =============================================================================
 # Done
