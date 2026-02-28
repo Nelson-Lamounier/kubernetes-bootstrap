@@ -1,0 +1,56 @@
+# @format
+# ArgoCD Application: Local Path Provisioner
+#
+# Provides dynamic PV provisioning using host-local storage for kubeadm
+# clusters (which have no built-in dynamic volume provisioner). Required
+# by PVCs for Grafana, Prometheus, Loki, and Tempo.
+#
+# Uses raw YAML manifest from Rancher (not a Helm chart).
+# Set as the default StorageClass via a post-sync annotation.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: local-path-provisioner
+  annotations:
+    kubernetes.io/description: "ArgoCD application for Rancher local-path-provisioner (default StorageClass)"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  # Multi-source: upstream manifest + patch from Git to set default SC
+  sources:
+    # Source 1: Patches from this repo
+    - repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+      targetRevision: HEAD
+      ref: patches
+
+    # Source 2: Upstream raw manifests (directory type for YAML)
+    - repoURL: https://github.com/rancher/local-path-provisioner.git
+      targetRevision: v0.0.30
+      path: deploy
+      directory:
+        include: "local-path-storage.yaml"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: local-path-storage
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

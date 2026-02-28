@@ -1,0 +1,61 @@
+# @format
+# ArgoCD Application: Traefik Ingress Controller
+#
+# Installs Traefik as a DaemonSet with hostNetwork from the official
+# Traefik Helm chart repo. Custom values are sourced from the in-repo
+# traefik-values.yaml which configures:
+#   - DaemonSet mode with hostNetwork (Hybrid-HA)
+#   - Control plane toleration for EIP failover
+#   - Prometheus metrics + OTLP tracing to Tempo
+#
+# Credential: SSH Deploy Key (read-only) — stored in K8s secret
+# via bootstrap-argocd.sh from SSM parameter.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  annotations:
+    kubernetes.io/description: "ArgoCD application for the Traefik ingress controller (DaemonSet, hostNetwork)"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  # Multi-source: Helm chart from upstream + values from Git
+  sources:
+    # Source 1: Traefik values from this repo
+    - repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+      targetRevision: HEAD
+      ref: values
+
+    # Source 2: Traefik Helm chart from official repo
+    - repoURL: https://traefik.github.io/charts
+      chart: traefik
+      targetRevision: "36.*"
+      helm:
+        valueFiles:
+          - $values/kubernetes-app/k8s-bootstrap/system/traefik/traefik-values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

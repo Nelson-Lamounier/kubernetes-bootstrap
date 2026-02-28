@@ -190,12 +190,24 @@ def install_argocd(cfg: Config) -> None:
 # Step 5: Apply ArgoCD ingress + Application CRDs
 # ---------------------------------------------------------------------------
 def apply_applications(cfg: Config) -> None:
-    log("=== Step 5: Applying ingress and Application CRDs ===")
+    log("=== Step 5: Applying ingress and App-of-Apps root ===")
     argocd_path = Path(cfg.argocd_dir)
     run(["kubectl", "apply", "-f", str(argocd_path / "ingress.yaml")], cfg=cfg)
-    run(["kubectl", "apply", "-f", str(argocd_path / "applications" / "monitoring.yaml")], cfg=cfg)
-    run(["kubectl", "apply", "-f", str(argocd_path / "applications" / "nextjs.yaml")], cfg=cfg)
-    log("✓ Ingress and Application CRDs applied\n")
+
+    # App-of-Apps pattern: apply the single root Application manifest.
+    # ArgoCD discovers and manages all child Applications in applications/
+    # directory automatically via Git sync (~3 minutes).
+    #
+    # Adding a new app: commit a YAML to applications/ → ArgoCD picks it up.
+    # Removing an app: delete the YAML → ArgoCD prunes it.
+    root_app = argocd_path / "root-app.yaml"
+    if root_app.exists():
+        log(f"  → Applying App-of-Apps root: {root_app.name}")
+        run(["kubectl", "apply", "-f", str(root_app)], cfg=cfg)
+    else:
+        log(f"  ⚠ root-app.yaml not found at {root_app}")
+
+    log("✓ Ingress and App-of-Apps root applied\n")
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,53 @@
+# @format
+# ArgoCD Root Application — App-of-Apps Pattern
+#
+# This is the SINGLE Application that bootstrap_argocd.py applies.
+# ArgoCD then discovers and manages all child Applications in the
+# applications/ directory automatically.
+#
+# Adding a new app: commit a new YAML to applications/ → ArgoCD picks it up.
+# Removing an app: delete the YAML → ArgoCD prunes it (within ~3 minutes).
+#
+# This replaces the previous "flat" pattern where bootstrap_argocd.py
+# individually applied each Application manifest via kubectl.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "App-of-Apps root — discovers and manages all child Applications"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    app.kubernetes.io/component: app-of-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    targetRevision: HEAD
+    path: kubernetes-app/k8s-bootstrap/system/argocd/applications
+    directory:
+      recurse: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true # Remove child Applications when YAML is deleted from Git
+      selfHeal: true # Re-apply if someone manually deletes a child Application
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false # argocd namespace already exists
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
