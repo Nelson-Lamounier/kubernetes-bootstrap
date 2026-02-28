@@ -252,11 +252,31 @@ def apply_ingress(cfg: Config) -> None:
 # ---------------------------------------------------------------------------
 # Step 6: Wait for ArgoCD server readiness (must pass before Step 7 ingress)
 # ---------------------------------------------------------------------------
+def _has_worker_nodes(cfg: Config) -> bool:
+    """Check if any worker nodes (without control-plane taint) exist."""
+    result = run(
+        ["kubectl", "get", "nodes",
+         "-l", "!node-role.kubernetes.io/control-plane",
+         "-o", "name"],
+        cfg=cfg, check=False, capture=True,
+    )
+    nodes = [n for n in result.stdout.strip().split("\n") if n] if result.returncode == 0 else []
+    return len(nodes) > 0
+
+
 def wait_for_argocd(cfg: Config) -> None:
     log("=== Step 6: Waiting for ArgoCD server ===")
 
     if cfg.dry_run:
         log("  [DRY-RUN] Would wait for argocd-server, repo-server, application-controller\n")
+        return
+
+    # On Day-0, only the control plane node exists (with NoSchedule taint).
+    # ArgoCD pods can't be scheduled until workers join — skip the wait.
+    if not _has_worker_nodes(cfg):
+        log("  ℹ No worker nodes available yet — ArgoCD pods will remain Pending")
+        log("  ℹ Pods will start automatically once workers join the cluster")
+        log("  → Skipping readiness wait (control plane has NoSchedule taint)\n")
         return
 
     targets = [
