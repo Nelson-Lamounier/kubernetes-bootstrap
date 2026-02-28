@@ -50,7 +50,7 @@ class Config:
         "ARGOCD_DIR", "/data/k8s-bootstrap/system/argocd"
     ))
     argocd_cli_version: str = field(default_factory=lambda: os.environ.get("ARGOCD_CLI_VERSION", "v2.14.11"))
-    argo_timeout: int = field(default_factory=lambda: int(os.environ.get("ARGO_TIMEOUT", "300")))
+    argo_timeout: int = field(default_factory=lambda: int(os.environ.get("ARGO_TIMEOUT", "120")))
     dry_run: bool = False
 
     @property
