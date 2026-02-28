@@ -58,7 +58,7 @@ def bootstrap_argocd() -> None:
         [str(bootstrap_script)],
         env=env,
         capture=False,
-        timeout=600,
+        timeout=800,
     )
 
     log_info(
