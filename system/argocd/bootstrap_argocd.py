@@ -196,19 +196,15 @@ def install_argocd(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 5: Apply ArgoCD ingress + Application CRDs
+# Step 5: Apply App-of-Apps root + ArgoCD ingress
 # ---------------------------------------------------------------------------
 def apply_applications(cfg: Config) -> None:
-    log("=== Step 5: Applying ingress and App-of-Apps root ===")
+    log("=== Step 5: Applying App-of-Apps root and ingress ===")
     argocd_path = Path(cfg.argocd_dir)
-    run(["kubectl", "apply", "-f", str(argocd_path / "ingress.yaml")], cfg=cfg)
 
-    # App-of-Apps pattern: apply the single root Application manifest.
-    # ArgoCD discovers and manages all child Applications in applications/
-    # directory automatically via Git sync (~3 minutes).
-    #
-    # Adding a new app: commit a YAML to applications/ → ArgoCD picks it up.
-    # Removing an app: delete the YAML → ArgoCD prunes it.
+    # 1. App-of-Apps root FIRST — this triggers ArgoCD to install all child
+    #    Applications (Traefik, metrics-server, local-path-provisioner, etc.).
+    #    Traefik must be running before we can apply the ingress.
     root_app = argocd_path / "root-app.yaml"
     if root_app.exists():
         log(f"  → Applying App-of-Apps root: {root_app.name}")
@@ -216,7 +212,30 @@ def apply_applications(cfg: Config) -> None:
     else:
         log(f"  ⚠ root-app.yaml not found at {root_app}")
 
-    log("✓ Ingress and App-of-Apps root applied\n")
+    # 2. Ingress AFTER — uses Traefik CRDs (IngressRoute, Middleware).
+    #    On Day-0, Traefik is still being installed by ArgoCD (~2-3 min),
+    #    so the CRDs may not exist yet. We retry a few times before giving up.
+    ingress_yaml = argocd_path / "ingress.yaml"
+    if ingress_yaml.exists():
+        log("  → Waiting for Traefik CRDs before applying ingress...")
+        max_retries = 6
+        for attempt in range(1, max_retries + 1):
+            result = run(
+                ["kubectl", "apply", "-f", str(ingress_yaml)],
+                cfg=cfg, check=False,
+            )
+            if result.returncode == 0:
+                log("  ✓ Ingress applied")
+                break
+            if attempt < max_retries:
+                log(f"  Attempt {attempt}/{max_retries} — Traefik CRDs not ready, waiting 30s...")
+                time.sleep(30)
+            else:
+                log("  ⚠ Ingress not applied — Traefik CRDs not available yet.")
+                log("    ArgoCD will install Traefik shortly. Re-run this script or apply manually:")
+                log(f"    kubectl apply -f {ingress_yaml}")
+
+    log("✓ App-of-Apps root applied\n")
 
 
 # ---------------------------------------------------------------------------
