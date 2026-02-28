@@ -83,13 +83,6 @@ def apply_installation() -> None:
     """Apply the Calico Installation custom resource."""
     log_info("Applying Calico Installation resource...")
     run_cmd(
-        ["kubectl", "apply", "-f", "-"],
-        check=True,
-        env=KUBECONFIG_ENV,
-        # Pipe CALICO_INSTALLATION via shell
-    )
-    # Use shell to pipe the YAML
-    run_cmd(
         f"echo '{CALICO_INSTALLATION}' | kubectl apply -f -",
         shell=True, env=KUBECONFIG_ENV,
     )
