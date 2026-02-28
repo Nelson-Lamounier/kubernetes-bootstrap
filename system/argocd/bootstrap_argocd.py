@@ -16,12 +16,13 @@ Steps:
   2.  Resolve SSH deploy key from SSM
   3.  Create repo credentials secret
   4.  Install ArgoCD (kubectl apply)
-  5.  Apply ingress + Application CRDs
+  5.  Apply App-of-Apps root application
   6.  Wait for ArgoCD server readiness
-  7.  Install ArgoCD CLI
-  8.  Create CI bot account
-  9.  Generate API token → Secrets Manager
-  10. Summary
+  7.  Apply ArgoCD ingress (needs Traefik CRDs from ArgoCD sync)
+  8.  Install ArgoCD CLI
+  9.  Create CI bot account
+  10. Generate API token → Secrets Manager
+  11. Summary
 """
 from __future__ import annotations
 
@@ -196,15 +197,12 @@ def install_argocd(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 5: Apply App-of-Apps root + ArgoCD ingress
+# Step 5: Apply App-of-Apps root application
 # ---------------------------------------------------------------------------
-def apply_applications(cfg: Config) -> None:
-    log("=== Step 5: Applying App-of-Apps root and ingress ===")
+def apply_root_app(cfg: Config) -> None:
+    log("=== Step 5: Applying App-of-Apps root ===")
     argocd_path = Path(cfg.argocd_dir)
 
-    # 1. App-of-Apps root FIRST — this triggers ArgoCD to install all child
-    #    Applications (Traefik, metrics-server, local-path-provisioner, etc.).
-    #    Traefik must be running before we can apply the ingress.
     root_app = argocd_path / "root-app.yaml"
     if root_app.exists():
         log(f"  → Applying App-of-Apps root: {root_app.name}")
@@ -212,34 +210,47 @@ def apply_applications(cfg: Config) -> None:
     else:
         log(f"  ⚠ root-app.yaml not found at {root_app}")
 
-    # 2. Ingress AFTER — uses Traefik CRDs (IngressRoute, Middleware).
-    #    On Day-0, Traefik is still being installed by ArgoCD (~2-3 min),
-    #    so the CRDs may not exist yet. We retry a few times before giving up.
-    ingress_yaml = argocd_path / "ingress.yaml"
-    if ingress_yaml.exists():
-        log("  → Waiting for Traefik CRDs before applying ingress...")
-        max_retries = 6
-        for attempt in range(1, max_retries + 1):
-            result = run(
-                ["kubectl", "apply", "-f", str(ingress_yaml)],
-                cfg=cfg, check=False,
-            )
-            if result.returncode == 0:
-                log("  ✓ Ingress applied")
-                break
-            if attempt < max_retries:
-                log(f"  Attempt {attempt}/{max_retries} — Traefik CRDs not ready, waiting 30s...")
-                time.sleep(30)
-            else:
-                log("  ⚠ Ingress not applied — Traefik CRDs not available yet.")
-                log("    ArgoCD will install Traefik shortly. Re-run this script or apply manually:")
-                log(f"    kubectl apply -f {ingress_yaml}")
-
     log("✓ App-of-Apps root applied\n")
 
 
 # ---------------------------------------------------------------------------
-# Step 6: Wait for ArgoCD server readiness
+# Step 7: Apply ArgoCD ingress (after ArgoCD is ready and syncing Traefik)
+# ---------------------------------------------------------------------------
+def apply_ingress(cfg: Config) -> None:
+    log("=== Step 7: Applying ArgoCD ingress ===")
+    argocd_path = Path(cfg.argocd_dir)
+
+    ingress_yaml = argocd_path / "ingress.yaml"
+    if not ingress_yaml.exists():
+        log("  ⚠ ingress.yaml not found — skipping\n")
+        return
+
+    # Traefik CRDs (IngressRoute, Middleware) are installed by ArgoCD via the
+    # root app. ArgoCD is now running (Step 6 passed), but it may still be
+    # syncing Traefik. Retry with generous backoff.
+    log("  → Waiting for Traefik CRDs before applying ingress...")
+    max_retries = 10
+    for attempt in range(1, max_retries + 1):
+        result = run(
+            ["kubectl", "apply", "-f", str(ingress_yaml)],
+            cfg=cfg, check=False,
+        )
+        if result.returncode == 0:
+            log("  ✓ Ingress applied")
+            break
+        if attempt < max_retries:
+            log(f"  Attempt {attempt}/{max_retries} — Traefik CRDs not ready, waiting 30s...")
+            time.sleep(30)
+        else:
+            log("  ⚠ Ingress not applied — Traefik CRDs not available after 5 min.")
+            log("    ArgoCD will install Traefik shortly. Apply manually:")
+            log(f"    kubectl apply -f {ingress_yaml}")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
+# Step 6: Wait for ArgoCD server readiness (must pass before Step 7 ingress)
 # ---------------------------------------------------------------------------
 def wait_for_argocd(cfg: Config) -> None:
     log("=== Step 6: Waiting for ArgoCD server ===")
@@ -268,10 +279,10 @@ def wait_for_argocd(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 7: Install ArgoCD CLI
+# Step 8: Install ArgoCD CLI
 # ---------------------------------------------------------------------------
 def install_argocd_cli(cfg: Config) -> bool:
-    log("=== Step 7: Installing ArgoCD CLI ===")
+    log("=== Step 8: Installing ArgoCD CLI ===")
 
     if cfg.dry_run:
         log(f"  [DRY-RUN] Would install ArgoCD CLI {cfg.argocd_cli_version}\n")
@@ -306,10 +317,10 @@ def install_argocd_cli(cfg: Config) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Step 8: Create CI bot account
+# Step 9: Create CI bot account
 # ---------------------------------------------------------------------------
 def create_ci_bot(cfg: Config) -> None:
-    log("=== Step 8: Creating CI bot account ===")
+    log("=== Step 9: Creating CI bot account ===")
 
     if cfg.dry_run:
         log("  [DRY-RUN] Would patch argocd-cm and argocd-rbac-cm\n")
@@ -350,10 +361,10 @@ def create_ci_bot(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 9: Generate API token → Secrets Manager
+# Step 10: Generate API token → Secrets Manager
 # ---------------------------------------------------------------------------
 def generate_ci_token(cfg: Config) -> None:
-    log("=== Step 9: Generating CI bot token ===")
+    log("=== Step 10: Generating CI bot token ===")
 
     secret_name = f"k8s/{cfg.env}/argocd-ci-token"
 
@@ -395,7 +406,7 @@ def generate_ci_token(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 10: Summary
+# Step 11: Summary
 # ---------------------------------------------------------------------------
 def print_summary(cfg: Config) -> None:
     log("=== ArgoCD Bootstrap Summary ===\n")
@@ -469,25 +480,28 @@ def main() -> None:
     # Step 4: Install ArgoCD
     install_argocd(cfg)
 
-    # Step 5: Applications
-    apply_applications(cfg)
+    # Step 5: App-of-Apps root (triggers Traefik install via ArgoCD)
+    apply_root_app(cfg)
 
-    # Step 6: Wait for readiness
+    # Step 6: Wait for ArgoCD readiness (must be running before Traefik syncs)
     wait_for_argocd(cfg)
 
-    # Step 7: CLI
+    # Step 7: Ingress (now that ArgoCD is running and syncing Traefik)
+    apply_ingress(cfg)
+
+    # Step 8: CLI
     cli_installed = install_argocd_cli(cfg)
 
     if cli_installed:
-        # Step 8: CI bot account
+        # Step 9: CI bot account
         create_ci_bot(cfg)
 
-        # Step 9: API token
+        # Step 10: API token
         generate_ci_token(cfg)
     else:
-        log("=== Step 8-9: Skipping — ArgoCD CLI not available ===\n")
+        log("=== Step 9-10: Skipping — ArgoCD CLI not available ===\n")
 
-    # Step 10: Summary
+    # Step 11: Summary
     print_summary(cfg)
 
 
