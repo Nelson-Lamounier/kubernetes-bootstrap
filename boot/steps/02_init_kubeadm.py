@@ -130,6 +130,15 @@ def init_cluster() -> None:
     run_cmd(["cp", "-f", ADMIN_CONF, "/root/.kube/config"])
     run_cmd(["chmod", "600", "/root/.kube/config"])
 
+    # Set up kubeconfig for ssm-user (so kubectl works without sudo via SSM sessions)
+    result = run_cmd(["id", "ssm-user"], check=False)
+    if result.returncode == 0:
+        Path("/home/ssm-user/.kube").mkdir(parents=True, exist_ok=True)
+        run_cmd(["cp", "-f", ADMIN_CONF, "/home/ssm-user/.kube/config"])
+        run_cmd(["chown", "ssm-user:ssm-user", "/home/ssm-user/.kube/config"])
+        run_cmd(["chmod", "600", "/home/ssm-user/.kube/config"])
+        log_info("Kubeconfig set up for ssm-user")
+
     # Wait for control plane API
     log_info("Waiting for control plane to be ready...")
     for i in range(1, 91):
