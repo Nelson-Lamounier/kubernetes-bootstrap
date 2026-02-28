@@ -360,8 +360,8 @@ def create_ci_bot(cfg: Config) -> None:
 
     # Grant ci-bot read-only RBAC
     rbac_csv = (
-        "p, role:ci-readonly, applications, get, */*, allow\\n"
-        "p, role:ci-readonly, applications, list, */*, allow\\n"
+        "p, role:ci-readonly, applications, get, */*, allow\n"
+        "p, role:ci-readonly, applications, list, */*, allow\n"
         "g, ci-bot, role:ci-readonly"
     )
     rbac_patch = json.dumps({"data": {"policy.csv": rbac_csv}})
