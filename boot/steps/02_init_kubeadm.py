@@ -25,7 +25,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import StepRunner, run_cmd, ssm_put, log_info, log_error, log_warn
+from common import (
+    StepRunner, run_cmd, ssm_put, log_info, log_error, log_warn,
+    ensure_ecr_credential_provider, ECR_PROVIDER_CONFIG,
+)
 
 
 # =============================================================================
@@ -98,6 +101,19 @@ def init_cluster() -> None:
     # Start containerd
     run_cmd(["systemctl", "start", "containerd"])
     log_info("containerd started")
+
+    # Install ECR credential provider (no-op if pre-baked in Golden AMI)
+    ensure_ecr_credential_provider()
+
+    # Configure kubelet with ECR credential provider BEFORE kubeadm init
+    # kubeadm init reads KUBELET_EXTRA_ARGS from /etc/sysconfig/kubelet
+    Path("/etc/sysconfig").mkdir(parents=True, exist_ok=True)
+    Path("/etc/sysconfig/kubelet").write_text(
+        "KUBELET_EXTRA_ARGS="
+        f"--image-credential-provider-config={ECR_PROVIDER_CONFIG}"
+        " --image-credential-provider-bin-dir=/usr/local/bin\n"
+    )
+    log_info("Kubelet ECR credential provider args configured")
 
     # Get instance metadata
     private_ip = get_imds_value("local-ipv4")

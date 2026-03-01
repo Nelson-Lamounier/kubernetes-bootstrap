@@ -43,7 +43,7 @@ fi
 """
 
 BASHRC_KUBECONFIG = """
-# --- Kubernetes kubeconfig (added by boot-k8s.sh) ---
+# --- Kubernetes kubeconfig (added by bootstrap) ---
 export KUBECONFIG=/etc/kubernetes/admin.conf
 """
 

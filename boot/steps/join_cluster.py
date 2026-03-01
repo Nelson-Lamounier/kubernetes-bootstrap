@@ -6,10 +6,9 @@ Worker Step — Join kubeadm Cluster
 Joins a worker node to an existing kubeadm cluster by:
 1. Resolving the control plane endpoint from SSM (with wait loop)
 2. Retrieving join token + CA hash from SSM
-3. Running kubeadm join with retry
-4. Waiting for kubelet to become active
-
-This replaces the logic in boot-worker.sh (lines 96-255).
+3. Installing ECR credential provider (if not pre-baked in Golden AMI)
+4. Running kubeadm join with retry
+5. Waiting for kubelet to become active
 
 Idempotent: skips if /etc/kubernetes/kubelet.conf already exists.
 
@@ -27,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
     StepRunner, run_cmd, ssm_get, log_info, log_warn, log_error,
-    AWS_REGION,
+    AWS_REGION, ensure_ecr_credential_provider, ECR_PROVIDER_CONFIG,
 )
 
 # =============================================================================
@@ -79,11 +78,16 @@ def join_cluster(endpoint: str) -> None:
     run_cmd(["systemctl", "start", "containerd"])
     log_info("containerd started")
 
-    # Configure kubelet with node label BEFORE joining
+    # Install ECR credential provider (no-op if pre-baked in Golden AMI)
+    ensure_ecr_credential_provider()
+
+    # Configure kubelet with node label + ECR credential provider BEFORE joining
     log_info(f"Configuring kubelet with node label: {NODE_LABEL}")
     Path("/etc/sysconfig").mkdir(parents=True, exist_ok=True)
     Path("/etc/sysconfig/kubelet").write_text(
-        f"KUBELET_EXTRA_ARGS=--node-labels={NODE_LABEL}\n"
+        f"KUBELET_EXTRA_ARGS=--node-labels={NODE_LABEL}"
+        f" --image-credential-provider-config={ECR_PROVIDER_CONFIG}"
+        " --image-credential-provider-bin-dir=/usr/local/bin\n"
     )
 
     token_ssm = f"{SSM_PREFIX}/join-token"

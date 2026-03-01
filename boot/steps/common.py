@@ -314,3 +314,62 @@ class StepRunner:
     @property
     def status(self) -> StepStatus:
         return self._status
+
+
+# =============================================================================
+# ECR Credential Provider
+# =============================================================================
+
+ECR_PROVIDER_BIN = "/usr/local/bin/ecr-credential-provider"
+ECR_PROVIDER_CONFIG = "/etc/kubernetes/image-credential-provider-config.yaml"
+ECR_PROVIDER_VERSION = "v1.31.1"
+
+_ECR_PROVIDER_CONFIG_CONTENT = """\
+apiVersion: kubelet.config.k8s.io/v1
+kind: CredentialProviderConfig
+providers:
+  - name: ecr-credential-provider
+    matchImages:
+      - "*.dkr.ecr.*.amazonaws.com"
+    defaultCacheDuration: "12h"
+    apiVersion: credentialprovider.kubelet.k8s.io/v1
+"""
+
+
+def ensure_ecr_credential_provider() -> None:
+    """
+    Ensure the ECR credential provider binary and config are installed.
+
+    Idempotent: skips download if binary already exists and is executable.
+    This allows Python steps to work on existing instances without requiring
+    a Golden AMI rebuild — the binary is downloaded at runtime if missing.
+    """
+    # Install binary if missing
+    bin_path = Path(ECR_PROVIDER_BIN)
+    if bin_path.exists() and os.access(str(bin_path), os.X_OK):
+        log_info(f"ECR credential provider already installed at {ECR_PROVIDER_BIN}")
+    else:
+        log_info(f"Installing ECR credential provider {ECR_PROVIDER_VERSION}...")
+
+        # Detect architecture
+        arch_result = run_cmd(["uname", "-m"], check=True)
+        raw_arch = arch_result.stdout.strip()
+        arch = "arm64" if raw_arch == "aarch64" else "amd64"
+
+        url = (
+            f"https://artifacts.k8s.io/binaries/cloud-provider-aws/"
+            f"{ECR_PROVIDER_VERSION}/linux/{arch}/"
+            f"ecr-credential-provider-linux-{arch}"
+        )
+        run_cmd(["curl", "-fsSL", url, "-o", ECR_PROVIDER_BIN], timeout=60)
+        run_cmd(["chmod", "+x", ECR_PROVIDER_BIN])
+        log_info(f"ECR credential provider {ECR_PROVIDER_VERSION} ({arch}) installed")
+
+    # Create config if missing
+    config_path = Path(ECR_PROVIDER_CONFIG)
+    if config_path.exists():
+        log_info(f"ECR credential provider config already exists at {ECR_PROVIDER_CONFIG}")
+    else:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(_ECR_PROVIDER_CONFIG_CONTENT)
+        log_info(f"ECR credential provider config created at {ECR_PROVIDER_CONFIG}")
