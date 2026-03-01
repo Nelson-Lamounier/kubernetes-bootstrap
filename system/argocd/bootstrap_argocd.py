@@ -2,7 +2,7 @@
 """bootstrap_argocd.py — Bootstrap ArgoCD on Kubernetes.
 
 Installs ArgoCD and configures it to watch the private GitHub repo.
-Run once during first boot (via user-data → boot-k8s.sh) after kubeadm
+Run once during first boot (via user-data → Python orchestrator) after kubeadm
 cluster is ready.
 
 Converted from bootstrap-argocd.sh (294-line Bash) to Python for:

@@ -5,7 +5,7 @@
 # ArgoCD recognizes this as a Helm-type source and renders the chart
 # with values from values-development.yaml.
 #
-# Secrets (Grafana password, GitHub token) are pre-seeded by boot-k8s.sh
+# Secrets (Grafana password, GitHub token) are pre-seeded by the bootstrap orchestrator
 # on first boot via deploy.py. ArgoCD manages all declarative Helm-rendered
 # manifests from Day-2 onwards.
 #

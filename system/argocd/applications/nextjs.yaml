@@ -6,7 +6,7 @@
 # with values from nextjs-values.yaml.
 #
 # Secrets (DynamoDB table, S3 bucket, API URL) are pre-seeded
-# by boot-k8s.sh / deploy-manifests.sh via kubectl create secret.
+# by the bootstrap orchestrator / deploy-manifests.sh via kubectl create secret.
 # ArgoCD manages all declarative Helm-rendered manifests.
 #
 # Credential: SSH Deploy Key (read-only) — stored in K8s secret

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bootstrap-argocd.sh — Thin wrapper for Python bootstrap script.
 #
-# Preserves boot-k8s.sh compatibility (expects .sh entrypoint).
+# Preserves compatibility with callers expecting a .sh entrypoint.
 # Installs Python dependencies and delegates to bootstrap_argocd.py.
 #
 # Usage:
