@@ -26,7 +26,8 @@ spec:
   sources:
     # Source 1: Patches from this repo
     - repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
-      targetRevision: HEAD
+      # PRODUCTION: Change to 'main' when deploying to production.
+      targetRevision: develop
       ref: patches
 
     # Source 2: Upstream raw manifests (directory type for YAML)

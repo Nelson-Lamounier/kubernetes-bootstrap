@@ -29,7 +29,8 @@ spec:
   source:
     # Points to this same repo — monorepo pattern
     repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
-    targetRevision: HEAD
+    # PRODUCTION: Change to 'main' when deploying to production.
+    targetRevision: develop
     path: kubernetes-app/app-deploy/nextjs/helm/chart
     helm:
       valueFiles:

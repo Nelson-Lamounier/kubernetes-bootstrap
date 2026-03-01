@@ -29,7 +29,8 @@ spec:
   sources:
     # Source 1: Traefik values from this repo
     - repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
-      targetRevision: HEAD
+      # PRODUCTION: Change to 'main' when deploying to production.
+      targetRevision: develop
       ref: values
 
     # Source 2: Traefik Helm chart from official repo

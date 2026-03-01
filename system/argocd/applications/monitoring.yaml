@@ -28,7 +28,8 @@ spec:
 
   source:
     repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
-    targetRevision: HEAD
+    # PRODUCTION: Change to 'main' when deploying to production.
+    targetRevision: develop
     path: kubernetes-app/app-deploy/monitoring/chart
     helm:
       valueFiles:
