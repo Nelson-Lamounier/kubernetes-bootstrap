@@ -1,0 +1,18 @@
+# ArgoCD v3.x no longer auto-creates the "default" AppProject.
+# This manifest must be applied BEFORE any Application resources
+# that reference `project: default`.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+spec:
+  description: Default project for all applications
+  sourceRepos:
+    - "*"
+  destinations:
+    - namespace: "*"
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"

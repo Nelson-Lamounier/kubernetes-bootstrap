@@ -16,6 +16,7 @@ Steps:
   2.  Resolve SSH deploy key from SSM
   3.  Create repo credentials secret
   4.  Install ArgoCD (kubectl apply)
+  4b. Create default AppProject (required in ArgoCD v3.x)
   5.  Apply App-of-Apps root application
   6.  Wait for ArgoCD server readiness
   7.  Apply ArgoCD ingress (needs Traefik CRDs from ArgoCD sync)
@@ -194,6 +195,46 @@ def install_argocd(cfg: Config) -> None:
         cfg=cfg,
     )
     log("✓ ArgoCD core installed\n")
+
+
+# ---------------------------------------------------------------------------
+# Step 4b: Create default AppProject (ArgoCD v3.x dropped auto-creation)
+# ---------------------------------------------------------------------------
+def create_default_project(cfg: Config) -> None:
+    log("=== Step 4b: Creating default AppProject ===")
+    project_yaml = Path(cfg.argocd_dir) / "default-project.yaml"
+    if project_yaml.exists():
+        run(["kubectl", "apply", "-f", str(project_yaml)], cfg=cfg)
+        log("✓ default AppProject created\n")
+    else:
+        log(f"  ⚠ default-project.yaml not found at {project_yaml}")
+        log("  → Creating inline default AppProject...")
+        run(
+            ["kubectl", "apply", "-f", "-"],
+            cfg=cfg,
+        ) if cfg.dry_run else subprocess.run(
+            ["kubectl", "apply", "-f", "-"],
+            input=(
+                'apiVersion: argoproj.io/v1alpha1\n'
+                'kind: AppProject\n'
+                'metadata:\n'
+                '  name: default\n'
+                '  namespace: argocd\n'
+                'spec:\n'
+                '  description: Default project for all applications\n'
+                '  sourceRepos:\n'
+                '    - "*"\n'
+                '  destinations:\n'
+                '    - namespace: "*"\n'
+                '      server: https://kubernetes.default.svc\n'
+                '  clusterResourceWhitelist:\n'
+                '    - group: "*"\n'
+                '      kind: "*"\n'
+            ),
+            env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+            text=True, check=True,
+        )
+        log("✓ default AppProject created (inline)\n")
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +548,9 @@ def main() -> None:
 
     # Step 4: Install ArgoCD
     install_argocd(cfg)
+
+    # Step 4b: Default AppProject (ArgoCD v3.x no longer auto-creates it)
+    create_default_project(cfg)
 
     # Step 5: App-of-Apps root (triggers Traefik install via ArgoCD)
     apply_root_app(cfg)
