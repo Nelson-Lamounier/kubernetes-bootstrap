@@ -322,7 +322,10 @@ class StepRunner:
 
 ECR_PROVIDER_BIN = "/usr/local/bin/ecr-credential-provider"
 ECR_PROVIDER_CONFIG = "/etc/kubernetes/image-credential-provider-config.yaml"
-ECR_PROVIDER_VERSION = "v1.31.1"
+ECR_PROVIDER_VERSION = "v1.35.0"
+
+# Container image that ships the ecr-credential-provider binary
+_ECR_PROVIDER_IMAGE = f"registry.k8s.io/provider-aws/cloud-controller-manager:{ECR_PROVIDER_VERSION}"
 
 _ECR_PROVIDER_CONFIG_CONTENT = """\
 apiVersion: kubelet.config.k8s.io/v1
@@ -336,13 +339,108 @@ providers:
 """
 
 
+def _install_ecr_provider_from_image() -> bool:
+    """
+    Extract the ecr-credential-provider binary from the official container image
+    using containerd's ctr CLI (already available on K8s nodes).
+
+    Returns True on success, False on failure.
+    """
+    try:
+        log_info(f"Pulling container image {_ECR_PROVIDER_IMAGE}...")
+        run_cmd(
+            ["ctr", "-n", "k8s.io", "image", "pull", _ECR_PROVIDER_IMAGE],
+            timeout=120,
+        )
+
+        # Create a temporary container to extract the binary
+        run_cmd(
+            ["ctr", "-n", "k8s.io", "container", "create",
+             _ECR_PROVIDER_IMAGE, "ecr-extract"],
+            check=True,
+        )
+
+        # Mount and copy the binary out
+        mount_dir = "/tmp/ecr-provider-mount"
+        Path(mount_dir).mkdir(parents=True, exist_ok=True)
+        run_cmd(
+            f"ctr -n k8s.io snapshot mount {mount_dir} ecr-extract | xargs -I{{}} sh -c "
+            f"'mount {{}} && cp {mount_dir}/ecr-credential-provider {ECR_PROVIDER_BIN} ; umount {mount_dir}'",
+            shell=True, check=False, timeout=30,
+        )
+
+        # Fallback: try direct copy from snapshot
+        if not Path(ECR_PROVIDER_BIN).exists():
+            # Alternative extraction using tar export
+            run_cmd(
+                f"ctr -n k8s.io container rm ecr-extract 2>/dev/null; "
+                f"ctr -n k8s.io image export /tmp/ecr-img.tar {_ECR_PROVIDER_IMAGE} && "
+                f"mkdir -p /tmp/ecr-img && cd /tmp/ecr-img && "
+                f"tar xf /tmp/ecr-img.tar && "
+                f"for layer in $(find . -name 'layer.tar'); do "
+                f"  tar xf $layer --wildcards '*/ecr-credential-provider' -C /tmp/ecr-img 2>/dev/null || true; "
+                f"done && "
+                f"find /tmp/ecr-img -name ecr-credential-provider -type f -exec cp {{}} {ECR_PROVIDER_BIN} \\;",
+                shell=True, check=False, timeout=60,
+            )
+
+        # Cleanup
+        run_cmd(["ctr", "-n", "k8s.io", "container", "rm", "ecr-extract"],
+                check=False)
+        run_cmd("rm -rf /tmp/ecr-img /tmp/ecr-img.tar /tmp/ecr-provider-mount",
+                shell=True, check=False)
+
+        if Path(ECR_PROVIDER_BIN).exists():
+            run_cmd(["chmod", "+x", ECR_PROVIDER_BIN])
+            return True
+
+    except Exception as e:
+        log_warn(f"Container image extraction failed: {e}")
+
+    return False
+
+
+def _install_ecr_provider_via_go() -> bool:
+    """
+    Build ecr-credential-provider from source using go install.
+    Fallback if container image extraction fails.
+
+    Returns True on success, False on failure.
+    """
+    try:
+        # Check if Go is available
+        result = run_cmd(["go", "version"], check=False)
+        if result.returncode != 0:
+            log_warn("Go not available — cannot build from source")
+            return False
+
+        log_info(f"Building ecr-credential-provider {ECR_PROVIDER_VERSION} from source...")
+        run_cmd(
+            ["go", "install",
+             f"k8s.io/cloud-provider-aws/cmd/ecr-credential-provider@{ECR_PROVIDER_VERSION}"],
+            timeout=120,
+            env={"GOBIN": "/usr/local/bin"},
+        )
+
+        if Path(ECR_PROVIDER_BIN).exists():
+            run_cmd(["chmod", "+x", ECR_PROVIDER_BIN])
+            return True
+
+    except Exception as e:
+        log_warn(f"Go build failed: {e}")
+
+    return False
+
+
 def ensure_ecr_credential_provider() -> None:
     """
     Ensure the ECR credential provider binary and config are installed.
 
-    Idempotent: skips download if binary already exists and is executable.
-    This allows Python steps to work on existing instances without requiring
-    a Golden AMI rebuild — the binary is downloaded at runtime if missing.
+    Idempotent: skips if binary already exists and is executable.
+    Uses multiple strategies:
+    1. Skip if already installed (pre-baked in Golden AMI or previous run)
+    2. Extract from official container image via containerd (ctr)
+    3. Build from source via go install (fallback)
     """
     # Install binary if missing
     bin_path = Path(ECR_PROVIDER_BIN)
@@ -351,19 +449,21 @@ def ensure_ecr_credential_provider() -> None:
     else:
         log_info(f"Installing ECR credential provider {ECR_PROVIDER_VERSION}...")
 
-        # Detect architecture
-        arch_result = run_cmd(["uname", "-m"], check=True)
-        raw_arch = arch_result.stdout.strip()
-        arch = "arm64" if raw_arch == "aarch64" else "amd64"
+        installed = _install_ecr_provider_from_image()
 
-        url = (
-            f"https://artifacts.k8s.io/binaries/cloud-provider-aws/"
-            f"{ECR_PROVIDER_VERSION}/linux/{arch}/"
-            f"ecr-credential-provider-linux-{arch}"
-        )
-        run_cmd(["curl", "-fsSL", url, "-o", ECR_PROVIDER_BIN], timeout=60)
-        run_cmd(["chmod", "+x", ECR_PROVIDER_BIN])
-        log_info(f"ECR credential provider {ECR_PROVIDER_VERSION} ({arch}) installed")
+        if not installed:
+            log_warn("Container image extraction failed, trying go install...")
+            installed = _install_ecr_provider_via_go()
+
+        if not installed:
+            raise RuntimeError(
+                f"Failed to install ecr-credential-provider {ECR_PROVIDER_VERSION}. "
+                f"Tried: container image extraction, go install. "
+                f"Ensure the Golden AMI includes the binary at {ECR_PROVIDER_BIN}, "
+                f"or that containerd/go is available on the node."
+            )
+
+        log_info(f"ECR credential provider {ECR_PROVIDER_VERSION} installed successfully")
 
     # Create config if missing
     config_path = Path(ECR_PROVIDER_CONFIG)
@@ -373,3 +473,4 @@ def ensure_ecr_credential_provider() -> None:
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(_ECR_PROVIDER_CONFIG_CONTENT)
         log_info(f"ECR credential provider config created at {ECR_PROVIDER_CONFIG}")
+
