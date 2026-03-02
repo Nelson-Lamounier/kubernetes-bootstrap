@@ -61,13 +61,11 @@ def install_operator() -> None:
             f"{CALICO_VERSION}/manifests/tigera-operator.yaml"
         )
 
-    # create-or-apply pattern
-    result = run_cmd(
-        ["kubectl", "create", "-f", source],
-        check=False, env=KUBECONFIG_ENV,
+    # server-side apply for idempotency on re-runs
+    run_cmd(
+        ["kubectl", "apply", "--server-side", "-f", source],
+        env=KUBECONFIG_ENV,
     )
-    if result.returncode != 0:
-        run_cmd(["kubectl", "apply", "-f", source], env=KUBECONFIG_ENV)
 
     # Wait for operator
     log_info("Waiting for Calico operator deployment...")
