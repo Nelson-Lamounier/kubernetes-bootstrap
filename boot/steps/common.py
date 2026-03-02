@@ -322,12 +322,15 @@ class StepRunner:
 
 ECR_PROVIDER_BIN = "/usr/local/bin/ecr-credential-provider"
 ECR_PROVIDER_CONFIG = "/etc/kubernetes/image-credential-provider-config.yaml"
-ECR_PROVIDER_VERSION = "v1.35.0"
+# Pin to v1.31.0 — the last version with published raw binaries on GCS.
+# The cloud-provider-aws maintainers stopped publishing standalone binaries
+# after v1.31.0 (only container images for newer versions).
+# The credential provider plugin API (credentialprovider.kubelet.k8s.io/v1)
+# is stable and version-independent, so v1.31.0 works on v1.35.x clusters.
+ECR_PROVIDER_VERSION = "v1.31.0"
 
 # Official release URL for the ecr-credential-provider binary
 # Hosted on Google Cloud Storage under the k8s-staging-provider-aws bucket.
-# NOTE: The cloud-controller-manager container image does NOT contain
-# ecr-credential-provider. It is published as a standalone binary.
 _ECR_PROVIDER_RELEASE_URL = (
     "https://storage.googleapis.com/k8s-staging-provider-aws/releases"
     f"/{ECR_PROVIDER_VERSION}/linux/{{arch}}/ecr-credential-provider-linux-{{arch}}"
