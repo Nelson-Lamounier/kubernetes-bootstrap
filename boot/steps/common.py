@@ -324,8 +324,13 @@ ECR_PROVIDER_BIN = "/usr/local/bin/ecr-credential-provider"
 ECR_PROVIDER_CONFIG = "/etc/kubernetes/image-credential-provider-config.yaml"
 ECR_PROVIDER_VERSION = "v1.35.0"
 
-# Container image that ships the ecr-credential-provider binary
-_ECR_PROVIDER_IMAGE = f"registry.k8s.io/provider-aws/cloud-controller-manager:{ECR_PROVIDER_VERSION}"
+# GitHub release URL for the ecr-credential-provider binary
+# NOTE: The cloud-controller-manager container image does NOT contain
+# ecr-credential-provider. It is published as a standalone binary.
+_ECR_PROVIDER_RELEASE_URL = (
+    f"https://artifacts.k8s.io/binaries/cloud-provider-aws/{ECR_PROVIDER_VERSION}"
+    "/linux/{arch}/ecr-credential-provider-linux-{arch}"
+)
 
 _ECR_PROVIDER_CONFIG_CONTENT = """\
 apiVersion: kubelet.config.k8s.io/v1
@@ -341,61 +346,39 @@ providers:
 
 def _install_ecr_provider_from_image() -> bool:
     """
-    Extract the ecr-credential-provider binary from the official container image
-    using containerd's ctr CLI (already available on K8s nodes).
+    Download the ecr-credential-provider binary from the official Kubernetes
+    cloud-provider-aws release artifacts.
+
+    NOTE: Previous versions tried to extract the binary from the
+    cloud-controller-manager container image, but that image does NOT
+    contain ecr-credential-provider — it's a separate binary published
+    as a standalone release artifact.
 
     Returns True on success, False on failure.
     """
     try:
-        log_info(f"Pulling container image {_ECR_PROVIDER_IMAGE}...")
+        # Detect architecture
+        result = run_cmd(["uname", "-m"], check=False)
+        uname_out = result.stdout.strip() if result and result.stdout else "x86_64"
+        arch = "arm64" if uname_out == "aarch64" else "amd64"
+
+        download_url = _ECR_PROVIDER_RELEASE_URL.format(arch=arch)
+        log_info(f"Downloading ecr-credential-provider {ECR_PROVIDER_VERSION} ({arch})...")
+        log_info(f"  URL: {download_url}")
+
+        # Download the binary directly
         run_cmd(
-            ["ctr", "-n", "k8s.io", "image", "pull", _ECR_PROVIDER_IMAGE],
-            timeout=120,
+            ["curl", "-fsSL", "-o", ECR_PROVIDER_BIN, download_url],
+            timeout=60,
         )
-
-        # Create a temporary container to extract the binary
-        run_cmd(
-            ["ctr", "-n", "k8s.io", "container", "create",
-             _ECR_PROVIDER_IMAGE, "ecr-extract"],
-            check=True,
-        )
-
-        # Mount and copy the binary out
-        mount_dir = "/tmp/ecr-provider-mount"
-        Path(mount_dir).mkdir(parents=True, exist_ok=True)
-        run_cmd(
-            f"ctr -n k8s.io snapshot mount {mount_dir} ecr-extract | xargs -I{{}} sh -c "
-            f"'mount {{}} && cp {mount_dir}/ecr-credential-provider {ECR_PROVIDER_BIN} ; umount {mount_dir}'",
-            shell=True, check=False, timeout=30,
-        )
-
-        # Fallback: try direct copy from snapshot
-        if not Path(ECR_PROVIDER_BIN).exists():
-            # Alternative extraction using tar export
-            run_cmd(
-                f"ctr -n k8s.io container rm ecr-extract 2>/dev/null; "
-                f"ctr -n k8s.io image export /tmp/ecr-img.tar {_ECR_PROVIDER_IMAGE} && "
-                f"mkdir -p /tmp/ecr-img && cd /tmp/ecr-img && "
-                f"tar xf /tmp/ecr-img.tar && "
-                f"for layer in $(find . -name 'layer.tar'); do "
-                f"  tar xf $layer --wildcards '*/ecr-credential-provider' -C /tmp/ecr-img 2>/dev/null || true; "
-                f"done && "
-                f"find /tmp/ecr-img -name ecr-credential-provider -type f -exec cp {{}} {ECR_PROVIDER_BIN} \\;",
-                shell=True, check=False, timeout=60,
-            )
-
-        # Cleanup
-        run_cmd(["ctr", "-n", "k8s.io", "container", "rm", "ecr-extract"],
-                check=False)
-        run_cmd("rm -rf /tmp/ecr-img /tmp/ecr-img.tar /tmp/ecr-provider-mount",
-                shell=True, check=False)
 
         if Path(ECR_PROVIDER_BIN).exists():
             run_cmd(["chmod", "+x", ECR_PROVIDER_BIN])
+            log_info(f"ECR credential provider installed: {ECR_PROVIDER_BIN}")
             return True
 
     except Exception as e:
-        log_warn(f"Container image extraction failed: {e}")
+        log_warn(f"Binary download failed: {e}")
 
     return False
 
