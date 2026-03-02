@@ -330,9 +330,10 @@ ECR_PROVIDER_CONFIG = "/etc/kubernetes/image-credential-provider-config.yaml"
 ECR_PROVIDER_VERSION = "v1.31.0"
 
 # Official release URL for the ecr-credential-provider binary
-# Hosted on Google Cloud Storage under the k8s-staging-provider-aws bucket.
+# Hosted on Google Cloud Storage under the k8s-artifacts-prod bucket.
+# NOTE: The old k8s-staging-provider-aws bucket was retired.
 _ECR_PROVIDER_RELEASE_URL = (
-    "https://storage.googleapis.com/k8s-staging-provider-aws/releases"
+    "https://storage.googleapis.com/k8s-artifacts-prod/binaries/cloud-provider-aws"
     f"/{ECR_PROVIDER_VERSION}/linux/{{arch}}/ecr-credential-provider-linux-{{arch}}"
 )
 
