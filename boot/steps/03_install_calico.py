@@ -63,7 +63,7 @@ def install_operator() -> None:
 
     # server-side apply for idempotency on re-runs
     run_cmd(
-        ["kubectl", "apply", "--server-side", "-f", source],
+        ["kubectl", "apply", "--server-side", "--force-conflicts", "-f", source],
         env=KUBECONFIG_ENV,
     )
 
