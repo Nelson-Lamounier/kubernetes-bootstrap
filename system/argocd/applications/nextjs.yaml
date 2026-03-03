@@ -1,7 +1,7 @@
 # @format
 # ArgoCD Application: Next.js
 #
-# Points ArgoCD at the app-deploy/nextjs/helm/chart/ directory in Git.
+# Points ArgoCD at the app-deploy/nextjs/chart/ directory in Git.
 # ArgoCD recognizes this as a Helm-type source and renders the chart
 # with values from nextjs-values.yaml.
 #
@@ -31,7 +31,7 @@ spec:
     repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
     # PRODUCTION: Change to 'main' when deploying to production.
     targetRevision: develop
-    path: kubernetes-app/app-deploy/nextjs/helm/chart
+    path: kubernetes-app/app-deploy/nextjs/chart
     helm:
       valueFiles:
         - ../nextjs-values.yaml
