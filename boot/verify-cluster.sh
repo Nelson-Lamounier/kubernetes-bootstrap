@@ -254,48 +254,47 @@ fi
 section "2 — Node Labels & Taints"
 
 # Check for role labels on workers
-APP_NODES=$(kube get nodes -l role=application --no-headers 2>/dev/null | wc -l | tr -d ' ')
-MON_NODES=$(kube get nodes -l role=monitoring --no-headers 2>/dev/null | wc -l | tr -d ' ')
+APP_NODES=$(kube get nodes -l workload=frontend --no-headers 2>/dev/null | wc -l | tr -d ' ')
+MON_NODES=$(kube get nodes -l workload=monitoring --no-headers 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "$APP_NODES" -ge 1 ]; then
-  pass "Application worker found (role=application label present)"
+  pass "Frontend worker found (workload=frontend label present)"
 else
-  fail "No node with label role=application" \
-"No worker node has the label 'role=application'.
+  fail "No node with label workload=frontend" \
+"No worker node has the label 'workload=frontend'.
 
 COMPONENT: Node labels are key-value pairs attached to nodes. The NextJS
-Helm chart uses 'nodeSelector: { role: application }' to ensure pods only
-schedule on the application worker. Without this label, NextJS pods will
+Helm chart uses 'nodeSelector: { workload: frontend }' to ensure pods only
+schedule on the frontend worker. Without this label, NextJS pods will
 stay in Pending state with the event:
   'Warning FailedScheduling: 0/3 nodes are available: ... node(s) didn't
    match Pod's node affinity/selector'
 
-WHERE IS IT SET: The label is applied by boot-worker.sh using the
-NODE_LABEL environment variable passed from CDK user data:
-  kubectl label node <node-name> role=application
+NOTE: Node names are internal DNS hostnames (e.g. ip-10-0-0-160.eu-west-1.compute.internal).
 
-FIX (manual):
-  # Find the application worker (check instance tags in AWS console)
-  kubectl label node <node-name> role=application
+FIX (manual — recommended, keeps existing role=worker label):
+  kubectl label node <node-internal-dns-hostname> workload=frontend
 
-FIX (permanent): Ensure the CDK stack passes NODE_LABEL=application
+FIX (permanent): Ensure the CDK stack passes the workload label
 in the application worker's user data."
 fi
 
 if [ "$MON_NODES" -ge 1 ]; then
-  pass "Monitoring worker found (role=monitoring label present)"
+  pass "Monitoring worker found (workload=monitoring label present)"
 else
-  fail "No node with label role=monitoring" \
-"No worker node has the label 'role=monitoring'.
+  fail "No node with label workload=monitoring" \
+"No worker node has the label 'workload=monitoring'.
 
-COMPONENT: The monitoring Helm chart uses 'nodeSelector: { role: monitoring }'
+COMPONENT: The monitoring Helm chart uses 'nodeSelector: { workload: monitoring }'
 to keep Prometheus, Grafana, Loki, Tempo, and other observability tools on a
 dedicated worker. Without this label, monitoring pods stay in Pending.
 
-FIX (manual):
-  kubectl label node <node-name> role=monitoring
+NOTE: Node names are internal DNS hostnames (e.g. ip-10-0-0-26.eu-west-1.compute.internal).
 
-FIX (permanent): Ensure the CDK stack passes NODE_LABEL=monitoring
+FIX (manual — recommended, keeps existing role=worker label):
+  kubectl label node <node-internal-dns-hostname> workload=monitoring
+
+FIX (permanent): Ensure the CDK stack passes the workload label
 in the monitoring worker's user data."
 fi
 
@@ -795,8 +794,8 @@ else
 "The pod has been created but is not yet assigned to a node.
 
 COMMON CAUSES:
-  1. No node has the label 'role=application' (nodeSelector mismatch)
-     → Check: kubectl get nodes --show-labels | grep application
+  1. No node has the label 'workload=frontend' (nodeSelector mismatch)
+     → Check: kubectl get nodes --show-labels | grep workload
   2. Insufficient CPU/memory on the application worker
      → Check: kubectl describe pod $POD_NAME_SHORT -n nextjs-app | grep -A 5 Events
   3. ResourceQuota exceeded in nextjs-app namespace
