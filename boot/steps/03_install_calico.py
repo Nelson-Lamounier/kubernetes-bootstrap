@@ -29,6 +29,7 @@ POD_CIDR = os.environ.get("POD_CIDR", "192.168.0.0/16")
 CALICO_VERSION = os.environ.get("CALICO_VERSION", "v3.29.3")
 KUBECONFIG_ENV = {"KUBECONFIG": "/etc/kubernetes/admin.conf"}
 CACHED_OPERATOR = "/opt/calico/tigera-operator.yaml"
+CALICO_MARKER = "/etc/kubernetes/.calico-installed"
 
 CALICO_INSTALLATION = f"""apiVersion: operator.tigera.io/v1
 kind: Installation
@@ -115,7 +116,7 @@ def wait_for_calico_pods() -> None:
 # =============================================================================
 
 def main() -> None:
-    with StepRunner("install-calico") as step:
+    with StepRunner("install-calico", skip_if=CALICO_MARKER) as step:
         if step.skipped:
             return
 
