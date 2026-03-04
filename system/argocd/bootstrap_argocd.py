@@ -255,6 +255,60 @@ def apply_root_app(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 5b: Inject SNS Topic ARN into monitoring ArgoCD Application
+# ---------------------------------------------------------------------------
+def inject_sns_topic_arn(cfg: Config) -> None:
+    """Read SNS topic ARN from SSM and patch the monitoring Application's Helm parameters."""
+    log("=== Step 5b: Injecting SNS Topic ARN ===")
+
+    ssm_path = f"{cfg.ssm_prefix}/monitoring/alerts-topic-arn"
+    log(f"  → Reading SNS ARN from SSM: {ssm_path}")
+
+    if cfg.dry_run:
+        log("  [DRY-RUN] Would read SNS topic ARN from SSM and patch monitoring Application\n")
+        return
+
+    try:
+        ssm = get_ssm_client(cfg)
+        resp = ssm.get_parameter(Name=ssm_path)
+        topic_arn = resp["Parameter"]["Value"]
+        log(f"  ✓ SNS Topic ARN: {topic_arn}")
+    except Exception as e:
+        log(f"  ⚠ SNS topic ARN not found in SSM — {e}")
+        log("  ⚠ Grafana alerting will use empty snsTopicArn until parameter is set\n")
+        return
+
+    # Patch the monitoring ArgoCD Application with the Helm parameter override
+    patch = json.dumps({
+        "spec": {
+            "source": {
+                "helm": {
+                    "parameters": [
+                        {
+                            "name": "grafana.alerting.snsTopicArn",
+                            "value": topic_arn,
+                        }
+                    ]
+                }
+            }
+        }
+    })
+
+    result = run(
+        ["kubectl", "patch", "application", "monitoring", "-n", "argocd",
+         "--type", "merge", "-p", patch],
+        cfg=cfg, check=False,
+    )
+
+    if result.returncode == 0:
+        log("  ✓ Monitoring Application patched with SNS topic ARN")
+    else:
+        log("  ⚠ Failed to patch monitoring Application — alerting may use empty ARN")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
 # Step 7: Apply ArgoCD ingress (after ArgoCD is ready and syncing Traefik)
 # ---------------------------------------------------------------------------
 def apply_ingress(cfg: Config) -> None:
@@ -554,6 +608,9 @@ def main() -> None:
 
     # Step 5: App-of-Apps root (triggers Traefik install via ArgoCD)
     apply_root_app(cfg)
+
+    # Step 5b: Inject SNS topic ARN into monitoring Application
+    inject_sns_topic_arn(cfg)
 
     # Step 6: Wait for ArgoCD readiness (must be running before Traefik syncs)
     wait_for_argocd(cfg)
