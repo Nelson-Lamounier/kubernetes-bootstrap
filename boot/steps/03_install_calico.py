@@ -39,7 +39,7 @@ spec:
   calicoNetwork:
     ipPools:
       - cidr: {POD_CIDR}
-        encapsulation: VXLANAlways
+        encapsulation: VXLAN
         natOutgoing: Enabled
         nodeSelector: all()
     linuxDataplane: Iptables
