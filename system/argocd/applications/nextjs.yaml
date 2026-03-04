@@ -27,7 +27,7 @@ metadata:
     # Write-back: Updates ArgoCD Application params (no git commit needed).
     # -----------------------------------------------------------------------
     argocd-image-updater.argoproj.io/image-list: "nextjs=771826808455.dkr.ecr.eu-west-1.amazonaws.com/nextjs-frontend"
-    argocd-image-updater.argoproj.io/nextjs.update-strategy: latest
+    argocd-image-updater.argoproj.io/nextjs.update-strategy: newest-build
     argocd-image-updater.argoproj.io/nextjs.allow-tags: "regexp:^[0-9a-f]{7,40}$"
     argocd-image-updater.argoproj.io/nextjs.helm.image-name: image.repository
     argocd-image-updater.argoproj.io/nextjs.helm.image-tag: image.tag
