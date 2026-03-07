@@ -55,7 +55,10 @@ ports:
       default: true
     exposedPort: 443
     protocol: TCP
-    # TLS terminated at CloudFront, not Traefik — no TLS config needed here
+    # TLS terminated by Traefik via Let's Encrypt for admin services (ops.nelsonlamounier.com)
+    # CloudFront handles TLS for the public Next.js frontend separately
+    tls:
+      certResolver: letsencrypt
   metrics:
     port: 9100
     expose:
@@ -98,6 +101,21 @@ logs:
     level: INFO
   access:
     enabled: true
+
+# Let's Encrypt ACME — TLS-ALPN-01 challenge (uses port 443, no external creds)
+# Provides TLS for admin services at ops.nelsonlamounier.com
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "lamounierleao2025@outlook.com"
+      storage: /data/acme.json
+      tlsChallenge: {}
+
+# Persistent storage for ACME certificate state (survives pod restarts)
+persistence:
+  enabled: true
+  path: /data
+  size: 128Mi
 
 # Security context — allow binding to privileged ports 80/443
 # The chart defaults to non-root (uid 65532) with all capabilities dropped,
