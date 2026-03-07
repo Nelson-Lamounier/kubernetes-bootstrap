@@ -255,40 +255,68 @@ def apply_root_app(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 5b: Inject SNS Topic ARN into monitoring ArgoCD Application
+# Step 5b: Inject Helm parameters into monitoring ArgoCD Application
 # ---------------------------------------------------------------------------
-def inject_sns_topic_arn(cfg: Config) -> None:
-    """Read SNS topic ARN from SSM and patch the monitoring Application's Helm parameters."""
-    log("=== Step 5b: Injecting SNS Topic ARN ===")
+def inject_monitoring_helm_params(cfg: Config) -> None:
+    """Inject SNS topic ARN and admin IP allowlist into the monitoring Application's Helm parameters.
 
+    Reads the SNS topic ARN from SSM and the admin IPs from SSM,
+    then patches the ArgoCD Application with all Helm parameter overrides
+    in a single merge patch (ArgoCD replaces the entire parameters array).
+    """
+    log("=== Step 5b: Injecting Monitoring Helm Parameters ===")
+
+    parameters: list[dict[str, str]] = []
+
+    # --- SNS Topic ARN ---
     ssm_path = f"{cfg.ssm_prefix}/monitoring/alerts-topic-arn"
     log(f"  → Reading SNS ARN from SSM: {ssm_path}")
 
+    if not cfg.dry_run:
+        try:
+            ssm = get_ssm_client(cfg)
+            resp = ssm.get_parameter(Name=ssm_path)
+            topic_arn = resp["Parameter"]["Value"]
+            log(f"  ✓ SNS Topic ARN: {topic_arn}")
+            parameters.append({
+                "name": "grafana.alerting.snsTopicArn",
+                "value": topic_arn,
+            })
+        except Exception as e:
+            log(f"  ⚠ SNS topic ARN not found in SSM — {e}")
+
+    # --- Admin IP Allowlist ---
+    ip_ssm_paths = [
+        (f"{cfg.ssm_prefix}/monitoring/allow-ipv4", "adminAccess.allowedIps[0]"),
+        (f"{cfg.ssm_prefix}/monitoring/allow-ipv6", "adminAccess.allowedIps[1]"),
+    ]
+
+    for ip_ssm_path, param_name in ip_ssm_paths:
+        log(f"  → Reading IP from SSM: {ip_ssm_path}")
+        if not cfg.dry_run:
+            try:
+                ssm = get_ssm_client(cfg)
+                resp = ssm.get_parameter(Name=ip_ssm_path)
+                ip_value = resp["Parameter"]["Value"]
+                log(f"  ✓ {param_name}: {ip_value}")
+                parameters.append({"name": param_name, "value": ip_value})
+            except Exception as e:
+                log(f"  ⚠ IP not found in SSM ({ip_ssm_path}) — {e}")
+
     if cfg.dry_run:
-        log("  [DRY-RUN] Would read SNS topic ARN from SSM and patch monitoring Application\n")
+        log("  [DRY-RUN] Would patch monitoring Application with Helm parameters\n")
         return
 
-    try:
-        ssm = get_ssm_client(cfg)
-        resp = ssm.get_parameter(Name=ssm_path)
-        topic_arn = resp["Parameter"]["Value"]
-        log(f"  ✓ SNS Topic ARN: {topic_arn}")
-    except Exception as e:
-        log(f"  ⚠ SNS topic ARN not found in SSM — {e}")
-        log("  ⚠ Grafana alerting will use empty snsTopicArn until parameter is set\n")
+    if not parameters:
+        log("  ⚠ No parameters to inject — skipping patch\n")
         return
 
-    # Patch the monitoring ArgoCD Application with the Helm parameter override
+    # Patch the monitoring ArgoCD Application with all Helm parameter overrides
     patch = json.dumps({
         "spec": {
             "source": {
                 "helm": {
-                    "parameters": [
-                        {
-                            "name": "grafana.alerting.snsTopicArn",
-                            "value": topic_arn,
-                        }
-                    ]
+                    "parameters": parameters
                 }
             }
         }
@@ -301,9 +329,9 @@ def inject_sns_topic_arn(cfg: Config) -> None:
     )
 
     if result.returncode == 0:
-        log("  ✓ Monitoring Application patched with SNS topic ARN")
+        log(f"  ✓ Monitoring Application patched with {len(parameters)} Helm parameters")
     else:
-        log("  ⚠ Failed to patch monitoring Application — alerting may use empty ARN")
+        log("  ⚠ Failed to patch monitoring Application")
 
     log("")
 
@@ -340,6 +368,72 @@ def apply_ingress(cfg: Config) -> None:
             log("  ⚠ Ingress not applied — Traefik CRDs not available after 5 min.")
             log("    ArgoCD will install Traefik shortly. Apply manually:")
             log(f"    kubectl apply -f {ingress_yaml}")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
+# Step 7b: Create ArgoCD IP Allowlist Middleware from SSM
+# ---------------------------------------------------------------------------
+def create_argocd_ip_allowlist(cfg: Config) -> None:
+    """Create the admin-ip-allowlist Middleware in the argocd namespace.
+
+    Reads admin IPs from SSM (same parameters as the monitoring chart)
+    and creates the Traefik IPAllowList middleware dynamically, keeping
+    secrets out of version control.
+    """
+    log("=== Step 7b: Creating ArgoCD IP Allowlist Middleware ===")
+
+    ip_ssm_paths = [
+        f"{cfg.ssm_prefix}/monitoring/allow-ipv4",
+        f"{cfg.ssm_prefix}/monitoring/allow-ipv6",
+    ]
+
+    if cfg.dry_run:
+        log("  [DRY-RUN] Would read IPs from SSM and create middleware\n")
+        return
+
+    # Collect IPs from SSM
+    source_ranges: list[str] = []
+    for ip_ssm_path in ip_ssm_paths:
+        try:
+            ssm = get_ssm_client(cfg)
+            resp = ssm.get_parameter(Name=ip_ssm_path)
+            ip_value = resp["Parameter"]["Value"]
+            source_ranges.append(ip_value)
+            log(f"  ✓ {ip_ssm_path}: {ip_value}")
+        except Exception as e:
+            log(f"  ⚠ IP not found in SSM ({ip_ssm_path}) — {e}")
+
+    if not source_ranges:
+        log("  ⚠ No IPs found — skipping middleware creation")
+        log("    ArgoCD ingress will reject all traffic until middleware exists\n")
+        return
+
+    # Build the Middleware manifest
+    source_range_yaml = "\n".join(f'      - "{ip}"' for ip in source_ranges)
+    manifest = f"""apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: admin-ip-allowlist
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  ipAllowList:
+    sourceRange:
+{source_range_yaml}
+"""
+
+    result = subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=manifest, text=True, capture_output=True,
+    )
+
+    if result.returncode == 0:
+        log(f"  ✓ ArgoCD IP allowlist middleware created with {len(source_ranges)} IP(s)")
+    else:
+        log(f"  ⚠ Failed to create middleware: {result.stderr.strip()}")
 
     log("")
 
@@ -609,14 +703,17 @@ def main() -> None:
     # Step 5: App-of-Apps root (triggers Traefik install via ArgoCD)
     apply_root_app(cfg)
 
-    # Step 5b: Inject SNS topic ARN into monitoring Application
-    inject_sns_topic_arn(cfg)
+    # Step 5b: Inject SNS topic ARN + admin IP allowlist into monitoring Application
+    inject_monitoring_helm_params(cfg)
 
     # Step 6: Wait for ArgoCD readiness (must be running before Traefik syncs)
     wait_for_argocd(cfg)
 
     # Step 7: Ingress (now that ArgoCD is running and syncing Traefik)
     apply_ingress(cfg)
+
+    # Step 7b: Create ArgoCD IP allowlist middleware from SSM
+    create_argocd_ip_allowlist(cfg)
 
     # Step 8: CLI
     cli_installed = install_argocd_cli(cfg)

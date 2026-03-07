@@ -1,13 +1,16 @@
 # @format
 # ArgoCD Traefik IngressRoute
 #
-# Exposes the ArgoCD UI + API at /argocd path via Traefik.
+# Exposes the ArgoCD UI + API at /argocd path via Traefik over HTTPS.
 # ArgoCD server must have server.rootpath=/argocd and server.insecure=true
 # set in argocd-cmd-params-cm for this to work correctly.
 #
-# Priority must be higher than the nextjs catch-all PathPrefix(/) route.
-# Traefik v3 calculates default priority from rule length (~14 for `/`).
-# We set 100 to guarantee ArgoCD wins the match.
+# TLS handled by Traefik Let's Encrypt on the websecure entrypoint.
+# Access restricted to admin IPs via IPAllowList middleware.
+#
+# NOTE: The admin-ip-allowlist Middleware is NOT defined here.
+# It is created dynamically by bootstrap_argocd.py (Step 7b) using
+# IPs read from SSM, avoiding hardcoded values in version control.
 
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -18,11 +21,15 @@ metadata:
     app.kubernetes.io/part-of: argocd
 spec:
   entryPoints:
-    - web
+    - websecure
   routes:
-    - match: PathPrefix(`/argocd`)
+    - match: Host(`ops.nelsonlamounier.com`) && PathPrefix(`/argocd`)
       kind: Rule
       priority: 100
+      middlewares:
+        - name: admin-ip-allowlist
       services:
         - name: argocd-server
           port: 80
+  tls:
+    certResolver: letsencrypt
