@@ -111,23 +111,13 @@ certificatesResolvers:
       storage: /data/acme.json
       tlsChallenge: {}
 
-# Persistent storage for ACME certificate state (survives pod restarts)
+# Persistent storage for ACME certificate state
 # NOTE: PVC persistence does NOT work with DaemonSets — a single PVC can only
-# bind to one node, leaving pods on other nodes Pending. We use hostPath so
-# each node stores its own ACME cert state independently.
+# bind to one node, leaving pods on other nodes Pending.
+# With persistence disabled, the chart uses emptyDir. ACME certs regenerate
+# on pod restart — acceptable for dev; for prod use a shared cert store.
 persistence:
   enabled: false
-
-# Mount hostPath for ACME cert persistence (each node keeps local state)
-additionalVolumeMounts:
-  - name: acme-storage
-    mountPath: /data
-
-additionalVolumes:
-  - name: acme-storage
-    hostPath:
-      path: /data/traefik
-      type: DirectoryOrCreate
 
 # Security context — allow binding to privileged ports 80/443
 # The chart defaults to non-root (uid 65532) with all capabilities dropped,
