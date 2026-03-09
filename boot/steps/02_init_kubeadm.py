@@ -115,13 +115,23 @@ def update_dns_record(private_ip: str) -> None:
 # =============================================================================
 
 def handle_second_run() -> None:
-    """Handle second-run: update DNS, renew certs, refresh kubeconfig."""
+    """Handle second-run: update DNS and refresh kubeconfig.
+
+    Called when admin.conf already exists (cluster previously initialized).
+    Skips cert renewal — that's a separate maintenance operation that
+    requires an API server restart to pick up new certs.
+    """
     log_info("Cluster already initialized — running second-run maintenance")
 
     # Update DNS to current IP (handles re-provisions)
     private_ip = get_imds_value("local-ipv4")
     if private_ip:
         update_dns_record(private_ip)
+
+    # Update SSM endpoint to DNS name (if still pointing to old IP)
+    api_endpoint = f"{API_DNS_NAME}:6443"
+    log_info(f"Publishing DNS endpoint to SSM: {api_endpoint}")
+    ssm_put(f"{SSM_PREFIX}/control-plane-endpoint", api_endpoint)
 
     # Refresh ssm-user kubeconfig
     result = run_cmd(["id", "ssm-user"], check=False)
@@ -131,10 +141,15 @@ def handle_second_run() -> None:
         run_cmd(["chown", "ssm-user:ssm-user", "/home/ssm-user/.kube/config"])
         run_cmd(["chmod", "600", "/home/ssm-user/.kube/config"])
 
-    # Certificate renewal
-    log_info("Renewing kubeadm certificates...")
-    run_cmd(["kubeadm", "certs", "renew", "all"], check=False, env=KUBECONFIG_ENV)
-    run_cmd(["kubeadm", "certs", "check-expiration"], check=False, env=KUBECONFIG_ENV)
+    # Verify API server is healthy with current certs
+    result = run_cmd(
+        ["kubectl", "get", "nodes"],
+        check=False, env=KUBECONFIG_ENV,
+    )
+    if result.returncode != 0:
+        log_warn("API server not responding — certs may need renewal + restart")
+    else:
+        log_info("API server healthy — second-run maintenance complete")
 
 
 # =============================================================================
