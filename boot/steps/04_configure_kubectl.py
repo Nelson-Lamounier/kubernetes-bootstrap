@@ -68,12 +68,21 @@ def configure_user_kubeconfig(user: dict) -> None:
 
 
 def configure_ssm_user() -> None:
-    """Set up kubeconfig for ssm-user (may not exist yet at boot time)."""
+    """Set up kubeconfig for ssm-user.
+
+    The SSM Agent creates ssm-user only on first interactive session
+    (start-session), NOT on RunCommand. Since bootstrap runs via
+    RunCommand, we create the user proactively so kubeconfig is
+    always ready when an operator SSMs in.
+    """
     result = run_cmd(["id", "ssm-user"], check=False)
-    if result.returncode == 0:
-        configure_user_kubeconfig({"name": "ssm-user", "home": "/home/ssm-user"})
-    else:
-        log_info("  ssm-user does not exist yet — deferred setup will run on first SSM session")
+    if result.returncode != 0:
+        log_info("  ssm-user does not exist — creating it now")
+        run_cmd(["useradd", "--system", "--shell", "/bin/bash",
+                 "--create-home", "--home-dir", "/home/ssm-user",
+                 "ssm-user"], check=False)
+
+    configure_user_kubeconfig({"name": "ssm-user", "home": "/home/ssm-user"})
 
     # Write deferred provisioning script
     script_path = Path("/usr/local/bin/setup-ssm-kubeconfig.sh")
