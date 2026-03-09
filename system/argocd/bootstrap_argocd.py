@@ -17,6 +17,7 @@ Steps:
   3.  Create repo credentials secret
   4.  Install ArgoCD (kubectl apply)
   4b. Create default AppProject (required in ArgoCD v3.x)
+  4c. Configure ArgoCD server (rootpath + insecure for Traefik)
   5.  Apply App-of-Apps root application
   6.  Wait for ArgoCD server readiness
   7.  Apply ArgoCD ingress (needs Traefik CRDs from ArgoCD sync)
@@ -235,6 +236,57 @@ def create_default_project(cfg: Config) -> None:
             text=True, check=True,
         )
         log("✓ default AppProject created (inline)\n")
+
+
+# ---------------------------------------------------------------------------
+# Step 4c: Configure ArgoCD Server (rootpath + insecure)
+# ---------------------------------------------------------------------------
+def configure_argocd_server(cfg: Config) -> None:
+    """Patch argocd-cmd-params-cm so ArgoCD works behind Traefik at /argocd.
+
+    The vendored install.yaml ships an empty argocd-cmd-params-cm.
+    Two keys are required for the Traefik IngressRoute to work:
+      - server.rootpath=/argocd   — ArgoCD serves UI assets at /argocd/*
+      - server.insecure=true      — disable TLS on argocd-server (Traefik terminates TLS)
+
+    After patching the ConfigMap, the argocd-server deployment is restarted
+    so its pods pick up the new configuration.
+    """
+    log("=== Step 4c: Configuring ArgoCD Server (rootpath + insecure) ===")
+
+    if cfg.dry_run:
+        log("  [DRY-RUN] Would patch argocd-cmd-params-cm and restart argocd-server\n")
+        return
+
+    patch = json.dumps({"data": {
+        "server.rootpath": "/argocd",
+        "server.insecure": "true",
+    }})
+
+    result = run(
+        ["kubectl", "patch", "configmap", "argocd-cmd-params-cm",
+         "-n", "argocd", "--type", "merge", "-p", patch],
+        cfg=cfg, check=False,
+    )
+
+    if result.returncode == 0:
+        log("  ✓ argocd-cmd-params-cm patched (rootpath=/argocd, insecure=true)")
+    else:
+        log("  ⚠ Failed to patch argocd-cmd-params-cm")
+
+    # Restart argocd-server so pods pick up the new ConfigMap values
+    result = run(
+        ["kubectl", "rollout", "restart", "deployment/argocd-server",
+         "-n", "argocd"],
+        cfg=cfg, check=False,
+    )
+
+    if result.returncode == 0:
+        log("  ✓ argocd-server deployment restarted")
+    else:
+        log("  ⚠ Failed to restart argocd-server")
+
+    log("")
 
 
 # ---------------------------------------------------------------------------
@@ -699,6 +751,9 @@ def main() -> None:
 
     # Step 4b: Default AppProject (ArgoCD v3.x no longer auto-creates it)
     create_default_project(cfg)
+
+    # Step 4c: Configure ArgoCD server for Traefik sub-path routing
+    configure_argocd_server(cfg)
 
     # Step 5: App-of-Apps root (triggers Traefik install via ArgoCD)
     apply_root_app(cfg)
