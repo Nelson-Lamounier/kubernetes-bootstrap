@@ -37,6 +37,7 @@ metadata:
   name: default
 spec:
   calicoNetwork:
+    bgp: Disabled
     ipPools:
       - cidr: {POD_CIDR}
         encapsulation: VXLAN

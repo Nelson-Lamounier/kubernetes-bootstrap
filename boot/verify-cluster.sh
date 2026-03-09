@@ -478,7 +478,7 @@ else
 "Some Calico pods are not in Running state. This will break pod networking.
 
 COMPONENT: Calico has several sub-components:
-  - calico-node (DaemonSet) — runs on every node, manages BIRD BGP routing
+  - calico-node (DaemonSet) — runs on every node, manages VXLAN overlay networking
   - calico-typha — a fan-out proxy that reduces API server load
   - calico-kube-controllers — syncs Calico network policy with Kubernetes
 
