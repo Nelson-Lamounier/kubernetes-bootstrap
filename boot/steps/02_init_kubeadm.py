@@ -41,6 +41,8 @@ POD_CIDR = os.environ.get("POD_CIDR", "192.168.0.0/16")
 SERVICE_CIDR = os.environ.get("SERVICE_CIDR", "10.96.0.0/12")
 SSM_PREFIX = os.environ.get("SSM_PREFIX", "/k8s/development")
 AWS_REGION = os.environ.get("AWS_REGION", "eu-west-1")
+HOSTED_ZONE_ID = os.environ.get("HOSTED_ZONE_ID", "")
+API_DNS_NAME = os.environ.get("API_DNS_NAME", "k8s-api.k8s.internal")
 ADMIN_CONF = "/etc/kubernetes/admin.conf"
 KUBECONFIG_ENV = {"KUBECONFIG": ADMIN_CONF}
 
@@ -66,12 +68,60 @@ def get_imds_value(path: str) -> str:
 
 
 # =============================================================================
+# Route 53 DNS Update
+# =============================================================================
+
+def update_dns_record(private_ip: str) -> None:
+    """Update Route 53 A record to point to the current private IP.
+
+    This ensures k8s-api.k8s.internal always resolves to the
+    current control plane, surviving re-provisions.
+    """
+    if not HOSTED_ZONE_ID:
+        log_warn("HOSTED_ZONE_ID not set — skipping DNS update")
+        return
+
+    log_info(f"Updating DNS: {API_DNS_NAME} → {private_ip}")
+    import json
+    change_batch = json.dumps({
+        "Changes": [{
+            "Action": "UPSERT",
+            "ResourceRecordSet": {
+                "Name": API_DNS_NAME,
+                "Type": "A",
+                "TTL": 30,
+                "ResourceRecords": [{"Value": private_ip}],
+            },
+        }],
+    })
+    result = run_cmd(
+        ["aws", "route53", "change-resource-record-sets",
+         "--hosted-zone-id", HOSTED_ZONE_ID,
+         "--change-batch", change_batch,
+         "--region", AWS_REGION],
+        check=False,
+    )
+    if result.returncode != 0:
+        log_error(f"DNS update failed: {result.stderr}")
+        raise RuntimeError(
+            f"Failed to update {API_DNS_NAME} → {private_ip}. "
+            "Check HOSTED_ZONE_ID and IAM permissions."
+        )
+    log_info(f"DNS updated: {API_DNS_NAME} → {private_ip}")
+
+
+# =============================================================================
 # Second-Run Handler
 # =============================================================================
 
 def handle_second_run() -> None:
-    """Handle second-run: renew certs, refresh kubeconfig."""
+    """Handle second-run: update DNS, renew certs, refresh kubeconfig."""
     log_info("Cluster already initialized — running second-run maintenance")
+
+    # Update DNS to current IP (handles re-provisions)
+    private_ip = get_imds_value("local-ipv4")
+    if private_ip:
+        update_dns_record(private_ip)
 
     # Refresh ssm-user kubeconfig
     result = run_cmd(["id", "ssm-user"], check=False)
@@ -123,20 +173,23 @@ def init_cluster() -> None:
     if not private_ip:
         raise RuntimeError("Failed to retrieve private IP from IMDS")
 
-    # Build cert SANs
-    cert_sans = f"--apiserver-cert-extra-sans={private_ip}"
-    if public_ip:
-        cert_sans += f",{public_ip}"
-
     # Run kubeadm init
     log_info("Running kubeadm init...")
+
+    # Update DNS record BEFORE kubeadm init so the cert SAN resolves
+    update_dns_record(private_ip)
+
+    # Use DNS name as control plane endpoint for node resilience.
+    # Workers join via DNS — survives control plane re-provisioning.
+    api_endpoint = f"{API_DNS_NAME}:6443"
     init_cmd = [
         "kubeadm", "init",
         f"--kubernetes-version={K8S_VERSION}",
         f"--pod-network-cidr={POD_CIDR}",
         f"--service-cidr={SERVICE_CIDR}",
-        f"--control-plane-endpoint={private_ip}:6443",
-        cert_sans,
+        f"--control-plane-endpoint={api_endpoint}",
+        f"--apiserver-cert-extra-sans={private_ip},{API_DNS_NAME}"
+        + (f",{public_ip}" if public_ip else ""),
         "--upload-certs",
     ]
     run_cmd(init_cmd, capture=False, timeout=300)
@@ -196,10 +249,11 @@ def publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> Non
     ca_result = run_cmd(ca_hash_cmd, shell=True)
     ca_hash = ca_result.stdout.strip()
 
-    # Write to SSM
+    # Write to SSM (use DNS endpoint so workers get the stable name)
+    api_endpoint = f"{API_DNS_NAME}:6443"
     ssm_put(f"{SSM_PREFIX}/join-token", join_token, param_type="SecureString")
     ssm_put(f"{SSM_PREFIX}/ca-hash", f"sha256:{ca_hash}")
-    ssm_put(f"{SSM_PREFIX}/control-plane-endpoint", f"{private_ip}:6443")
+    ssm_put(f"{SSM_PREFIX}/control-plane-endpoint", api_endpoint)
     ssm_put(f"{SSM_PREFIX}/instance-id", instance_id)
 
     # Refresh public IP (may have changed after EIP association)
