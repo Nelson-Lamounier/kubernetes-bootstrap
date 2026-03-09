@@ -271,11 +271,6 @@ def publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> Non
     ssm_put(f"{SSM_PREFIX}/control-plane-endpoint", api_endpoint)
     ssm_put(f"{SSM_PREFIX}/instance-id", instance_id)
 
-    # Refresh public IP (may have changed after EIP association)
-    refreshed_public_ip = get_imds_value("public-ipv4")
-    if refreshed_public_ip:
-        ssm_put(f"{SSM_PREFIX}/elastic-ip", refreshed_public_ip)
-
     log_info("Cluster credentials published to SSM successfully")
 
     # Summary

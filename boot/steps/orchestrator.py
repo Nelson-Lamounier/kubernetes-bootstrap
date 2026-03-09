@@ -47,6 +47,7 @@ from common import (
 
 CONTROL_PLANE_STEPS = [
     "01_validate_ami",
+    "01a_associate_eip",
     "02_init_kubeadm",
     "03_install_calico",
     "04_configure_kubectl",
