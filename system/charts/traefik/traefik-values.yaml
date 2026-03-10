@@ -58,7 +58,8 @@ ports:
     # TLS terminated by Traefik using cert-manager-issued certificate
     # stored as Kubernetes Secret (ops-tls-cert). CloudFront handles
     # TLS for the public Next.js frontend separately.
-    tls: true
+    tls:
+      enabled: true
   metrics:
     port: 9100
     expose:
