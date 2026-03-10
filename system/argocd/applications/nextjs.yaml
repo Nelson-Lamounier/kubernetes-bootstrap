@@ -18,6 +18,7 @@ metadata:
   name: nextjs
   annotations:
     kubernetes.io/description: "ArgoCD application for the Next.js portfolio deployment"
+    argocd.argoproj.io/sync-wave: "3"
     # -----------------------------------------------------------------------
     # ArgoCD Image Updater — automatically update container image tag
     # when a new image is pushed to ECR by the CI pipeline.

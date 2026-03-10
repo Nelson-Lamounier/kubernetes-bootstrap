@@ -18,6 +18,7 @@ metadata:
   name: monitoring
   annotations:
     kubernetes.io/description: "ArgoCD application for the monitoring stack (Prometheus, Grafana, Loki, Tempo)"
+    argocd.argoproj.io/sync-wave: "3"
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: argocd

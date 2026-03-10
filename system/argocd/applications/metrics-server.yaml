@@ -14,6 +14,7 @@ metadata:
   name: metrics-server
   annotations:
     kubernetes.io/description: "ArgoCD application for metrics-server (required for HPA)"
+    argocd.argoproj.io/sync-wave: "3"
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: argocd

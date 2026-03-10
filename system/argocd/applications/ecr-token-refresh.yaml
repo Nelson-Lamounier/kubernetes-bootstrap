@@ -16,6 +16,7 @@ metadata:
   namespace: argocd
   annotations:
     kubernetes.io/description: "CronJob that refreshes ECR credentials for Image Updater"
+    argocd.argoproj.io/sync-wave: "3"
   labels:
     app.kubernetes.io/part-of: argocd
     app.kubernetes.io/component: ecr-token-refresh

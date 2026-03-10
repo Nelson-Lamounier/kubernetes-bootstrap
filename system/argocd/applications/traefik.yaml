@@ -17,6 +17,7 @@ metadata:
   name: traefik
   annotations:
     kubernetes.io/description: "ArgoCD application for the Traefik ingress controller (DaemonSet, hostNetwork)"
+    argocd.argoproj.io/sync-wave: "2"
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: argocd

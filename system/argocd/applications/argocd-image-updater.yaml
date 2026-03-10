@@ -18,6 +18,7 @@ metadata:
   namespace: argocd
   annotations:
     kubernetes.io/description: "ArgoCD Image Updater — auto-updates container image tags from ECR"
+    argocd.argoproj.io/sync-wave: "3"
   labels:
     app.kubernetes.io/part-of: argocd
     app.kubernetes.io/component: image-updater

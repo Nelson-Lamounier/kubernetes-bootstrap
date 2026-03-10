@@ -14,6 +14,7 @@ metadata:
   name: local-path-provisioner
   annotations:
     kubernetes.io/description: "ArgoCD application for Rancher local-path-provisioner (default StorageClass)"
+    argocd.argoproj.io/sync-wave: "3"
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: argocd
