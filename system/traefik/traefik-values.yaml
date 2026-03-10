@@ -102,22 +102,37 @@ logs:
   access:
     enabled: true
 
-# Let's Encrypt ACME — TLS-ALPN-01 challenge (uses port 443, no external creds)
+# Let's Encrypt ACME — HTTP-01 challenge (uses port 80 via web entrypoint)
 # Provides TLS for admin services at ops.nelsonlamounier.com
+# HTTP-01 was chosen over TLS-ALPN-01 because the Security Group already
+# allows port 80 from the internet (for CloudFront origin pull), avoiding
+# the need to open port 443 to all IPs.
 certificatesResolvers:
   letsencrypt:
     acme:
       email: "lamounierleao2025@outlook.com"
-      storage: /data/acme.json
-      tlsChallenge: {}
+      storage: /data/traefik/acme.json
+      httpChallenge:
+        entryPoint: web
 
 # Persistent storage for ACME certificate state
-# NOTE: PVC persistence does NOT work with DaemonSets — a single PVC can only
-# bind to one node, leaving pods on other nodes Pending.
-# With persistence disabled, the chart uses emptyDir. ACME certs regenerate
-# on pod restart — acceptable for dev; for prod use a shared cert store.
+# PVC persistence does NOT work with DaemonSets (a single PVC can only bind
+# to one node). Instead, we use a hostPath volume backed by the EBS data
+# volume mounted at /data on every node. This preserves ACME certs across
+# pod restarts without hitting Let's Encrypt rate limits.
 persistence:
   enabled: false
+
+# ACME cert persistence via EBS-backed hostPath (/data/traefik/acme.json)
+additionalVolumeMounts:
+  - name: acme-storage
+    mountPath: /data/traefik
+
+additionalVolumes:
+  - name: acme-storage
+    hostPath:
+      path: /data/traefik
+      type: DirectoryOrCreate
 
 # Security context — allow binding to privileged ports 80/443
 # The chart defaults to non-root (uid 65532) with all capabilities dropped,
