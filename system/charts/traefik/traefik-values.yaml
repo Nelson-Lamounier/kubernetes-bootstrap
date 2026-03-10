@@ -55,10 +55,10 @@ ports:
       default: true
     exposedPort: 443
     protocol: TCP
-    # TLS terminated by Traefik via Let's Encrypt for admin services (ops.nelsonlamounier.com)
-    # CloudFront handles TLS for the public Next.js frontend separately
-    tls:
-      certResolver: letsencrypt
+    # TLS terminated by Traefik using cert-manager-issued certificate
+    # stored as Kubernetes Secret (ops-tls-cert). CloudFront handles
+    # TLS for the public Next.js frontend separately.
+    tls: true
   metrics:
     port: 9100
     expose:
@@ -102,37 +102,23 @@ logs:
   access:
     enabled: true
 
-# Let's Encrypt ACME — HTTP-01 challenge (uses port 80 via web entrypoint)
-# Provides TLS for admin services at ops.nelsonlamounier.com
-# HTTP-01 was chosen over TLS-ALPN-01 because the Security Group already
-# allows port 80 from the internet (for CloudFront origin pull), avoiding
-# the need to open port 443 to all IPs.
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: "lamounierleao2025@outlook.com"
-      storage: /data/traefik/acme.json
-      httpChallenge:
-        entryPoint: web
-
-# Persistent storage for ACME certificate state
-# PVC persistence does NOT work with DaemonSets (a single PVC can only bind
-# to one node). Instead, we use a hostPath volume backed by the EBS data
-# volume mounted at /data on every node. This preserves ACME certs across
-# pod restarts without hitting Let's Encrypt rate limits.
-persistence:
-  enabled: false
-
-# ACME cert persistence via EBS-backed hostPath (/data/traefik/acme.json)
-additionalVolumeMounts:
-  - name: acme-storage
-    mountPath: /data/traefik
-
-additionalVolumes:
-  - name: acme-storage
-    hostPath:
-      path: /data/traefik
-      type: DirectoryOrCreate
+# TLS Certificate — cert-manager
+#
+# TLS certificates are managed by cert-manager (ClusterIssuer + Certificate CR)
+# and stored as a Kubernetes Secret (ops-tls-cert) in kube-system.
+# This replaces Traefik's built-in ACME resolver so certs are available
+# on ALL nodes via etcd, not just the node with the EBS volume.
+#
+# cert-manager handles:
+#   - ACME HTTP-01 challenge (via Traefik web entrypoint, port 80)
+#   - Certificate issuance and renewal (30 days before expiry)
+#   - Storage as kubernetes.io/tls Secret
+#
+# See: k8s-bootstrap/system/cert-manager/
+tlsStore:
+  default:
+    defaultCertificate:
+      secretName: ops-tls-cert
 
 # Security context — allow binding to privileged ports 80/443
 # The chart defaults to non-root (uid 65532) with all capabilities dropped,
