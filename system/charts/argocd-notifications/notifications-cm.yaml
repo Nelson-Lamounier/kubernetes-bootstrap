@@ -1,0 +1,85 @@
+# @format
+# ArgoCD Notifications ConfigMap
+#
+# Defines notification templates and triggers for ArgoCD state changes.
+# The notifications controller (bundled with ArgoCD ≥2.6) reads this
+# ConfigMap and fires triggers when Application status changes.
+#
+# Notification services (Slack, GitHub, webhook, etc.) are configured
+# via a Secret named 'argocd-notifications-secret' in the argocd namespace.
+#
+# To activate GitHub commit status notifications, create the secret:
+#   kubectl create secret generic argocd-notifications-secret \
+#     --from-literal=github-token=<PAT> -n argocd
+#
+# Docs: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  namespace: argocd
+data:
+  # ───────────────────────────────────────────────────────────────────
+  # Notification Services
+  # ───────────────────────────────────────────────────────────────────
+  # GitHub commit status — requires 'github-token' in the Secret
+  service.github: |
+    appID: $github-appID
+    installationID: $github-installationID
+    privateKey: $github-privateKey
+
+  # ───────────────────────────────────────────────────────────────────
+  # Templates
+  # ───────────────────────────────────────────────────────────────────
+  template.app-sync-succeeded: |
+    message: |
+      Application {{.app.metadata.name}} sync succeeded.
+      Revision: {{.app.status.sync.revision}}
+    github:
+      status:
+        state: success
+        label: "argocd/{{.app.metadata.name}}"
+        targetURL: "https://ops.nelsonlamounier.com/argocd/applications/argocd/{{.app.metadata.name}}"
+
+  template.app-sync-failed: |
+    message: |
+      Application {{.app.metadata.name}} sync failed.
+      Error: {{.app.status.operationState.message}}
+    github:
+      status:
+        state: failure
+        label: "argocd/{{.app.metadata.name}}"
+        targetURL: "https://ops.nelsonlamounier.com/argocd/applications/argocd/{{.app.metadata.name}}"
+
+  template.app-health-degraded: |
+    message: |
+      Application {{.app.metadata.name}} health is degraded.
+    github:
+      status:
+        state: failure
+        label: "argocd/{{.app.metadata.name}}"
+        targetURL: "https://ops.nelsonlamounier.com/argocd/applications/argocd/{{.app.metadata.name}}"
+
+  # ───────────────────────────────────────────────────────────────────
+  # Triggers
+  # ───────────────────────────────────────────────────────────────────
+  trigger.on-sync-succeeded: |
+    - when: app.status.operationState.phase in ['Succeeded']
+      send: [app-sync-succeeded]
+
+  trigger.on-sync-failed: |
+    - when: app.status.operationState.phase in ['Error', 'Failed']
+      send: [app-sync-failed]
+
+  trigger.on-health-degraded: |
+    - when: app.status.health.status == 'Degraded'
+      send: [app-health-degraded]
+
+  # ───────────────────────────────────────────────────────────────────
+  # Default Triggers (applied to all Applications)
+  # ───────────────────────────────────────────────────────────────────
+  defaultTriggers: |
+    - on-sync-succeeded
+    - on-sync-failed
+    - on-health-degraded
