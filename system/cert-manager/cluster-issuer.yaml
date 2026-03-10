@@ -1,0 +1,37 @@
+# @format
+# cert-manager ClusterIssuer: Let's Encrypt (HTTP-01)
+#
+# Uses the HTTP-01 challenge solver via Traefik's web entrypoint (port 80).
+# HTTP-01 was chosen over DNS-01 because:
+#   - Port 80 is already open in the Security Group (for CloudFront + LE)
+#   - No Route 53 API credentials needed (simpler IAM)
+#   - Same challenge type as the previous Traefik ACME config
+#
+# ClusterIssuer (not namespaced Issuer) so that Certificate CRs in
+# any namespace can reference it.
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+  annotations:
+    kubernetes.io/description: "Let's Encrypt production issuer via HTTP-01 challenge"
+spec:
+  acme:
+    # Let's Encrypt production endpoint
+    server: https://acme-v02.api.letsencrypt.org/directory
+
+    # Same email used in the previous Traefik ACME config
+    email: lamounierleao2025@outlook.com
+
+    # Secret to store the ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+
+    solvers:
+      - http01:
+          ingress:
+            # cert-manager creates temporary Ingress resources for the challenge.
+            # Traefik (as the cluster ingress controller) will route
+            # /.well-known/acme-challenge/* to the solver pod automatically.
+            ingressClassName: traefik

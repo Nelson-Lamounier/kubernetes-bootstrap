@@ -1,0 +1,37 @@
+# @format
+# cert-manager Certificate: ops.nelsonlamounier.com
+#
+# Requests a TLS certificate from Let's Encrypt for the admin services
+# domain. cert-manager stores the issued cert + key as a Kubernetes
+# Secret (ops-tls-cert) in kube-system, where Traefik can reference it.
+#
+# Key advantages over Traefik's built-in ACME:
+#   - Secret is stored in etcd → accessible from ALL nodes (not just
+#     the node with the EBS volume)
+#   - Automatic renewal (cert-manager renews 30 days before expiry)
+#   - Standard kubernetes.io/tls Secret format
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ops-tls-cert
+  namespace: kube-system
+  annotations:
+    kubernetes.io/description: "TLS certificate for ops.nelsonlamounier.com (admin services)"
+spec:
+  # Name of the Secret where the TLS cert+key will be stored
+  secretName: ops-tls-cert
+
+  # Certificate duration and renewal window
+  duration: 2160h # 90 days (Let's Encrypt default)
+  renewBefore: 720h # Renew 30 days before expiry
+
+  # Domain name(s) for the certificate
+  dnsNames:
+    - ops.nelsonlamounier.com
+
+  # Reference the ClusterIssuer
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+    group: cert-manager.io
