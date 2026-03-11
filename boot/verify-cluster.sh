@@ -577,14 +577,16 @@ Kustomize manifests, and plain YAML in Git, then automatically applies
 them to the cluster.
 
 ArgoCD manages all applications via the App-of-Apps pattern:
-  - root Application → discovers child Applications in applications/ directory
-  - Child Applications: traefik, monitoring, nextjs, metrics-server, local-path-provisioner
+  - platform-root Application → discovers platform apps in platform/argocd-apps/ directory
+  - workloads-root Application → discovers workload apps in workloads/argocd-apps/ directory
+  - Platform Applications: traefik, monitoring, metrics-server, local-path-provisioner, argo-rollouts
+  - Workload Applications: nextjs
 
 ROOT CAUSE: bootstrap_argocd.py has not run yet. This script:
   1. Creates the argocd namespace
   2. Installs ArgoCD via its manifest
   3. Configures the repo SSH deploy key
-  4. Applies the App-of-Apps root Application (root-app.yaml)
+  4. Applies the App-of-Apps root Applications (platform-root-app.yaml + workloads-root-app.yaml)
   5. ArgoCD then auto-discovers all child Applications from Git
 
 WHERE TO LOOK:
@@ -622,36 +624,40 @@ DIAGNOSTIC:
     fi
   done
 
-  # Check App-of-Apps root Application
-  ROOT_APP=$(kube get application root -n argocd --no-headers 2>/dev/null || echo "")
-  if [ -n "$ROOT_APP" ]; then
-    ROOT_STATUS=$(echo "$ROOT_APP" | awk '{print $2}')
-    ROOT_HEALTH=$(echo "$ROOT_APP" | awk '{print $3}')
-    if [ "$ROOT_STATUS" = "Synced" ] && [ "$ROOT_HEALTH" = "Healthy" ]; then
-      pass "App-of-Apps root is Synced + Healthy"
-    else
-      warn "App-of-Apps root: Status=$ROOT_STATUS Health=$ROOT_HEALTH" \
-"The root Application manages all child Applications.
+  # Check App-of-Apps root Applications (platform + workloads)
+  for ROOT_NAME in platform-root workloads-root; do
+    ROOT_APP=$(kube get application $ROOT_NAME -n argocd --no-headers 2>/dev/null || echo "")
+    if [ -n "$ROOT_APP" ]; then
+      ROOT_STATUS=$(echo "$ROOT_APP" | awk '{print $2}')
+      ROOT_HEALTH=$(echo "$ROOT_APP" | awk '{print $3}')
+      if [ "$ROOT_STATUS" = "Synced" ] && [ "$ROOT_HEALTH" = "Healthy" ]; then
+        pass "App-of-Apps $ROOT_NAME is Synced + Healthy"
+      else
+        warn "App-of-Apps $ROOT_NAME: Status=$ROOT_STATUS Health=$ROOT_HEALTH" \
+"The $ROOT_NAME Application manages child Applications.
 If it is not Synced, ArgoCD cannot discover child apps.
 
 DIAGNOSTIC:
-  kubectl describe application root -n argocd
+  kubectl describe application $ROOT_NAME -n argocd
   kubectl get applications -n argocd"
-    fi
-  else
-    fail "App-of-Apps root Application NOT found" \
-"The 'root' Application is the parent that discovers all child Applications
-(traefik, monitoring, nextjs, etc.) from the applications/ directory in Git.
+      fi
+    else
+      fail "App-of-Apps $ROOT_NAME Application NOT found" \
+"The '$ROOT_NAME' Application is a parent that discovers child Applications
+from the corresponding argocd-apps/ directory in Git.
 
 It should be applied by bootstrap_argocd.py via:
-  kubectl apply -f root-app.yaml
+  kubectl apply -f platform-root-app.yaml
+  kubectl apply -f workloads-root-app.yaml
 
-WITHOUT IT: ArgoCD cannot discover or manage any applications.
+WITHOUT IT: ArgoCD cannot discover or manage applications.
 
 DIAGNOSTIC:
   kubectl get applications -n argocd
-  ls -la /data/k8s-bootstrap/system/argocd/root-app.yaml"
-  fi
+  ls -la /data/k8s-bootstrap/system/argocd/platform-root-app.yaml
+  ls -la /data/k8s-bootstrap/system/argocd/workloads-root-app.yaml"
+    fi
+  done
 
   # Check child ArgoCD Applications
   ARGO_APPS=$(kube get applications -n argocd --no-headers 2>/dev/null || echo "")
@@ -677,8 +683,8 @@ DIAGNOSTIC:
 The root Application should auto-discover child Applications from Git.
 
 DIAGNOSTIC:
-  kubectl get application root -n argocd
-  kubectl describe application root -n argocd"
+  kubectl describe application platform-root -n argocd
+  kubectl describe application workloads-root -n argocd"
   fi
 fi
 
