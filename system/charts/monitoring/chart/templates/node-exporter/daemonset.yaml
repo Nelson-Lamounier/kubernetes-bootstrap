@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "node-exporter" | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "node-exporter" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "monitoring.fullLabels" "node-exporter" | nindent 8 }}
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: node-exporter
+          image: {{ .Values.nodeExporter.image }}
+          args:
+            - "--web.listen-address=:{{ .Values.nodeExporter.service.port }}"
+            - "--path.procfs=/host/proc"
+            - "--path.sysfs=/host/sys"
+            - "--path.rootfs=/host/root"
+            - "--collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)"
+          ports:
+            - containerPort: {{ .Values.nodeExporter.service.port }}
+              name: metrics
+              hostPort: {{ .Values.nodeExporter.service.port }}
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              mountPropagation: HostToContainer
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.nodeExporter.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.nodeExporter.service.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.nodeExporter.resources | nindent 12 }}
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /

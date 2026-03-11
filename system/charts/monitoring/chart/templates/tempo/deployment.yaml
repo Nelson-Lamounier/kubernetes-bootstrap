@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: {{.Values.namespace}}
+  labels: {{- include "monitoring.fullLabels" "tempo" | nindent 4}}
+spec:
+  replicas: {{.Values.tempo.replicas}}
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "tempo" | nindent 6}}
+  template:
+    metadata:
+      labels: {{- include "monitoring.fullLabels" "tempo" | nindent 8}}
+    spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsNonRoot: true
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8}}
+      containers:
+        - name: tempo
+          image: {{.Values.tempo.image}}
+          args: ["-config.file=/etc/tempo/tempo.yaml"]
+          ports:
+            - containerPort: {{.Values.tempo.service.httpPort}}
+              name: http
+            - containerPort: {{.Values.tempo.service.otlpGrpcPort}}
+              name: otlp-grpc
+            - containerPort: {{.Values.tempo.service.otlpHttpPort}}
+              name: otlp-http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+            - name: data
+              mountPath: /var/tempo
+          resources: {{- toYaml .Values.tempo.resources | nindent 12}}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{.Values.tempo.service.httpPort}}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: {{.Values.tempo.service.httpPort}}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: tempo-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: tempo-data

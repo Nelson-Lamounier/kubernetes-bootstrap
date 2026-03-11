@@ -1,0 +1,50 @@
+# @format
+# ArgoCD Application: Argo Rollouts Controller
+#
+# Installs the Argo Rollouts controller for progressive delivery (Canary/Blue-Green).
+# Deploys CRDs (Rollout, AnalysisTemplate, AnalysisRun, Experiment) and the controller
+# that manages rollout lifecycle, traffic splitting, and metric analysis.
+#
+# Wave 3: Platform tier — must be installed before Business Apps (wave 5)
+# that use Rollout resources instead of Deployments.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  annotations:
+    kubernetes.io/description: "Argo Rollouts controller for progressive delivery (Canary/Blue-Green)"
+    argocd.argoproj.io/sync-wave: "3"  # Wave 3: Platform — CRDs must exist before wave 5 Rollouts
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    app.kubernetes.io/component: argo-rollouts
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/argoproj/argo-rollouts.git
+    targetRevision: v1.7.2
+    path: manifests/install
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,25 @@
+{{- if .Values.grafana.ingress.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: grafana-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "grafana" | nindent 4 }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.adminAccess.hostname }}`) && {{ .Values.grafana.ingress.matchRule }}
+      kind: Rule
+      priority: 100
+      {{- if .Values.adminAccess.enabled }}
+      middlewares:
+        - name: admin-ip-allowlist
+      {{- end }}
+      services:
+        - name: grafana
+          port: {{ .Values.grafana.service.port }}
+  tls:
+    secretName: ops-tls-cert
+{{- end }}

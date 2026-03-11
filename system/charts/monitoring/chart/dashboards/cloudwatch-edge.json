@@ -1,0 +1,226 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "ACM & DNS Lambda Logs (us-east-1)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/nextjs-acm-dns-validation-development", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "us-east-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "ACM DNS Validation Lambda",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "id": 2,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/nextjs-dns-alias-provider-development", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "us-east-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "DNS Alias Provider Lambda",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "id": 3,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/nextjs-cert-provider-development", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "us-east-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Certificate Provider Lambda",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "id": 200,
+      "title": "Monitoring Edge Lambda Logs (us-east-1)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "id": 4,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/k8s-development-cert-provider-development", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "us-east-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "K8s Cert Provider Lambda",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "id": 5,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/k8s-development-monitoring-dns-alias-development", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "us-east-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Monitoring DNS Alias Lambda",
+      "type": "logs"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["aws", "cloudwatch", "edge", "us-east-1"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "AWS Logs — Edge (us-east-1)",
+  "uid": "aws-logs-edge",
+  "version": 1
+}

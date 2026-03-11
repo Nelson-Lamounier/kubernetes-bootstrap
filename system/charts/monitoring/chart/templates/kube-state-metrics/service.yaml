@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "kube-state-metrics" | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "{{ .Values.kubeStateMetrics.service.port }}"
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "monitoring.selectorLabels" "kube-state-metrics" | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.kubeStateMetrics.service.port }}
+      targetPort: {{ .Values.kubeStateMetrics.service.port }}
+      protocol: TCP

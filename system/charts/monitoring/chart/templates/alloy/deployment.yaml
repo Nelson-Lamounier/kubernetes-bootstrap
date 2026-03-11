@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+spec:
+  replicas: {{ .Values.alloy.replicas }}
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "alloy" | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "monitoring.fullLabels" "alloy" | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: alloy
+          image: {{ .Values.alloy.image }}
+          args:
+            - run
+            - /etc/alloy/config.alloy
+            - --server.http.listen-addr=0.0.0.0:{{ .Values.alloy.service.httpPort }}
+            - --stability.level=generally-available
+            - --storage.path=/tmp/data-alloy
+          ports:
+            - containerPort: {{ .Values.alloy.service.httpPort }}
+              name: http
+              protocol: TCP
+            - containerPort: {{ .Values.alloy.service.faroPort }}
+              name: faro
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy
+            - name: data
+              mountPath: /tmp/data-alloy
+          resources: {{- toYaml .Values.alloy.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: {{ .Values.alloy.service.httpPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/ready
+              port: {{ .Values.alloy.service.httpPort }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-config
+        - name: data
+          emptyDir: {}

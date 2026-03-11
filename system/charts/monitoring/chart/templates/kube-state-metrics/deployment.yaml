@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "kube-state-metrics" | nindent 4 }}
+spec:
+  replicas: {{ .Values.kubeStateMetrics.replicas }}
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "kube-state-metrics" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "monitoring.fullLabels" "kube-state-metrics" | nindent 8 }}
+    spec:
+      serviceAccountName: kube-state-metrics
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: kube-state-metrics
+          image: {{ .Values.kubeStateMetrics.image }}
+          ports:
+            - containerPort: {{ .Values.kubeStateMetrics.service.port }}
+              name: metrics
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.kubeStateMetrics.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.kubeStateMetrics.service.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.kubeStateMetrics.resources | nindent 12 }}

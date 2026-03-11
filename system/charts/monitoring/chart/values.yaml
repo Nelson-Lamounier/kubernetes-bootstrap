@@ -1,0 +1,220 @@
+# @format
+# Default values for the monitoring-stack Helm chart.
+# Override per-environment via values-development.yaml / values-production.yaml.
+
+namespace: monitoring
+
+# ---------------------------------------------------------------------------
+# Admin Access Control
+# IPs provided by CI/CD pipeline via ArgoCD Helm parameter overrides.
+# ---------------------------------------------------------------------------
+adminAccess:
+  enabled: true
+  hostname: "ops.nelsonlamounier.com"
+  allowedIps: [] # Populated by pipeline: ALLOW_IPV4, ALLOW_IPV6
+
+# ---------------------------------------------------------------------------
+# Node Placement (applies to Deployments, NOT DaemonSets)
+# ---------------------------------------------------------------------------
+nodeSelector:
+  workload: monitoring
+
+# ---------------------------------------------------------------------------
+# Prometheus
+# ---------------------------------------------------------------------------
+prometheus:
+  image: prom/prometheus:v3.3.0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  pvc:
+    size: 10Gi
+    storageClass: "local-path"
+  retention: 15d
+  scrapeInterval: 30s
+  ingress:
+    enabled: true
+    matchRule: "PathPrefix(`/prometheus`)"
+# ---------------------------------------------------------------------------
+# Grafana
+# ---------------------------------------------------------------------------
+grafana:
+  image: grafana/grafana:11.6.0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  pvc:
+    size: 5Gi
+    storageClass: "local-path"
+  service:
+    port: 3000
+  ingress:
+    enabled: true
+    matchRule: "PathPrefix(`/grafana`)"
+  alerting:
+    snsTopicArn: ""
+    awsRegion: eu-west-1
+
+# ---------------------------------------------------------------------------
+# Loki (log aggregation)
+# ---------------------------------------------------------------------------
+loki:
+  image: grafana/loki:3.5.0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+  pvc:
+    size: 10Gi
+    storageClass: "local-path"
+  service:
+    port: 3100
+
+# ---------------------------------------------------------------------------
+# Tempo (distributed tracing)
+# ---------------------------------------------------------------------------
+tempo:
+  image: grafana/tempo:2.7.2
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+  pvc:
+    size: 10Gi
+    storageClass: "local-path"
+  service:
+    httpPort: 3200
+    otlpGrpcPort: 4317
+    otlpHttpPort: 4318
+
+# ---------------------------------------------------------------------------
+# Promtail (log shipper — DaemonSet)
+# ---------------------------------------------------------------------------
+promtail:
+  image: grafana/promtail:3.5.0
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ---------------------------------------------------------------------------
+# Node Exporter (host metrics — DaemonSet)
+# ---------------------------------------------------------------------------
+nodeExporter:
+  image: prom/node-exporter:v1.9.1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  service:
+    port: 9100
+
+# ---------------------------------------------------------------------------
+# Kube State Metrics
+# ---------------------------------------------------------------------------
+kubeStateMetrics:
+  image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.15.0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  service:
+    port: 8080
+
+# ---------------------------------------------------------------------------
+# GitHub Actions Exporter
+# ---------------------------------------------------------------------------
+githubActionsExporter:
+  image: ghcr.io/cpanato/github_actions_exporter:v0.8.0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  service:
+    port: 9101
+
+# ---------------------------------------------------------------------------
+# Steampipe (AWS compliance)
+# ---------------------------------------------------------------------------
+steampipe:
+  image: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/steampipe-aws:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1024Mi
+  service:
+    port: 9193
+  databasePassword: steampipe
+
+# ---------------------------------------------------------------------------
+# Grafana Alloy (Faro Collector — receives client-side RUM telemetry)
+# ---------------------------------------------------------------------------
+alloy:
+  image: grafana/alloy:v1.8.2
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 150m
+      memory: 128Mi
+  service:
+    httpPort: 12345
+    faroPort: 12347
+  ingress:
+    enabled: true
+    matchRule: "PathPrefix(`/faro`)"
+
+# ---------------------------------------------------------------------------
+# Resource Quota (namespace-level limits)
+# ---------------------------------------------------------------------------
+resourceQuota:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    persistentvolumeclaims: "10"
+
+# ---------------------------------------------------------------------------
+# Network Policy
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true

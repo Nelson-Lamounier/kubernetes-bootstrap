@@ -1,0 +1,45 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-allow-internal
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 9100
+          protocol: TCP
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 3100
+          protocol: TCP
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+    # Grafana and Prometheus need ipBlock instead of namespaceSelector
+    # because Traefik runs with hostNetwork: true — its traffic comes
+    # from the node IP, which doesn't match namespace-based selectors.
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 3000
+          protocol: TCP
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 9090
+          protocol: TCP
+{{- end }}

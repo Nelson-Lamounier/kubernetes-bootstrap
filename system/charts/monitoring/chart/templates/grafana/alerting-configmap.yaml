@@ -1,0 +1,504 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alerting
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "grafana" | nindent 4 }}
+data:
+  contactpoints.yaml: |
+    apiVersion: 1
+    contactPoints:
+{{- if .Values.grafana.alerting.snsTopicArn }}
+      - orgId: 1
+        name: sns
+        receivers:
+          - uid: sns-receiver
+            type: sns
+            settings:
+              topic_arn: "{{ .Values.grafana.alerting.snsTopicArn }}"
+              region: "{{ .Values.grafana.alerting.awsRegion }}"
+            disableResolveMessage: false
+{{- else }}
+      []
+{{- end }}
+
+  policies.yaml: |
+    apiVersion: 1
+    policies:
+{{- if .Values.grafana.alerting.snsTopicArn }}
+      - orgId: 1
+        receiver: sns
+        group_by:
+          - grafana_folder
+          - alertname
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+        routes:
+          - receiver: sns
+            matchers:
+              - severity = critical
+            continue: false
+          - receiver: sns
+            matchers:
+              - severity = warning
+            continue: false
+{{- else }}
+      []
+{{- end }}
+
+  rules.yaml: |
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: Cluster Health
+        folder: Infrastructure Alerts
+        interval: 1m
+        rules:
+          - uid: alert-node-down
+            title: Node Down
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: up{job="node-exporter"}
+                  refId: A
+              - refId: B
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: lt
+                        params: [1]
+                  refId: C
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Node exporter target is down"
+              description: "A node-exporter target has been unreachable for more than 2 minutes."
+
+          - uid: alert-high-cpu
+            title: High Node CPU Usage
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [85]
+                  refId: C
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage on {{ "{{$labels.instance}}" }}"
+              description: "CPU usage is above 85% for more than 5 minutes."
+
+          - uid: alert-high-memory
+            title: High Node Memory Usage
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [85]
+                  refId: C
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage on {{ "{{$labels.instance}}" }}"
+              description: "Memory usage is above 85% for more than 5 minutes."
+
+          - uid: alert-pod-crashloop
+            title: Pod CrashLooping
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 900
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [0]
+                  refId: C
+            for: 0s
+            labels:
+              severity: critical
+            annotations:
+              summary: "Pod {{ "{{$labels.namespace}}" }}/{{ "{{$labels.pod}}" }} is crash-looping"
+              description: "Container {{ "{{$labels.container}}" }} has restarted more than 3 times in 15 minutes."
+
+          - uid: alert-pod-not-ready
+            title: Pod Not Ready
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: kube_pod_status_ready{condition="true"} == 0
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: lt
+                        params: [1]
+                  refId: C
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ "{{$labels.namespace}}" }}/{{ "{{$labels.pod}}" }} is not ready"
+              description: "Pod has been in a non-ready state for more than 5 minutes."
+
+      - orgId: 1
+        name: Application Health
+        folder: Infrastructure Alerts
+        interval: 1m
+        rules:
+          - uid: alert-high-error-rate
+            title: High Application Error Rate
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: (sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))) * 100
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [5]
+                  refId: C
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Application error rate exceeds 5%"
+              description: "More than 5% of HTTP requests are returning 5xx errors for over 5 minutes."
+
+          - uid: alert-high-latency
+            title: High Application Latency (P95)
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [2]
+                  refId: C
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Application P95 latency exceeds 2 seconds"
+              description: "The 95th percentile HTTP request latency is above 2s for more than 5 minutes."
+
+      - orgId: 1
+        name: Storage Health
+        folder: Infrastructure Alerts
+        interval: 1m
+        rules:
+          - uid: alert-disk-space-low
+            title: Disk Space Low
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [80]
+                  refId: C
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Disk space above 80% on {{ "{{$labels.instance}}" }}"
+              description: "Filesystem {{ "{{$labels.mountpoint}}" }} is {{ "{{$labels.instance}}" }} above 80% usage."
+
+          - uid: alert-disk-space-critical
+            title: Disk Space Critical
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [90]
+                  refId: C
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "CRITICAL: Disk space above 90% on {{ "{{$labels.instance}}" }}"
+              description: "Filesystem {{ "{{$labels.mountpoint}}" }} on {{ "{{$labels.instance}}" }} is above 90% — immediate action required."
+
+          # ---------------------------------------------------------------
+          # DynamoDB & Tracing Alerts
+          # ---------------------------------------------------------------
+          - uid: alert-dynamodb-error-rate
+            title: DynamoDB Error Rate High
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: (sum(rate(traces_spanmetrics_calls_total{db_system="dynamodb", status="STATUS_CODE_ERROR"}[5m])) / sum(rate(traces_spanmetrics_calls_total{db_system="dynamodb"}[5m]))) * 100
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [5]
+                  refId: C
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "DynamoDB error rate above 5%"
+              description: "DynamoDB span error rate is {{ "{{$values.B.Value | printf \"%.1f\"}}" }}% — investigate failing operations."
+
+          - uid: alert-dynamodb-latency
+            title: DynamoDB P95 Latency High
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: histogram_quantile(0.95, sum by (le) (rate(traces_spanmetrics_duration_seconds_bucket{db_system="dynamodb"}[5m])))
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [1]
+                  refId: C
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "DynamoDB P95 latency above 1s"
+              description: "DynamoDB P95 latency is {{ "{{$values.B.Value | printf \"%.3f\"}}" }}s — possible capacity issue."
+
+          - uid: alert-span-ingestion-down
+            title: Span Ingestion Stopped
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: sum(rate(traces_spanmetrics_calls_total[5m]))
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: lt
+                        params: [0.001]
+                  refId: C
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "No spans ingested for 10 minutes"
+              description: "Span ingestion rate is near zero — check OTel SDK, Tempo, or network connectivity."

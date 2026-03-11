@@ -1,0 +1,55 @@
+# @format
+# ArgoCD Application: Notifications Controller
+#
+# Installs the ArgoCD Notifications engine which sends alerts
+# when Applications change sync/health status. Notifications
+# are delivered via configured services (Slack, webhook, email).
+#
+# The Notifications controller is bundled with ArgoCD since v2.6,
+# but its configuration (templates, triggers, services) must be
+# deployed explicitly.
+#
+# NOTE: This Application deploys the notifications config.
+#       Configure a notification target by adding a Slack webhook
+#       or GitHub commit-status token to the notification-secret.
+#       See: https://argo-cd.readthedocs.io/en/stable/operator-manual/notifications/
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-notifications
+  annotations:
+    kubernetes.io/description: "ArgoCD Notifications — alerts on sync/health state changes"
+    argocd.argoproj.io/sync-wave: "4"  # Wave 4: Cluster Utilities
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    app.kubernetes.io/component: notifications
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    # PRODUCTION: Change to 'main' when deploying to production.
+    targetRevision: develop
+    path: kubernetes-app/k8s-bootstrap/system/argocd-notifications
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

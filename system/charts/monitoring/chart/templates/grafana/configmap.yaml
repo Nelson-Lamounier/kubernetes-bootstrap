@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: {{.Values.namespace}}
+  labels: {{- include "monitoring.fullLabels" "grafana" | nindent 4}}
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        uid: prometheus
+        url: http://prometheus.{{ .Values.namespace }}.svc.cluster.local:9090/prometheus
+        isDefault: true
+        editable: false
+      - name: Loki
+        type: loki
+        access: proxy
+        uid: loki
+        url: http://loki.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.loki.service.port }}
+        editable: false
+        jsonData:
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: '"traceID":"(\w+)"'
+              name: TraceID
+              url: "$${__value.raw}"
+      - name: Tempo
+        type: tempo
+        access: proxy
+        uid: tempo
+        url: http://tempo.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.tempo.service.httpPort }}
+        editable: false
+        jsonData:
+          tracesToLogs:
+            datasourceUid: loki
+            tags: [job, instance]
+            mappedTags: [{key: service.name, value: service}]
+            mapTagNamesEnabled: true
+            filterByTraceID: true
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+      - name: CloudWatch
+        type: cloudwatch
+        access: proxy
+        uid: cloudwatch
+        editable: false
+        jsonData:
+          defaultRegion: eu-west-1
+          authType: default
+      - name: CloudWatch Edge (us-east-1)
+        type: cloudwatch
+        access: proxy
+        uid: cloudwatch-edge
+        editable: false
+        jsonData:
+          defaultRegion: us-east-1
+          authType: default
+      - name: Steampipe
+        type: postgres
+        access: proxy
+        uid: steampipe
+        editable: false
+        url: steampipe.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.steampipe.service.port }}
+        database: steampipe
+        user: steampipe
+        jsonData:
+          sslmode: disable
+          postgresVersion: 1400
+        secureJsonData:
+          password: "{{ .Values.steampipe.databasePassword }}"

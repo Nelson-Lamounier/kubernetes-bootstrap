@@ -1,0 +1,72 @@
+# @format
+# Development environment overrides — lower resource limits, smaller PVCs.
+
+prometheus:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 250m
+      memory: 512Mi
+  pvc:
+    size: 5Gi
+  retention: 7d
+  ingress:
+    enabled: true
+
+grafana:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 128m
+      memory: 128Mi
+  pvc:
+    size: 2Gi
+  ingress:
+    enabled: true
+
+loki:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 128m
+      memory: 256Mi
+  pvc:
+    size: 5Gi
+
+tempo:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 128m
+      memory: 256Mi
+  pvc:
+    size: 5Gi
+
+resourceQuota:
+  hard:
+    requests.cpu: "1500m"
+    requests.memory: 2Gi
+    limits.cpu: "3"
+    limits.memory: 4Gi
+    persistentvolumeclaims: "6"
+
+# Node Exporter — use port 9101 to avoid conflict with Traefik metrics (9100)
+nodeExporter:
+  service:
+    port: 9101
+
+# GitHub Actions Exporter
+githubActionsExporter:
+  replicas: 1
+
+# Steampipe — cloud inventory and compliance queries
+steampipe:
+  replicas: 1

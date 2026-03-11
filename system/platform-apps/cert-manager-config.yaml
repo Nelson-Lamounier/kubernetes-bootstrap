@@ -1,0 +1,51 @@
+# @format
+# ArgoCD Application: cert-manager Configuration
+#
+# Applies the ClusterIssuer and Certificate CRs AFTER cert-manager
+# controller is installed (Sync Wave 0). This Application syncs from
+# the Git repo directory containing the cert-manager config manifests.
+#
+# Sync Wave 1 ensures CRDs from the cert-manager Helm chart exist
+# before these CRs are applied.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  annotations:
+    kubernetes.io/description: "ClusterIssuer + Certificate CRs for Let's Encrypt TLS"
+    argocd.argoproj.io/sync-wave: "1"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    # PRODUCTION: Change to 'main' when deploying to production.
+    targetRevision: develop
+    path: kubernetes-app/k8s-bootstrap/system/cert-manager
+
+  destination:
+    server: https://kubernetes.default.svc
+    # ClusterIssuer is cluster-scoped; Certificate goes to kube-system
+    # (as specified in the Certificate CR's metadata.namespace)
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

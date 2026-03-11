@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: steampipe
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "steampipe" | nindent 4 }}
+spec:
+  replicas: {{ .Values.steampipe.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "steampipe" | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "monitoring.fullLabels" "steampipe" | nindent 8 }}
+    spec:
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: steampipe
+          image: {{ .Values.steampipe.image }}
+          command: ["steampipe", "service", "start", "--foreground", "--database-listen", "network", "--database-port", "{{ .Values.steampipe.service.port }}"]
+          env:
+            - name: STEAMPIPE_DATABASE_PASSWORD
+              value: "{{ .Values.steampipe.databasePassword }}"
+          ports:
+            - containerPort: {{ .Values.steampipe.service.port }}
+              name: http
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.steampipe.service.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.steampipe.service.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /home/steampipe/.steampipe/config/aws.spc
+              subPath: steampipe.spc
+          resources:
+            {{- toYaml .Values.steampipe.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: steampipe-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: steampipe
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "steampipe" | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "monitoring.selectorLabels" "steampipe" | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.steampipe.service.port }}
+      targetPort: {{ .Values.steampipe.service.port }}
+      protocol: TCP

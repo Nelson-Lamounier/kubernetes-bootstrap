@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "node-exporter" | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "monitoring.selectorLabels" "node-exporter" | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.nodeExporter.service.port }}
+      targetPort: {{ .Values.nodeExporter.service.port }}
+      protocol: TCP

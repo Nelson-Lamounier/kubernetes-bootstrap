@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: {{.Values.namespace}}
+  labels: {{- include "monitoring.fullLabels" "loki" | nindent 4}}
+spec:
+  replicas: {{.Values.loki.replicas}}
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "loki" | nindent 6}}
+  template:
+    metadata:
+      labels: {{- include "monitoring.fullLabels" "loki" | nindent 8}}
+    spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsNonRoot: true
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8}}
+      containers:
+        - name: loki
+          image: {{.Values.loki.image}}
+          args: ["-config.file=/etc/loki/loki.yaml"]
+          ports:
+            - containerPort: {{.Values.loki.service.port}}
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: data
+              mountPath: /loki
+          resources: {{- toYaml .Values.loki.resources | nindent 12}}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{.Values.loki.service.port}}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: {{.Values.loki.service.port}}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: loki-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: loki-data

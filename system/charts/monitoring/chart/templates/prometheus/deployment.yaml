@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: {{.Values.namespace}}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4}}
+spec:
+  replicas: {{.Values.prometheus.replicas}}
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "prometheus" | nindent 6}}
+  template:
+    metadata:
+      labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 8}}
+    spec:
+      serviceAccountName: prometheus
+      securityContext:
+        fsGroup: 65534
+        runAsUser: 65534
+        runAsNonRoot: true
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8}}
+      containers:
+        - name: prometheus
+          image: {{.Values.prometheus.image}}
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time={{ .Values.prometheus.retention }}"
+            - "--web.enable-lifecycle"
+            - "--web.external-url=/prometheus"
+            - "--web.enable-remote-write-receiver"
+            - "--enable-feature=exemplar-storage,native-histograms"
+          ports:
+            - containerPort: 9090
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+          resources: {{- toYaml .Values.prometheus.resources | nindent 12}}
+          readinessProbe:
+            httpGet:
+              path: /prometheus/-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /prometheus/-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: prometheus-data
