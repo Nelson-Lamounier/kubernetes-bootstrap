@@ -27,7 +27,7 @@ spec:
   source:
     repoURL: https://github.com/argoproj/argo-rollouts.git
     targetRevision: v1.7.2
-    path: manifests/install
+    path: manifests/cluster-install
 
   destination:
     server: https://kubernetes.default.svc
