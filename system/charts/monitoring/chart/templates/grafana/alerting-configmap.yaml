@@ -429,7 +429,7 @@ data:
               severity: critical
             annotations:
               summary: "DynamoDB error rate above 5%"
-              description: "DynamoDB span error rate is {{ "{{$values.B.Value | printf \"%.1f\"}}" }}% — investigate failing operations."
+              description: "DynamoDB span error rate is high - investigate failing operations."
 
           - uid: alert-dynamodb-latency
             title: DynamoDB P95 Latency High
@@ -465,7 +465,7 @@ data:
               severity: warning
             annotations:
               summary: "DynamoDB P95 latency above 1s"
-              description: "DynamoDB P95 latency is {{ "{{$values.B.Value | printf \"%.3f\"}}" }}s — possible capacity issue."
+              description: "DynamoDB P95 latency is elevated - possible capacity issue."
 
           - uid: alert-span-ingestion-down
             title: Span Ingestion Stopped
