@@ -290,20 +290,138 @@ def configure_argocd_server(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Step 5: Apply App-of-Apps root application
+# Step 4d: Configure custom resource health checks in argocd-cm
+# ---------------------------------------------------------------------------
+def configure_health_checks(cfg: Config) -> None:
+    """Patch argocd-cm with custom Lua health checks.
+
+    ArgoCD's default Deployment health check considers a Deployment "Healthy"
+    when at least one replica is available. This is too lenient — the monitoring
+    Application (wave 3) could be marked Healthy while Tempo is still rolling out.
+
+    Custom health checks ensure:
+      - Deployments: ALL replicas must be available AND the rollout must be
+        complete (NewReplicaSetAvailable).
+      - ConfigMaps: Always Healthy (prevents ArgoCD from blocking sync-waves
+        on ConfigMap-only changes like Tempo/Grafana config updates).
+    """
+    log("=== Step 4d: Configuring custom resource health checks ===")
+
+    if cfg.dry_run:
+        log("  [DRY-RUN] Would patch argocd-cm with custom health checks\n")
+        return
+
+    # Lua health check: Deployment is Healthy only when ALL replicas are available
+    # and the rollout is complete (Progressing condition = NewReplicaSetAvailable)
+    deployment_health_lua = """\
+hs = {}
+if obj.status ~= nil then
+  if obj.status.availableReplicas ~= nil and obj.spec.replicas ~= nil then
+    if obj.status.availableReplicas == obj.spec.replicas then
+      -- All replicas available, check rollout completion
+      if obj.status.conditions ~= nil then
+        for _, condition in ipairs(obj.status.conditions) do
+          if condition.type == "Progressing" and condition.reason == "NewReplicaSetAvailable" then
+            hs.status = "Healthy"
+            hs.message = "All replicas available and rollout complete"
+            return hs
+          end
+        end
+      end
+      hs.status = "Progressing"
+      hs.message = "Waiting for rollout to complete"
+      return hs
+    end
+  end
+  hs.status = "Progressing"
+  hs.message = "Waiting for all replicas to be available"
+  return hs
+end
+hs.status = "Progressing"
+hs.message = "Waiting for status"
+return hs"""
+
+    # ConfigMap: always Healthy (no runtime state to check)
+    configmap_health_lua = """\
+hs = {}
+hs.status = "Healthy"
+hs.message = ""
+return hs"""
+
+    # Argo Rollouts Rollout: map phase/status to ArgoCD health
+    rollout_health_lua = """\
+hs = {}
+if obj.status ~= nil then
+  if obj.status.phase == "Healthy" then
+    hs.status = "Healthy"
+    hs.message = "Rollout is fully promoted"
+    return hs
+  end
+  if obj.status.phase == "Paused" then
+    hs.status = "Suspended"
+    hs.message = obj.status.message or "Rollout is paused"
+    return hs
+  end
+  if obj.status.phase == "Degraded" or obj.status.phase == "Abort" then
+    hs.status = "Degraded"
+    hs.message = obj.status.message or "Rollout failed"
+    return hs
+  end
+  hs.status = "Progressing"
+  hs.message = obj.status.message or "Rollout in progress"
+  return hs
+end
+hs.status = "Progressing"
+hs.message = "Waiting for rollout status"
+return hs"""
+
+    patch = json.dumps({"data": {
+        "resource.customizations.health.apps_Deployment": deployment_health_lua,
+        "resource.customizations.health._ConfigMap": configmap_health_lua,
+        "resource.customizations.health.argoproj.io_Rollout": rollout_health_lua,
+    }})
+
+    result = run(
+        ["kubectl", "patch", "configmap", "argocd-cm", "-n", "argocd",
+         "--type", "merge", "-p", patch],
+        cfg=cfg, check=False,
+    )
+
+    if result.returncode == 0:
+        log("  ✓ Custom health checks added to argocd-cm:")
+        log("    - apps/Deployment: requires ALL replicas available + rollout complete")
+        log("    - ConfigMap: always Healthy (prevents sync-wave blocking)")
+        log("    - argoproj.io/Rollout: maps phase to ArgoCD health status")
+    else:
+        log("  ⚠ Failed to patch argocd-cm with health checks")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
+# Step 5: Apply App-of-Apps root applications (platform + workloads)
 # ---------------------------------------------------------------------------
 def apply_root_app(cfg: Config) -> None:
-    log("=== Step 5: Applying App-of-Apps root ===")
+    """Apply the two App-of-Apps root applications.
+
+    The monolithic root-app.yaml was split into two root apps:
+      - platform-root-app.yaml → discovers platform/argocd-apps/ (waves 0–4)
+      - workloads-root-app.yaml → discovers workloads/argocd-apps/ (wave 5+)
+
+    Platform root must be healthy before workloads root triggers business app syncs.
+    """
+    log("=== Step 5: Applying App-of-Apps roots (platform + workloads) ===")
     argocd_path = Path(cfg.argocd_dir)
 
-    root_app = argocd_path / "root-app.yaml"
-    if root_app.exists():
-        log(f"  → Applying App-of-Apps root: {root_app.name}")
-        run(["kubectl", "apply", "-f", str(root_app)], cfg=cfg)
-    else:
-        log(f"  ⚠ root-app.yaml not found at {root_app}")
+    for root_name in ("platform-root-app.yaml", "workloads-root-app.yaml"):
+        root_app = argocd_path / root_name
+        if root_app.exists():
+            log(f"  → Applying {root_name}")
+            run(["kubectl", "apply", "-f", str(root_app)], cfg=cfg)
+        else:
+            log(f"  ⚠ {root_name} not found at {root_app}")
 
-    log("✓ App-of-Apps root applied\n")
+    log("✓ App-of-Apps roots applied\n")
 
 
 # ---------------------------------------------------------------------------
@@ -754,6 +872,9 @@ def main() -> None:
 
     # Step 4c: Configure ArgoCD server for Traefik sub-path routing
     configure_argocd_server(cfg)
+
+    # Step 4d: Custom health checks (stricter Deployment readiness, ConfigMap always-healthy)
+    configure_health_checks(cfg)
 
     # Step 5: App-of-Apps root (triggers Traefik install via ArgoCD)
     apply_root_app(cfg)

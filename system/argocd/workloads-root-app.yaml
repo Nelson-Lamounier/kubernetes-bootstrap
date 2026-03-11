@@ -1,0 +1,51 @@
+# @format
+# ArgoCD Workloads Root Application — Business Apps App-of-Apps
+#
+# Discovers and manages all WORKLOAD Application manifests (wave 5+):
+#   - Business applications (nextjs)
+#
+# Deployed AFTER the platform root app, ensuring all infrastructure
+# is healthy before business apps start.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workloads-root
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "Workloads App-of-Apps — manages business Application deployments (wave 5+)"
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    app.kubernetes.io/component: app-of-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    # PRODUCTION: Change to 'main' when deploying to production.
+    targetRevision: develop
+    path: kubernetes-app/workloads/argocd-apps
+    directory:
+      recurse: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

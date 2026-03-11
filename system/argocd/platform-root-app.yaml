@@ -1,0 +1,53 @@
+# @format
+# ArgoCD Platform Root Application — Infrastructure App-of-Apps
+#
+# Discovers and manages all PLATFORM Application manifests (waves 0–4):
+#   - TLS (cert-manager, cert-manager-config)
+#   - Ingress (traefik)
+#   - Observability (monitoring, metrics-server, argo-rollouts)
+#   - Utilities (ecr-token-refresh, argocd-image-updater, argocd-notifications, local-path-provisioner)
+#
+# Must be 100% healthy before the workloads root app deploys business apps.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-root
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "Platform App-of-Apps — manages infrastructure Applications (waves 0–4)"
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    app.kubernetes.io/component: app-of-apps
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    # PRODUCTION: Change to 'main' when deploying to production.
+    targetRevision: develop
+    path: kubernetes-app/platform/argocd-apps
+    directory:
+      recurse: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
