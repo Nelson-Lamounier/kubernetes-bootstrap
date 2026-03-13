@@ -317,6 +317,26 @@ class StepRunner:
 
 
 # =============================================================================
+# IMDS v2 Helper
+# =============================================================================
+
+def get_imds_value(path: str) -> str:
+    """Fetch a value from EC2 Instance Metadata Service v2."""
+    token = run_cmd(
+        ["curl", "-sX", "PUT", "http://169.254.169.254/latest/api/token",
+         "-H", "X-aws-ec2-metadata-token-ttl-seconds: 21600"],
+        check=True,
+    ).stdout.strip()
+
+    result = run_cmd(
+        ["curl", "-s", "-H", f"X-aws-ec2-metadata-token: {token}",
+         f"http://169.254.169.254/latest/meta-data/{path}"],
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+# =============================================================================
 # ECR Credential Provider
 # =============================================================================
 
