@@ -111,7 +111,7 @@ logs:
 # on ALL nodes via etcd, not just the node with the EBS volume.
 #
 # cert-manager handles:
-#   - ACME HTTP-01 challenge (via Traefik web entrypoint, port 80)
+#   - ACME DNS-01 challenge (TXT record in Route 53 public hosted zone)
 #   - Certificate issuance and renewal (30 days before expiry)
 #   - Storage as kubernetes.io/tls Secret
 #

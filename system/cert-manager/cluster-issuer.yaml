@@ -1,21 +1,30 @@
 # @format
-# cert-manager ClusterIssuer: Let's Encrypt (HTTP-01)
+# cert-manager ClusterIssuer: Let's Encrypt (DNS-01 via Route 53)
 #
-# Uses the HTTP-01 challenge solver via Traefik's web entrypoint (port 80).
-# HTTP-01 was chosen over DNS-01 because:
-#   - Port 80 is already open in the Security Group (for CloudFront + LE)
-#   - No Route 53 API credentials needed (simpler IAM)
-#   - Same challenge type as the previous Traefik ACME config
+# Uses the DNS-01 challenge solver via cross-account Route 53.
+# DNS-01 was chosen over HTTP-01 because:
+#   - Traefik uses hostNetwork:true + EIP, causing hairpin NAT failure
+#     (cert-manager self-check can't reach the EIP from inside the cluster)
+#   - DNS-01 creates a TXT record in Route 53 — no HTTP connectivity needed
+#   - Works for privately accessible domains (ops.* is not publicly routable)
+#
+# This is a TEMPLATE file. During bootstrap, the placeholders are replaced
+# with actual values from SSM parameters written by CDK:
+#   - ${PUBLIC_HOSTED_ZONE_ID} → from SSM: ${SSM_PREFIX}/public-hosted-zone-id
+#   - ${CROSS_ACCOUNT_DNS_ROLE_ARN} → from SSM: ${SSM_PREFIX}/cross-account-dns-role-arn
 #
 # ClusterIssuer (not namespaced Issuer) so that Certificate CRs in
 # any namespace can reference it.
+#
+# Applied during bootstrap via bootstrap_argocd.py Step 5d.
+# NOT managed by ArgoCD (ArgoCD would overwrite the templated values).
 
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt
   annotations:
-    kubernetes.io/description: "Let's Encrypt production issuer via HTTP-01 challenge"
+    kubernetes.io/description: "Let's Encrypt production issuer via DNS-01 challenge (Route 53)"
 spec:
   acme:
     # Let's Encrypt production endpoint
@@ -29,9 +38,12 @@ spec:
       name: letsencrypt-account-key
 
     solvers:
-      - http01:
-          ingress:
-            # cert-manager creates temporary Ingress resources for the challenge.
-            # Traefik (as the cluster ingress controller) will route
-            # /.well-known/acme-challenge/* to the solver pod automatically.
-            ingressClassName: traefik
+      - dns01:
+          route53:
+            # Region where the Route 53 hosted zone is accessible
+            region: eu-west-1
+            # Public hosted zone ID (injected from SSM during bootstrap)
+            hostedZoneID: ${PUBLIC_HOSTED_ZONE_ID}
+            # Cross-account role ARN (injected from SSM during bootstrap)
+            # cert-manager assumes this role via the EC2 instance profile
+            role: ${CROSS_ACCOUNT_DNS_ROLE_ARN}

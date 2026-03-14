@@ -598,6 +598,97 @@ def seed_ecr_credentials(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 5d: Apply cert-manager ClusterIssuer (DNS-01 via Route 53)
+# ---------------------------------------------------------------------------
+def apply_cert_manager_issuer(cfg: Config) -> None:
+    """Apply the cert-manager ClusterIssuer with DNS-01 Route 53 solver.
+
+    Reads the public hosted zone ID and cross-account DNS role ARN from SSM
+    (written by CDK control-plane-stack) and creates the ClusterIssuer
+    manifest inline via kubectl apply.
+
+    This step runs during bootstrap instead of being managed by ArgoCD
+    because the ClusterIssuer contains environment-specific values that
+    can't be templated in Git without a Helm chart or Kustomize overlay.
+
+    DNS-01 was chosen over HTTP-01 because Traefik's hostNetwork:true + EIP
+    causes hairpin NAT failure — cert-manager's self-check can't reach the
+    EIP from inside the cluster.
+    """
+    log("=== Step 5d: Applying cert-manager ClusterIssuer (DNS-01) ===")
+
+    if cfg.dry_run:
+        log("  [DRY-RUN] Would read SSM params and apply ClusterIssuer with DNS-01\n")
+        return
+
+    # Read DNS-01 config from SSM (written by CDK control-plane-stack)
+    public_hz_id: Optional[str] = None
+    dns_role_arn: Optional[str] = None
+
+    try:
+        ssm = get_ssm_client(cfg)
+
+        try:
+            resp = ssm.get_parameter(Name=f"{cfg.ssm_prefix}/public-hosted-zone-id")
+            public_hz_id = resp["Parameter"]["Value"]
+            log(f"  ✓ Public Hosted Zone ID: {public_hz_id}")
+        except Exception as e:
+            log(f"  ⚠ Public Hosted Zone ID not found in SSM — {e}")
+
+        try:
+            resp = ssm.get_parameter(Name=f"{cfg.ssm_prefix}/cross-account-dns-role-arn")
+            dns_role_arn = resp["Parameter"]["Value"]
+            log(f"  ✓ Cross-Account DNS Role: {dns_role_arn}")
+        except Exception as e:
+            log(f"  ⚠ Cross-Account DNS Role ARN not found in SSM — {e}")
+
+    except Exception as e:
+        log(f"  ⚠ Failed to read SSM parameters — {e}")
+
+    if not public_hz_id or not dns_role_arn:
+        log("  ⚠ Missing DNS-01 config — falling back to template file")
+        log("    Ensure CDK deployed with HOSTED_ZONE_ID and CROSS_ACCOUNT_ROLE_ARN env vars")
+        log("    Then re-run bootstrap or apply ClusterIssuer manually\n")
+        return
+
+    # Apply ClusterIssuer with DNS-01 Route 53 solver
+    manifest = f"""apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+  annotations:
+    kubernetes.io/description: "Let's Encrypt production issuer via DNS-01 challenge (Route 53)"
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: lamounierleao2025@outlook.com
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - dns01:
+          route53:
+            region: {cfg.aws_region}
+            hostedZoneID: {public_hz_id}
+            role: {dns_role_arn}
+"""
+
+    result = subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=manifest, text=True, capture_output=True,
+        env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+    )
+
+    if result.returncode == 0:
+        log("  ✓ ClusterIssuer 'letsencrypt' applied with DNS-01 solver")
+    else:
+        log(f"  ⚠ Failed to apply ClusterIssuer: {result.stderr.strip()}")
+        log("    cert-manager CRDs may not be installed yet — ArgoCD will sync them")
+        log("    Re-run bootstrap after cert-manager is healthy")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
 # Step 7: Apply ArgoCD ingress (after ArgoCD is ready and syncing Traefik)
 # ---------------------------------------------------------------------------
 def apply_ingress(cfg: Config) -> None:
@@ -1000,6 +1091,9 @@ def main() -> None:
 
     # Step 5c: Seed ECR credentials (Day-1 — CronJob hasn't fired yet)
     seed_ecr_credentials(cfg)
+
+    # Step 5d: Apply cert-manager ClusterIssuer with DNS-01 solver (from SSM)
+    apply_cert_manager_issuer(cfg)
 
     # Step 6: Wait for ArgoCD readiness (must be running before Traefik syncs)
     wait_for_argocd(cfg)
