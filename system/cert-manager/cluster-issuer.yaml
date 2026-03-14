@@ -1,6 +1,17 @@
 # @format
 # cert-manager ClusterIssuer: Let's Encrypt (DNS-01 via Route 53)
 #
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║  ⚠️  REFERENCE TEMPLATE ONLY — NOT SYNCED BY ARGOCD  ⚠️      ║
+# ║                                                               ║
+# ║  The actual ClusterIssuer is created by bootstrap_argocd.py   ║
+# ║  Step 5d, which reads SSM parameters and injects real values  ║
+# ║  for the placeholders below.                                  ║
+# ║                                                               ║
+# ║  The ArgoCD cert-manager-config Application syncs from        ║
+# ║  platform/cert-manager-config/ (Certificate CR only).         ║
+# ╚═══════════════════════════════════════════════════════════════╝
+#
 # Uses the DNS-01 challenge solver via cross-account Route 53.
 # DNS-01 was chosen over HTTP-01 because:
 #   - Traefik uses hostNetwork:true + EIP, causing hairpin NAT failure
