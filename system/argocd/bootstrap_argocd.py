@@ -684,6 +684,47 @@ spec:
         log(f"  ⚠ Failed to apply ClusterIssuer: {result.stderr.strip()}")
         log("    cert-manager CRDs may not be installed yet — ArgoCD will sync them")
         log("    Re-run bootstrap after cert-manager is healthy")
+        log("")
+        return
+
+    # Remove ArgoCD tracking annotation so selfHeal doesn't overwrite this resource.
+    # The cert-manager-config Application now syncs from platform/cert-manager-config/
+    # which only contains the Certificate CR — the ClusterIssuer is bootstrap-managed.
+    run(
+        ["kubectl", "annotate", "clusterissuer", "letsencrypt",
+         "argocd.argoproj.io/tracking-id-", "--overwrite"],
+        cfg=cfg, check=False,
+    )
+
+    # Clean up stale cert-manager resources from previous failed attempts.
+    # If the ClusterIssuer previously had invalid config (e.g., unresolved
+    # template placeholders), challenges and orders will be stuck with
+    # finalizers that can't clean up. Removing finalizers + deleting allows
+    # cert-manager to re-issue with the corrected DNS-01 solver.
+    log("  → Cleaning up stale cert-manager resources...")
+    for resource in ("challenge", "order", "certificaterequest"):
+        # First remove finalizers from stuck resources
+        list_result = run(
+            ["kubectl", "get", resource, "-n", "kube-system",
+             "-o", "jsonpath={.items[*].metadata.name}"],
+            cfg=cfg, check=False, capture=True,
+        )
+        if list_result.returncode == 0 and list_result.stdout.strip():
+            for name in list_result.stdout.strip().split():
+                run(
+                    ["kubectl", "patch", resource, name, "-n", "kube-system",
+                     "--type", "merge", "-p", '{"metadata":{"finalizers":null}}'],
+                    cfg=cfg, check=False,
+                )
+            # Now delete them
+            run(
+                ["kubectl", "delete", resource, "--all", "-n", "kube-system",
+                 "--timeout=30s"],
+                cfg=cfg, check=False,
+            )
+            log(f"    ✓ Cleaned up stale {resource}(s)")
+        else:
+            log(f"    - No stale {resource}(s) found")
 
     log("")
 
