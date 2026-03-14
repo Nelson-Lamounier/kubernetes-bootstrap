@@ -19,6 +19,7 @@ Steps:
   4b. Create default AppProject (required in ArgoCD v3.x)
   4c. Configure ArgoCD server (rootpath + insecure for Traefik)
   5.  Apply App-of-Apps root application
+  5c. Seed ECR credentials (Day-1 — CronJob hasn't fired yet)
   6.  Wait for ArgoCD server readiness
   7.  Apply ArgoCD ingress (needs Traefik CRDs from ArgoCD sync)
   8.  Install ArgoCD CLI
@@ -512,6 +513,91 @@ def inject_monitoring_helm_params(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 5c: Seed ECR credentials (Day-1 bootstrap)
+# ---------------------------------------------------------------------------
+def seed_ecr_credentials(cfg: Config) -> None:
+    """Create the initial ecr-credentials secret for ArgoCD Image Updater.
+
+    The ecr-token-refresh CronJob (deployed by ArgoCD wave 4) refreshes
+    ECR credentials every 6 hours, but won't fire until its next schedule
+    boundary (up to 6h after creation). ArgoCD Image Updater starts
+    immediately and needs valid ECR credentials from its first poll.
+
+    This step seeds the secret once during bootstrap; the CronJob takes
+    over ongoing rotation from there.
+
+    Credential source: EC2 instance profile (IMDS) — same as the CronJob.
+    """
+    log("=== Step 5c: Seeding ECR Credentials (Day-1) ===")
+
+    ecr_registry = f"771826808455.dkr.ecr.{cfg.aws_region}.amazonaws.com"
+
+    if cfg.dry_run:
+        log(f"  [DRY-RUN] Would seed ecr-credentials secret for {ecr_registry}\n")
+        return
+
+    # 1. Get ECR authorization token via AWS CLI (uses instance profile)
+    result = run(
+        ["aws", "ecr", "get-login-password", "--region", cfg.aws_region],
+        cfg=cfg, check=False, capture=True,
+    )
+    ecr_token = result.stdout.strip() if result.returncode == 0 else ""
+
+    if not ecr_token:
+        log("  ⚠ Failed to get ECR token — Image Updater will 401 until CronJob fires")
+        log("    (ecr-token-refresh CronJob will create the secret on its first run)\n")
+        return
+
+    log("  ✓ ECR authorization token obtained")
+
+    # 2. Build dockerconfigjson and create the K8s secret
+    try:
+        from kubernetes import client, config as k8s_config
+
+        k8s_config.load_kube_config(config_file=cfg.kubeconfig)
+        v1 = client.CoreV1Api()
+
+        # Build the Docker config JSON structure
+        auth_str = base64.b64encode(f"AWS:{ecr_token}".encode()).decode()
+        docker_config = json.dumps({
+            "auths": {
+                ecr_registry: {"auth": auth_str}
+            }
+        })
+        config_b64 = base64.b64encode(docker_config.encode()).decode()
+
+        secret = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name="ecr-credentials",
+                namespace="argocd",
+                labels={
+                    "app.kubernetes.io/managed-by": "ecr-token-refresh",
+                    "app.kubernetes.io/part-of": "argocd",
+                },
+            ),
+            data={".dockerconfigjson": config_b64},
+            type="kubernetes.io/dockerconfigjson",
+        )
+
+        try:
+            v1.create_namespaced_secret("argocd", secret)
+            log("  ✓ ecr-credentials secret created (seed)")
+        except client.exceptions.ApiException as e:
+            if e.status == 409:
+                v1.replace_namespaced_secret("ecr-credentials", "argocd", secret)
+                log("  ✓ ecr-credentials secret updated (seed)")
+            else:
+                raise
+
+        log(f"  ✓ Image Updater can now authenticate to {ecr_registry}")
+    except Exception as e:
+        log(f"  ⚠ Failed to seed ecr-credentials: {e}")
+        log("    (ecr-token-refresh CronJob will create the secret on its first run)")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
 # Step 7: Apply ArgoCD ingress (after ArgoCD is ready and syncing Traefik)
 # ---------------------------------------------------------------------------
 def apply_ingress(cfg: Config) -> None:
@@ -739,8 +825,33 @@ def create_ci_bot(cfg: Config) -> None:
     else:
         log("  ⚠ Failed to patch argocd-rbac-cm")
 
-    # Wait for ConfigMap pickup
-    time.sleep(5)
+    # Restart argocd-server so it picks up the new ci-bot account from argocd-cm.
+    # Without this restart, the server won't recognize the ci-bot token and the
+    # verify job's health check will fail with HTTP 401.
+    # Note: Step 10 generates the token using --core mode (talks to K8s API
+    # directly), so the token IS valid — but the server must also know about
+    # the account to accept it when the CI pipeline queries the API.
+    log("  → Restarting argocd-server to load ci-bot account...")
+    result = run(
+        ["kubectl", "rollout", "restart", "deployment/argocd-server",
+         "-n", "argocd"],
+        cfg=cfg, check=False,
+    )
+    if result.returncode == 0:
+        log("  ✓ argocd-server restart triggered")
+        # Wait for the new pods to be ready before generating the token
+        result = run(
+            ["kubectl", "rollout", "status", "deployment/argocd-server",
+             "-n", "argocd", f"--timeout={cfg.argo_timeout}s"],
+            cfg=cfg, check=False,
+        )
+        if result.returncode == 0:
+            log("  ✓ argocd-server rollout complete — ci-bot account loaded")
+        else:
+            log(f"  ⚠ argocd-server rollout not ready within {cfg.argo_timeout}s")
+    else:
+        log("  ⚠ Failed to restart argocd-server — token may not work for health check")
+
     log("")
 
 
@@ -886,6 +997,9 @@ def main() -> None:
 
     # Step 5b: Inject SNS topic ARN + admin IP allowlist into monitoring Application
     inject_monitoring_helm_params(cfg)
+
+    # Step 5c: Seed ECR credentials (Day-1 — CronJob hasn't fired yet)
+    seed_ecr_credentials(cfg)
 
     # Step 6: Wait for ArgoCD readiness (must be running before Traefik syncs)
     wait_for_argocd(cfg)
