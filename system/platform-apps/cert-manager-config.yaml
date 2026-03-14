@@ -1,19 +1,25 @@
 # @format
 # ArgoCD Application: cert-manager Configuration
 #
-# Applies the ClusterIssuer and Certificate CRs AFTER cert-manager
-# controller is installed (Sync Wave 0). This Application syncs from
-# the Git repo directory containing the cert-manager config manifests.
+# Applies the Certificate CR AFTER cert-manager controller is installed
+# (Sync Wave 0). This Application syncs from the platform/cert-manager-config
+# directory, which contains ONLY the Certificate CR.
+#
+# The ClusterIssuer is NOT managed by ArgoCD — it is created by
+# bootstrap_argocd.py (Step 5d) with SSM-injected values (Route 53
+# hosted zone ID and cross-account DNS role ARN). ArgoCD must not
+# overwrite it, which is why the ClusterIssuer template lives
+# separately in k8s-bootstrap/system/cert-manager/ (reference only).
 #
 # Sync Wave 1 ensures CRDs from the cert-manager Helm chart exist
-# before these CRs are applied.
+# before Certificate CRs are applied.
 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: cert-manager-config
   annotations:
-    kubernetes.io/description: "ClusterIssuer + Certificate CRs for Let's Encrypt TLS"
+    kubernetes.io/description: "Certificate CRs for Let's Encrypt TLS (ClusterIssuer managed by bootstrap)"
     argocd.argoproj.io/sync-wave: "1"
   namespace: argocd
   labels:
@@ -27,12 +33,11 @@ spec:
     repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
     # PRODUCTION: Change to 'main' when deploying to production.
     targetRevision: develop
-    path: kubernetes-app/k8s-bootstrap/system/cert-manager
+    path: kubernetes-app/platform/cert-manager-config
 
   destination:
     server: https://kubernetes.default.svc
-    # ClusterIssuer is cluster-scoped; Certificate goes to kube-system
-    # (as specified in the Certificate CR's metadata.namespace)
+    # Certificate goes to kube-system (as specified in the CR's metadata.namespace)
     namespace: kube-system
 
   syncPolicy:
