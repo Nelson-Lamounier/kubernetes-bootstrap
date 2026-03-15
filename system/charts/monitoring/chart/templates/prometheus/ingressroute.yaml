@@ -20,6 +20,5 @@ spec:
       services:
         - name: prometheus
           port: 9090
-  tls:
-    secretName: ops-tls-cert
+  tls: {}
 {{- end }}
