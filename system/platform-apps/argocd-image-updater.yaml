@@ -63,6 +63,14 @@ spec:
             cpu: 100m
             memory: 128Mi
 
+        # --- Node placement (dedicated ArgoCD Spot node) ---
+        nodeSelector:
+          workload: argocd
+        tolerations:
+          - key: workload
+            value: argocd
+            effect: NoSchedule
+
         # --- Metrics ---
         metrics:
           enabled: true
