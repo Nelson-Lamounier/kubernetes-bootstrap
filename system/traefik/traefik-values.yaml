@@ -35,10 +35,15 @@ updateStrategy:
 # Bind directly to node network — ports 80/443 available as-is
 hostNetwork: true
 
-# Run on ALL nodes including control plane (required for EIP failover)
+# Run on ALL nodes including control plane and ArgoCD
+# (required for EIP failover and ArgoCD node direct traffic)
 tolerations:
   - key: node-role.kubernetes.io/control-plane
     operator: Exists
+    effect: NoSchedule
+  - key: workload
+    value: argocd
+    operator: Equal
     effect: NoSchedule
 
 # Entry points (bound to host network — port IS the host port)
