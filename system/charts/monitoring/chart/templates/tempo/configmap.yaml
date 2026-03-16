@@ -56,7 +56,6 @@ data:
       registry:
         external_labels:
           source: tempo
-        max_active_series: 10000
       storage:
         path: /var/tempo/generator/wal
         remote_write:
