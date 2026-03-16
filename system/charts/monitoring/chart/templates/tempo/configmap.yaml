@@ -56,12 +56,9 @@ data:
       registry:
         external_labels:
           source: tempo
+        max_active_series: 10000
       storage:
         path: /var/tempo/generator/wal
         remote_write:
           - url: http://prometheus.{{ .Values.namespace }}.svc.cluster.local:9090/prometheus/api/v1/write
             send_exemplars: true
-    overrides:
-      defaults:
-        metrics_generator:
-          max_active_series: 10000

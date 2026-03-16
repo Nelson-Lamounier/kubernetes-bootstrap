@@ -42,14 +42,18 @@ spec:
             httpGet:
               path: /ready
               port: {{.Values.tempo.service.httpPort}}
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /ready
               port: {{.Values.tempo.service.httpPort}}
-            initialDelaySeconds: 30
-            periodSeconds: 15
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
       volumes:
         - name: config
           configMap:
