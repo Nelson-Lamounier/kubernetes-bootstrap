@@ -53,7 +53,6 @@ data:
             - http.route
             - status
           enable_target_info: true
-      max_active_series: 10000
       registry:
         external_labels:
           source: tempo
@@ -62,3 +61,7 @@ data:
         remote_write:
           - url: http://prometheus.{{ .Values.namespace }}.svc.cluster.local:9090/prometheus/api/v1/write
             send_exemplars: true
+    overrides:
+      defaults:
+        metrics_generator:
+          max_active_series: 10000
