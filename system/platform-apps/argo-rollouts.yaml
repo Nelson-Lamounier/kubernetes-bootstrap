@@ -24,6 +24,16 @@ metadata:
 spec:
   project: default
 
+  # Ignore CRD drift — Kubernetes auto-populates fields (status, conversion,
+  # annotations) that will never match the upstream Git source exactly.
+  ignoreDifferences:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      jsonPointers:
+        - /status
+        - /spec/conversion
+        - /metadata/annotations
+
   source:
     repoURL: https://github.com/argoproj/argo-rollouts.git
     targetRevision: v1.7.2
@@ -42,6 +52,7 @@ spec:
       - CreateNamespace=true
       - PruneLast=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 3
       backoff:
