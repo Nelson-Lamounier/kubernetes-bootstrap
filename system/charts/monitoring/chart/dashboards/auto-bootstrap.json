@@ -1,0 +1,649 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "End-to-end trace of the auto-bootstrap pipeline: EventBridge → Lambda → SSM Automation. Tracks instance replacements across all 4 K8s node roles.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Auto-Bootstrap Lambda — Metrics",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "scheme",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Errors" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Invocations" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 10, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "FunctionName": ["k8s-dev-auto-bootstrap"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "Invocations",
+          "namespace": "AWS/Lambda",
+          "period": "300",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statistic": "Sum",
+          "label": "Invocations"
+        },
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "FunctionName": ["k8s-dev-auto-bootstrap"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "Errors",
+          "namespace": "AWS/Lambda",
+          "period": "300",
+          "queryMode": "Metrics",
+          "refId": "B",
+          "region": "eu-west-1",
+          "statistic": "Sum",
+          "label": "Errors"
+        }
+      ],
+      "title": "Invocations vs Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 10, "x": 10, "y": 1 },
+      "id": 2,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "FunctionName": ["k8s-dev-auto-bootstrap"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "Duration",
+          "namespace": "AWS/Lambda",
+          "period": "300",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statistic": "Average",
+          "label": "Avg Duration"
+        },
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "FunctionName": ["k8s-dev-auto-bootstrap"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "Duration",
+          "namespace": "AWS/Lambda",
+          "period": "300",
+          "queryMode": "Metrics",
+          "refId": "B",
+          "region": "eu-west-1",
+          "statistic": "p99",
+          "label": "p99 Duration"
+        }
+      ],
+      "title": "Duration (Avg / p99)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["sum"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "FunctionName": ["k8s-dev-auto-bootstrap"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "Errors",
+          "namespace": "AWS/Lambda",
+          "period": "86400",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statistic": "Sum"
+        }
+      ],
+      "title": "Total Errors",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 5 },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["sum"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "FunctionName": ["k8s-dev-auto-bootstrap"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "Invocations",
+          "namespace": "AWS/Lambda",
+          "period": "86400",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statistic": "Sum"
+        }
+      ],
+      "title": "Total Invocations",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "id": 200,
+      "title": "Lambda Execution Logs — Trace Detail",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 10 },
+      "id": 5,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| filter @message like /Instance launched|Started .* automation|Updated SSM|ERROR|AccessDeniedException/\n| sort @timestamp desc\n| limit 200",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/k8s-dev-auto-bootstrap", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Auto-Bootstrap Lambda Logs (filtered)",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "role" },
+            "properties": [
+              { "id": "custom.width", "value": 130 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "instanceId" },
+            "properties": [
+              { "id": "custom.width", "value": 180 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "executionId" },
+            "properties": [
+              { "id": "custom.width", "value": 310 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 18 },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": true, "fields": "", "reducer": ["count"], "show": true },
+        "showHeader": true,
+        "sortBy": [
+          { "desc": true, "displayName": "@timestamp" }
+        ]
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message\n| filter @message like /Started .* automation for/\n| parse @message \"Started * automation for *: *\" as role, instanceId, executionId\n| display @timestamp, role, instanceId, executionId\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/k8s-dev-auto-bootstrap", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Automation Executions Trace (Parsed)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 },
+      "id": 300,
+      "title": "EventBridge Rule Activity",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "scheme",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Failed Invocations" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Triggered Rules" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "RuleName": ["k8s-dev-auto-bootstrap"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "TriggeredRules",
+          "namespace": "AWS/Events",
+          "period": "300",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statistic": "Sum",
+          "label": "Triggered Rules"
+        },
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "RuleName": ["k8s-dev-auto-bootstrap"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "FailedInvocations",
+          "namespace": "AWS/Events",
+          "period": "300",
+          "queryMode": "Metrics",
+          "refId": "B",
+          "region": "eu-west-1",
+          "statistic": "Sum",
+          "label": "Failed Invocations"
+        }
+      ],
+      "title": "EventBridge Rule — Triggers & Failures",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "scheme",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "RuleName": ["k8s-dev-auto-bootstrap"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "InvocationAttemptLatency",
+          "namespace": "AWS/Events",
+          "period": "300",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statistic": "Average",
+          "label": "Avg Latency"
+        }
+      ],
+      "title": "EventBridge → Lambda Delivery Latency",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+      "id": 400,
+      "title": "SSM Automation — Execution Logs",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "id": 9,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "SSM Bootstrap Execution Output",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "id": 10,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| filter @message like /(?i)error|fail|exception|timeout|denied/\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "SSM Bootstrap Errors Only",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "scheme",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 44 },
+      "id": 11,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message\n| filter @message like /Started .* automation for/\n| parse @message \"Started * automation for *: *\" as role, instanceId, executionId\n| stats count(*) as executions by bin(1h), role\n| sort bin(1h) desc",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/k8s-dev-auto-bootstrap", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": ["bin(1h)", "role"]
+        }
+      ],
+      "title": "Automation Executions Over Time (by Role)",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["aws", "auto-bootstrap", "lambda", "ssm", "eventbridge"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Auto-Bootstrap Trace",
+  "uid": "auto-bootstrap-trace",
+  "version": 1
+}
