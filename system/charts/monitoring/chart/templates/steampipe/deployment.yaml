@@ -32,13 +32,17 @@ spec:
           readinessProbe:
             tcpSocket:
               port: {{ .Values.steampipe.service.port }}
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           livenessProbe:
             tcpSocket:
               port: {{ .Values.steampipe.service.port }}
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
           volumeMounts:
             - name: config
               mountPath: /home/steampipe/.steampipe/config/aws.spc
