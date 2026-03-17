@@ -634,6 +634,222 @@
       ],
       "title": "Automation Executions Over Time (by Role)",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 51 },
+      "id": 500,
+      "title": "CA Re-Join Trace — Worker Rejoin on CP Replacement",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "id": 12,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| filter @message like /re-bootstrap|ca-rejoin|CA Re-Join|WORKER_REJOIN/\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/k8s-dev-auto-bootstrap", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "CA Re-Join — Lambda Scheduling Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "scheme",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Failed" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Triggered" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "id": 13,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": {},
+          "expression": "SELECT SUM(TriggeredRules) FROM \"AWS/Events\" WHERE RuleName LIKE 'ca-rejoin-%' GROUP BY RuleName",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 1,
+          "metricName": "TriggeredRules",
+          "namespace": "AWS/Events",
+          "period": "300",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statistic": "Sum",
+          "label": "Triggered"
+        },
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": {},
+          "expression": "SELECT SUM(FailedInvocations) FROM \"AWS/Events\" WHERE RuleName LIKE 'ca-rejoin-%' GROUP BY RuleName",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 1,
+          "metricName": "FailedInvocations",
+          "namespace": "AWS/Events",
+          "period": "300",
+          "queryMode": "Metrics",
+          "refId": "B",
+          "region": "eu-west-1",
+          "statistic": "Sum",
+          "label": "Failed"
+        }
+      ],
+      "title": "CA Re-Join — EventBridge Rule Activity (ca-rejoin-*)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 60 },
+      "id": 14,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| filter @message like /CA MISMATCH|CA certificate valid|kubeadm reset|re-join|stale CA|Removed stale/\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "CA Mismatch Detection — Worker Bootstrap Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "workerRole" },
+            "properties": [
+              { "id": "custom.width", "value": 130 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "instanceId" },
+            "properties": [
+              { "id": "custom.width", "value": 180 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "scheduleName" },
+            "properties": [
+              { "id": "custom.width", "value": 250 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 60 },
+      "id": 15,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": true, "fields": "", "reducer": ["count"], "show": true },
+        "showHeader": true,
+        "sortBy": [
+          { "desc": true, "displayName": "@timestamp" }
+        ]
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message\n| filter @message like /Scheduled .* re-bootstrap at/\n| parse @message \"Scheduled * re-bootstrap at * (rule: *, instance: *)\" as workerRole, scheduleTime, scheduleName, instanceId\n| display @timestamp, workerRole, instanceId, scheduleTime, scheduleName\n| sort @timestamp desc\n| limit 50",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/aws/lambda/k8s-dev-auto-bootstrap", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "CA Re-Join — Scheduled Worker Re-Bootstrap (Parsed)",
+      "type": "table"
     }
   ],
   "refresh": "",
