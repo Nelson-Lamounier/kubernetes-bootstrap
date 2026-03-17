@@ -1041,6 +1041,114 @@ def generate_ci_token(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 10b: Set ArgoCD admin password from SSM Parameter Store
+# ---------------------------------------------------------------------------
+def set_admin_password(cfg: Config) -> None:
+    """Read the ArgoCD admin password from SSM and patch argocd-secret.
+
+    Follows the same pattern as Grafana credentials — the admin password
+    is stored as an SSM SecureString parameter and applied to the cluster
+    during bootstrap.
+
+    Flow:
+      1. Read plaintext password from SSM: {ssm_prefix}/argocd-admin-password
+      2. Hash the password using bcrypt (ArgoCD stores bcrypt hashes)
+      3. Patch the 'argocd-secret' Kubernetes Secret with:
+         - admin.password: bcrypt hash
+         - admin.passwordMtime: current UTC timestamp (triggers ArgoCD refresh)
+      4. Restart argocd-server so it picks up the new password
+
+    If the SSM parameter does not exist, this step is skipped gracefully.
+    The auto-generated password in argocd-initial-admin-secret remains
+    usable as a fallback.
+
+    Prerequisites:
+      - SSM parameter: {ssm_prefix}/argocd-admin-password (SecureString)
+      - IAM: ssm:GetParameter with WithDecryption on the parameter
+      - Python: bcrypt package (installed via requirements.txt)
+
+    Related:
+      - Grafana uses the same SSM -> K8s Secret pattern via deploy.py
+      - ArgoCD password reset guide: docs/troubleshooting/argocd_admin_reset.md
+    """
+    log("=== Step 10b: Setting ArgoCD admin password from SSM ===")
+
+    if cfg.dry_run:
+        log(f"  [DRY-RUN] Would read {cfg.ssm_prefix}/argocd-admin-password from SSM")
+        log("  [DRY-RUN] Would hash with bcrypt and patch argocd-secret\n")
+        return
+
+    # 1. Read the admin password from SSM Parameter Store (SecureString)
+    ssm_path = f"{cfg.ssm_prefix}/argocd-admin-password"
+    log(f"  → Reading admin password from SSM: {ssm_path}")
+
+    try:
+        ssm = get_ssm_client(cfg)
+        resp = ssm.get_parameter(Name=ssm_path, WithDecryption=True)
+        password = resp["Parameter"]["Value"]
+        log("  ✓ Admin password resolved from SSM")
+    except Exception as e:
+        log(f"  ⚠ ArgoCD admin password not found in SSM — {e}")
+        log(f"  ⚠ Store the password at: {ssm_path} (SecureString)")
+        log("  ⚠ The auto-generated password (argocd-initial-admin-secret) remains usable\n")
+        return
+
+    # 2. Hash the password with bcrypt
+    #    ArgoCD stores passwords as bcrypt hashes in argocd-secret.
+    #    The hash format must be $2a$ or $2b$ (OpenBSD bcrypt).
+    try:
+        import bcrypt as bcrypt_lib
+        hashed = bcrypt_lib.hashpw(password.encode(), bcrypt_lib.gensalt()).decode()
+        log("  ✓ Password hashed with bcrypt")
+    except ImportError:
+        log("  ⚠ bcrypt package not installed — cannot hash password")
+        log("  ⚠ Install with: pip3 install bcrypt\n")
+        return
+    except Exception as e:
+        log(f"  ⚠ Failed to hash password — {e}\n")
+        return
+
+    # 3. Patch argocd-secret with the bcrypt hash and a passwordMtime timestamp
+    #    The passwordMtime field triggers ArgoCD to reload the password.
+    #    Without updating this field, the server may continue using the
+    #    cached password until the next full restart.
+    mtime = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    patch = json.dumps({
+        "stringData": {
+            "admin.password": hashed,
+            "admin.passwordMtime": mtime,
+        }
+    })
+
+    result = run(
+        ["kubectl", "-n", "argocd", "patch", "secret", "argocd-secret",
+         "--type", "merge", "-p", patch],
+        cfg=cfg, check=False,
+    )
+
+    if result.returncode == 0:
+        log("  ✓ argocd-secret patched with SSM-managed password")
+    else:
+        log("  ⚠ Failed to patch argocd-secret")
+        log("    Manual fix: see docs/troubleshooting/argocd_admin_reset.md\n")
+        return
+
+    # 4. Restart argocd-server to pick up the new password immediately
+    result = run(
+        ["kubectl", "rollout", "restart", "deployment/argocd-server",
+         "-n", "argocd"],
+        cfg=cfg, check=False,
+    )
+
+    if result.returncode == 0:
+        log("  ✓ argocd-server restarted to load new password")
+    else:
+        log("  ⚠ Failed to restart argocd-server — password will apply on next restart")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
 # Step 11: Summary
 # ---------------------------------------------------------------------------
 def print_summary(cfg: Config) -> None:
@@ -1055,24 +1163,22 @@ def print_summary(cfg: Config) -> None:
     run(["kubectl", "get", "applications", "-n", "argocd"], cfg=cfg, check=False)
     log("")
 
-    # Retrieve initial admin password
-    result = run(
-        ["kubectl", "-n", "argocd", "get", "secret", "argocd-initial-admin-secret",
-         "-o", "jsonpath={.data.password}"],
-        cfg=cfg, check=False, capture=True,
-    )
-
-    if result.returncode == 0 and result.stdout.strip():
-        try:
-            password = base64.b64decode(result.stdout.strip()).decode()
-            log("=== ArgoCD Admin Access ===")
-            log(f"  URL:      https://<eip>/argocd")
-            log(f"  User:     admin")
-            log(f"  Password: {password}")
-            log("")
-            log("  (Change the password after first login)")
-        except Exception:
-            pass
+    # Display ArgoCD admin access info
+    #
+    # The admin password is now managed via SSM Parameter Store
+    # (SecureString) at {ssm_prefix}/argocd-admin-password.
+    # It is applied during Step 10b.
+    #
+    # If SSM was not configured, the auto-generated password in
+    # argocd-initial-admin-secret is still usable.
+    log("=== ArgoCD Admin Access ===")
+    log(f"  URL:  https://<eip>/argocd")
+    log(f"  User: admin")
+    log(f"  Password source: SSM '{cfg.ssm_prefix}/argocd-admin-password'")
+    log("")
+    log("  If SSM parameter is not set, retrieve the auto-generated password:")
+    log("    kubectl -n argocd get secret argocd-initial-admin-secret \\")
+    log('      -o jsonpath="{.data.password}" | base64 -d && echo')
 
     log(f"\n✓ ArgoCD bootstrap complete ({datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')})")
 
@@ -1156,6 +1262,9 @@ def main() -> None:
         generate_ci_token(cfg)
     else:
         log("=== Step 9-10: Skipping — ArgoCD CLI not available ===\n")
+
+    # Step 10b: Set admin password from SSM (runs regardless of CLI availability)
+    set_admin_password(cfg)
 
     # Step 11: Summary
     print_summary(cfg)
