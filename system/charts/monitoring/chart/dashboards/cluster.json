@@ -57,7 +57,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "count(kube_node_info)",
+          "expr": "count(kube_node_status_condition{condition=\\\"Ready\\\",status=\\\"true\\\"} == 1)",
           "legendFormat": "Nodes",
           "refId": "A"
         }
@@ -355,8 +355,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\"}",
-          "legendFormat": "{{node}}",
+          "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\",job=\"kube-state-metrics\"} * on(node) group_left(label_workload) kube_node_labels{job=\"kube-state-metrics\"}",
+          "legendFormat": "{{label_workload}}",
           "refId": "A"
         }
       ],
@@ -403,8 +403,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "(1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(instance) group_left(nodename) node_uname_info * 100",
-          "legendFormat": "{{nodename}}",
+          "expr": "label_replace((1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(instance) group_left(nodename) node_uname_info * 100, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}}",
           "refId": "A"
         }
       ],
@@ -451,8 +451,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(instance) group_left(nodename) node_uname_info * 100",
-          "legendFormat": "{{nodename}}",
+          "expr": "label_replace((1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(instance) group_left(nodename) node_uname_info * 100, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}}",
           "refId": "A"
         }
       ],
@@ -667,14 +667,14 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}) * on(instance) group_left(nodename) node_uname_info * 100",
-          "legendFormat": "{{nodename}} — root (/)",
+          "expr": "label_replace((1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}) * on(instance) group_left(nodename) node_uname_info * 100, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}} — root (/)",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"}) * on(instance) group_left(nodename) node_uname_info * 100",
-          "legendFormat": "{{nodename}} — data (/data)",
+          "expr": "label_replace((1 - node_filesystem_avail_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"}) * on(instance) group_left(nodename) node_uname_info * 100, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}} — data (/data)",
           "refId": "B"
         }
       ],
@@ -715,14 +715,14 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "sum by (instance) (rate(node_disk_read_bytes_total[5m])) * on(instance) group_left(nodename) node_uname_info",
-          "legendFormat": "{{nodename}} — Read",
+          "expr": "label_replace(sum by (instance) (rate(node_disk_read_bytes_total[5m])) * on(instance) group_left(nodename) node_uname_info, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}} — Read",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "sum by (instance) (rate(node_disk_written_bytes_total[5m])) * on(instance) group_left(nodename) node_uname_info * -1",
-          "legendFormat": "{{nodename}} — Write",
+          "expr": "label_replace(sum by (instance) (rate(node_disk_written_bytes_total[5m])) * on(instance) group_left(nodename) node_uname_info * -1, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}} — Write",
           "refId": "B"
         }
       ],
@@ -772,14 +772,14 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "sum by (instance) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(instance) group_left(nodename) node_uname_info",
-          "legendFormat": "{{nodename}} — Receive ▲",
+          "expr": "label_replace(sum by (instance) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(instance) group_left(nodename) node_uname_info, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}} — Receive ▲",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "sum by (instance) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(instance) group_left(nodename) node_uname_info * -1",
-          "legendFormat": "{{nodename}} — Transmit ▼",
+          "expr": "label_replace(sum by (instance) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(instance) group_left(nodename) node_uname_info * -1, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}} — Transmit ▼",
           "refId": "B"
         }
       ],
@@ -931,8 +931,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "sum by (node) (kube_pod_info)",
-          "legendFormat": "{{node}}",
+          "expr": "sum by (node) (kube_pod_info{job=\"kube-state-metrics\"}) * on(node) group_left(label_workload) kube_node_labels{job=\"kube-state-metrics\"}",
+          "legendFormat": "{{label_workload}}",
           "refId": "A"
         }
       ],
@@ -984,8 +984,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "(1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(instance) group_left(nodename) node_uname_info * 100",
-          "legendFormat": "{{nodename}}",
+          "expr": "label_replace((1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(instance) group_left(nodename) node_uname_info * 100, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}}",
           "refId": "A"
         }
       ],
@@ -1028,8 +1028,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(instance) group_left(nodename) node_uname_info * 100",
-          "legendFormat": "{{nodename}}",
+          "expr": "label_replace((1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(instance) group_left(nodename) node_uname_info * 100, \"short_name\", \"$1\", \"nodename\", \"(ip-[0-9-]+)\\\\..*\")",
+          "legendFormat": "{{short_name}}",
           "refId": "A"
         }
       ],
@@ -1041,7 +1041,23 @@
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": ["infrastructure", "kubernetes", "nodes"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "name": "node",
+        "label": "Node",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "" },
+        "definition": "label_values(kube_node_info, node)",
+        "query": "label_values(kube_node_info, node)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 1
+      }
+    ]
+  },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",

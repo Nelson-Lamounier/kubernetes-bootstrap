@@ -24,6 +24,8 @@ spec:
       containers:
         - name: kube-state-metrics
           image: {{ .Values.kubeStateMetrics.image }}
+          args:
+            - --metric-labels-allowlist=nodes=[workload]
           ports:
             - containerPort: {{ .Values.kubeStateMetrics.service.port }}
               name: metrics
