@@ -162,6 +162,90 @@ def step_validate_ami() -> None:
 # Step 2 — Join kubeadm Cluster
 # =============================================================================
 
+CA_CERT_PATH = "/etc/kubernetes/pki/ca.crt"
+
+
+def _compute_local_ca_hash() -> str:
+    """Compute the SHA-256 hash of the local Kubernetes CA certificate.
+
+    Uses the same openssl pipeline as the control plane's
+    ``_publish_ssm_params()`` to ensure hashes are directly comparable.
+
+    @returns The CA hash in ``sha256:<hex>`` format, or empty string on failure.
+    """
+    ca_hash_cmd = (
+        f"openssl x509 -pubkey -in {CA_CERT_PATH} | "
+        "openssl rsa -pubin -outform der 2>/dev/null | "
+        "openssl dgst -sha256 -hex | awk '{print $2}'"
+    )
+    result = run_cmd(ca_hash_cmd, shell=True, check=False)
+    if result.returncode != 0 or not result.stdout.strip():
+        log_warn("Failed to compute local CA hash")
+        return ""
+    return f"sha256:{result.stdout.strip()}"
+
+
+def _check_ca_mismatch() -> bool:
+    """Detect CA certificate mismatch between this worker and the control plane.
+
+    When the control plane is replaced with a new CA (e.g. EBS volume loss),
+    existing workers hold a stale CA in ``/etc/kubernetes/pki/ca.crt``.
+    This function compares the local CA hash against the SSM-published
+    value and, on mismatch, runs ``kubeadm reset`` so the join step can
+    proceed with the new credentials.
+
+    @returns True if a mismatch was detected and reset was performed.
+    """
+    ca_cert = Path(CA_CERT_PATH)
+    kubelet_conf = Path(KUBELET_CONF)
+
+    if not ca_cert.exists():
+        log_info("No local CA cert found — fresh worker, proceeding normally")
+        return False
+
+    if not kubelet_conf.exists():
+        log_info("No kubelet.conf — worker not previously joined, proceeding normally")
+        return False
+
+    local_hash = _compute_local_ca_hash()
+    if not local_hash:
+        log_warn("Could not compute local CA hash — skipping mismatch check")
+        return False
+
+    ssm_hash = ssm_get(f"{SSM_PREFIX}/ca-hash")
+    if not ssm_hash:
+        log_warn("CA hash not available in SSM — skipping mismatch check")
+        return False
+
+    if local_hash == ssm_hash:
+        log_info(f"CA certificate valid — local hash matches SSM ({local_hash[:20]}...)")
+        return False
+
+    # ─── CA MISMATCH DETECTED ───
+    log_warn("=" * 60)
+    log_warn("CA MISMATCH DETECTED")
+    log_warn(f"  Local CA hash:  {local_hash}")
+    log_warn(f"  SSM CA hash:    {ssm_hash}")
+    log_warn("  The control plane was replaced with a new CA certificate.")
+    log_warn("  Running kubeadm reset to prepare for re-join...")
+    log_warn("=" * 60)
+
+    run_cmd(["kubeadm", "reset", "-f"], check=False)
+
+    # Remove kubelet.conf so the StepRunner skip_if guard allows re-join
+    if kubelet_conf.exists():
+        kubelet_conf.unlink()
+        log_info("Removed stale kubelet.conf")
+
+    # Remove stale CA cert so kubeadm join writes the new one
+    if ca_cert.exists():
+        ca_cert.unlink()
+        log_info("Removed stale CA certificate")
+
+    log_info("Worker reset complete — ready to re-join with new CA")
+    return True
+
+
 def _resolve_control_plane_endpoint() -> str:
     """Wait for control plane endpoint to appear in SSM."""
     log_info("Resolving control plane endpoint from SSM...")
@@ -266,7 +350,18 @@ def _wait_for_kubelet() -> None:
 
 
 def step_join_cluster() -> None:
-    """Step 2: Join kubeadm cluster via SSM discovery."""
+    """Step 2: Join kubeadm cluster via SSM discovery.
+
+    Before the idempotency guard, checks for CA certificate mismatch
+    (control plane replaced with a new CA). On mismatch, resets kubeadm
+    and removes kubelet.conf so the join can proceed with new credentials.
+    """
+    # CA mismatch check MUST run before StepRunner's skip_if guard,
+    # because it may need to remove kubelet.conf to allow re-join.
+    ca_reset = _check_ca_mismatch()
+    if ca_reset:
+        log_info("CA mismatch handled — proceeding to re-join cluster")
+
     with StepRunner("join-cluster", skip_if=KUBELET_CONF) as step:
         if step.skipped:
             return
