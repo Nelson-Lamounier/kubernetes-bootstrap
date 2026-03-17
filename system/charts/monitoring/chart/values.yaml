@@ -194,7 +194,7 @@ alloy:
       memory: 64Mi
     limits:
       cpu: 150m
-      memory: 128Mi
+      memory: 256Mi
   service:
     httpPort: 12345
     faroPort: 12347

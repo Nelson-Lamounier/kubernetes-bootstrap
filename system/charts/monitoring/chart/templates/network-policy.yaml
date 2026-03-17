@@ -42,4 +42,12 @@ spec:
       ports:
         - port: 9090
           protocol: TCP
+    # Alloy Faro port — receives client-side RUM telemetry via Traefik
+    # (hostNetwork), so needs ipBlock like Grafana/Prometheus above.
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 12347
+          protocol: TCP
 {{- end }}

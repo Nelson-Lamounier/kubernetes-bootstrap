@@ -28,7 +28,7 @@ spec:
             - run
             - /etc/alloy/config.alloy
             - --server.http.listen-addr=0.0.0.0:{{ .Values.alloy.service.httpPort }}
-            - --stability.level=generally-available
+            - --stability.level=public-preview
             - --storage.path=/tmp/data-alloy
           ports:
             - containerPort: {{ .Values.alloy.service.httpPort }}
@@ -53,8 +53,10 @@ spec:
             httpGet:
               path: /-/ready
               port: {{ .Values.alloy.service.httpPort }}
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
       volumes:
         - name: config
           configMap:
