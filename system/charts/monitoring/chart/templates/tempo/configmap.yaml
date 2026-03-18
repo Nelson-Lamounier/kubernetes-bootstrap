@@ -61,3 +61,10 @@ data:
         remote_write:
           - url: http://prometheus.{{ .Values.namespace }}.svc.cluster.local:9090/prometheus/api/v1/write
             send_exemplars: true
+    overrides:
+      defaults:
+        metrics_generator:
+          processors:
+            - local-blocks
+            - service-graphs
+            - span-metrics
