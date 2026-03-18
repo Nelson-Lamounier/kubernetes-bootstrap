@@ -50,7 +50,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/k8s-development-eip-failover", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/k8s-development-eip-failover", "name": "/aws/lambda/k8s-development-eip-failover", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -86,7 +86,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/nextjs-subscribe-development", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/nextjs-subscribe-development", "name": "/aws/lambda/nextjs-subscribe-development", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -122,7 +122,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/nextjs-verify-subscription-development", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/nextjs-verify-subscription-development", "name": "/aws/lambda/nextjs-verify-subscription-development", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -165,7 +165,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ssm/k8s/development/bootstrap", "name": "/ssm/k8s/development/bootstrap", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -201,7 +201,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ssm/k8s/development/deploy", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ssm/k8s/development/deploy", "name": "/ssm/k8s/development/deploy", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -244,7 +244,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ec2/k8s-development/instances", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-development/instances", "name": "/ec2/k8s-development/instances", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -280,7 +280,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ec2/k8s-development-worker/instances", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-development-worker/instances", "name": "/ec2/k8s-development-worker/instances", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -316,7 +316,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ec2/k8s-development-mon-worker/instances", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-development-mon-worker/instances", "name": "/ec2/k8s-development-mon-worker/instances", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -359,7 +359,7 @@
           "expression": "fields @timestamp, srcAddr, dstAddr, srcPort, dstPort, protocol, packets, bytes, action, logStatus\n| filter action = 'REJECT'\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/vpc/shared/development/flow-logs", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/vpc/shared/development/flow-logs", "name": "/vpc/shared/development/flow-logs", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -404,7 +404,7 @@
           "expression": "stats count(*) as rejectedCount by bin(5m)\n| filter action = 'REJECT'",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/vpc/shared/development/flow-logs", "accountId": "" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/vpc/shared/development/flow-logs", "name": "/vpc/shared/development/flow-logs", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",

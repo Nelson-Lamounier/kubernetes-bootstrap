@@ -50,7 +50,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/nextjs-acm-dns-validation-development", "accountId": "" }
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/nextjs-acm-dns-validation-development", "name": "/aws/lambda/nextjs-acm-dns-validation-development", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -86,7 +86,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/nextjs-dns-alias-provider-development", "accountId": "" }
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/nextjs-dns-alias-provider-development", "name": "/aws/lambda/nextjs-dns-alias-provider-development", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -122,7 +122,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/nextjs-cert-provider-development", "accountId": "" }
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/nextjs-cert-provider-development", "name": "/aws/lambda/nextjs-cert-provider-development", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -165,7 +165,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/k8s-development-cert-provider-development", "accountId": "" }
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/k8s-development-cert-provider-development", "name": "/aws/lambda/k8s-development-cert-provider-development", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -201,7 +201,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/k8s-development-monitoring-dns-alias-development", "accountId": "" }
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/k8s-development-monitoring-dns-alias-development", "name": "/aws/lambda/k8s-development-monitoring-dns-alias-development", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
