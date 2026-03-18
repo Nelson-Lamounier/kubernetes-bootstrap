@@ -1,0 +1,93 @@
+# @format
+# ArgoCD ApplicationSet: Workload Generator — Self-Service Templates
+#
+# Watches `kubernetes-app/workloads/charts/*/` directories in Git.
+# When a developer adds a new Helm chart directory, ArgoCD automatically
+# creates an Application for it — zero manual ArgoCD configuration needed.
+#
+# How it works:
+#   1. Developer creates kubernetes-app/workloads/charts/my-service/chart/
+#   2. Developer creates kubernetes-app/workloads/charts/my-service/my-service-values.yaml
+#   3. ArgoCD ApplicationSet detects the new directory via Git
+#   4. ArgoCD creates a new Application 'my-service' pointing to the chart
+#   5. ArgoCD syncs the chart into the my-service namespace
+#
+# The "golden-path-service" template chart provides production-ready
+# defaults that developers customise via values.yaml.
+#
+# Pattern: Git Directory Generator + templated Application spec
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: workload-generator
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "Self-service workload generator — auto-creates ArgoCD Applications from Git directories"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    platform.engineering/component: self-service
+spec:
+  generators:
+    # ---------------------------------------------------------------
+    # Git Directory Generator
+    #
+    # Scans the workloads/charts/ directory tree in Git.
+    # Each subdirectory with a chart/ folder becomes a workload.
+    #
+    # Excludes:
+    #   - Hidden directories (e.g. .git)
+    #   - The golden-path-service template itself (it's a template, not a workload)
+    # ---------------------------------------------------------------
+    - git:
+        repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+        revision: develop
+        directories:
+          - path: kubernetes-app/workloads/charts/*
+          - path: kubernetes-app/workloads/charts/golden-path-service
+            exclude: true
+
+  template:
+    metadata:
+      # {{path.basename}} is the directory name, e.g. "nextjs", "api-service"
+      name: "{{path.basename}}"
+      namespace: argocd
+      annotations:
+        kubernetes.io/description: "Auto-generated workload: {{path.basename}}"
+        argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps
+      labels:
+        app.kubernetes.io/part-of: argocd
+        platform.engineering/source: workload-generator
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+
+      source:
+        repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+        targetRevision: develop
+        path: "{{path}}/chart"
+        helm:
+          valueFiles:
+            - "../{{path.basename}}-values.yaml"
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{path.basename}}"
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - PruneLast=true
+          - ApplyOutOfSyncOnly=true
+          - ServerSideApply=true
+        retry:
+          limit: 3
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

@@ -1,0 +1,102 @@
+# @format
+# ArgoCD Application: Crossplane — Kubernetes-Native Infrastructure Management
+#
+# Deploys Crossplane core into the crossplane-system namespace.
+# Crossplane enables declarative provisioning of AWS resources
+# (S3 buckets, SQS queues) using Kubernetes CRDs.
+#
+# Crossplane provides:
+#   - Kubernetes CRDs for AWS resource management
+#   - Declarative infrastructure-as-data model
+#   - Composite Resource Definitions (XRDs) for golden-path abstractions
+#
+# Resource overhead: ~256Mi memory, ~200m CPU (controller + webhook)
+# Cost: Free (Crossplane is CNCF open-source)
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane
+  annotations:
+    kubernetes.io/description: "Crossplane core — Kubernetes-native infrastructure management"
+    argocd.argoproj.io/sync-wave: "4"  # Wave 4: Platform Tooling — after monitoring (wave 3), before business apps (wave 5)
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    platform.engineering/component: infrastructure-abstraction
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://charts.crossplane.io/stable
+    chart: crossplane
+    targetRevision: 1.18.1
+    helm:
+      releaseName: crossplane
+      valuesObject:
+        # ---------------------------------------------------------------
+        # Resource constraints for t3.medium monitoring node
+        # Crossplane controller + RBAC Manager
+        # ---------------------------------------------------------------
+        resourcesCrossplane:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+
+        resourcesRBACManager:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+
+        # ---------------------------------------------------------------
+        # Node placement — run on monitoring worker
+        # ---------------------------------------------------------------
+        nodeSelector:
+          workload: monitoring
+
+        tolerations:
+          - key: workload
+            operator: Equal
+            value: monitoring
+            effect: NoSchedule
+
+        # ---------------------------------------------------------------
+        # Webhook — enable TLS for secure admission control
+        # ---------------------------------------------------------------
+        webhooks:
+          enabled: true
+
+        # ---------------------------------------------------------------
+        # Metrics — expose Prometheus metrics for monitoring stack
+        # ---------------------------------------------------------------
+        metrics:
+          enabled: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

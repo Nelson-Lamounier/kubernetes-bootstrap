@@ -1,0 +1,60 @@
+# @format
+# ArgoCD Application: Crossplane AWS Providers + ProviderConfig
+#
+# Deploys Crossplane AWS providers (S3, SQS) and the ProviderConfig
+# that tells Crossplane where to find AWS credentials.
+#
+# This is a separate ArgoCD Application from crossplane.yaml because:
+#   - Providers depend on Crossplane CRDs being installed first
+#   - Sync-wave 4 ensures Crossplane core is ready before providers
+#   - Provider lifecycle is decoupled from core upgrades
+#
+# The ProviderConfig references a K8s Secret (crossplane-aws-creds)
+# that must be created by the bootstrap script reading from
+# AWS Secrets Manager.
+#
+# Resource overhead: ~128Mi per provider (~256Mi total for S3 + SQS)
+# Cost: Free (open-source providers)
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane-providers
+  annotations:
+    kubernetes.io/description: "Crossplane AWS providers (S3, SQS) and ProviderConfig"
+    argocd.argoproj.io/sync-wave: "4"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    platform.engineering/component: infrastructure-abstraction
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    # Points to this same repo — monorepo pattern
+    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    targetRevision: develop
+    path: kubernetes-app/platform/charts/crossplane-providers/manifests
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false  # Namespace created by crossplane.yaml
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

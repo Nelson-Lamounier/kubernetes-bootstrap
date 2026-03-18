@@ -1,0 +1,53 @@
+# @format
+# ArgoCD Application: Crossplane XRDs — Golden-Path Resource Definitions
+#
+# Deploys the Composite Resource Definitions (XRDs) that provide
+# golden-path abstractions for developers to provision AWS resources.
+#
+# Current XRDs:
+#   - XEncryptedBucket — S3 bucket with encryption, versioning, lifecycle
+#   - XMonitoredQueue — SQS queue with DLQ and encryption
+#
+# Depends on: crossplane.yaml and crossplane-providers.yaml being synced first.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: crossplane-xrds
+  annotations:
+    kubernetes.io/description: "Crossplane XRDs — golden-path AWS resource definitions"
+    argocd.argoproj.io/sync-wave: "4"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    platform.engineering/component: golden-path
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    targetRevision: develop
+    path: kubernetes-app/platform/charts/crossplane-xrds/chart
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: crossplane-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
