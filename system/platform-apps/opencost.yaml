@@ -1,0 +1,106 @@
+# @format
+# ArgoCD Application: OpenCost — Kubernetes Cost Visibility
+#
+# Deploys OpenCost into the monitoring namespace for workload-level
+# cost attribution. Uses the Helm chart from opencost.io with
+# custom values for self-hosted K8s on EC2 (not EKS).
+#
+# OpenCost provides:
+#   - Cost per namespace, deployment, pod
+#   - Cost allocation using AWS Price List API
+#   - Prometheus metrics for Grafana dashboards
+#
+# Resource overhead: ~128Mi memory, ~100m CPU
+# Cost: Free (OpenCost is CNCF open-source)
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opencost
+  annotations:
+    kubernetes.io/description: "OpenCost for Kubernetes cost visibility and workload cost attribution"
+    argocd.argoproj.io/sync-wave: "4"  # Wave 4: FinOps — after monitoring (wave 3), before business apps (wave 5)
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    finops.platform/component: cost-visibility
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://opencost.github.io/opencost-helm-chart
+    chart: opencost
+    targetRevision: 1.43.2
+    helm:
+      releaseName: opencost
+      valuesObject:
+        # ---------------------------------------------------------------
+        # OpenCost Core Configuration for Self-Hosted K8s on EC2
+        # ---------------------------------------------------------------
+        opencost:
+          exporter:
+            # AWS Price List API for EC2 cost data (not EKS)
+            defaultClusterId: "k8s-dev"
+            aws:
+              enabled: true
+
+            extraEnv:
+              # Self-hosted K8s: use custom pricing via AWS Price List
+              CLOUD_PROVIDER_API_KEY: ""
+              CLUSTER_ID: "k8s-dev"
+              EMIT_KSM_V1_METRICS: "false"
+              EMIT_KSM_V1_METRICS_ONLY: "false"
+
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 128Mi
+
+          # Prometheus integration — scrape from existing Prometheus
+          prometheus:
+            internal:
+              enabled: false
+            external:
+              enabled: true
+              url: "http://prometheus.monitoring.svc.cluster.local:9090"
+
+          ui:
+            enabled: false  # Use Grafana dashboards instead
+
+        # Node selector — run on monitoring worker
+        nodeSelector:
+          workload: monitoring
+
+        # Tolerations (if monitoring node has taints)
+        tolerations: []
+
+        # ServiceMonitor for Prometheus scraping
+        serviceMonitor:
+          enabled: true
+          additionalLabels:
+            release: prometheus
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
