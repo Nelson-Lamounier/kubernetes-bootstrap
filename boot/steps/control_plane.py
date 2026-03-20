@@ -372,7 +372,7 @@ def _publish_kubeconfig_to_ssm() -> None:
 
     ssm_path = f"{SSM_PREFIX}/kubeconfig"
     log_info(f"Publishing tunnel-ready kubeconfig to SSM: {ssm_path}")
-    ssm_put(ssm_path, tunnel_kubeconfig, param_type="SecureString")
+    ssm_put(ssm_path, tunnel_kubeconfig, param_type="SecureString", tier="Advanced")
 
 
 def step_init_kubeadm() -> None:

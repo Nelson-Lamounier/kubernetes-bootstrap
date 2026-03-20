@@ -180,7 +180,13 @@ def ssm_get(name: str, *, decrypt: bool = False) -> Optional[str]:
     return None
 
 
-def ssm_put(name: str, value: str, *, param_type: str = "String") -> None:
+def ssm_put(
+    name: str,
+    value: str,
+    *,
+    param_type: str = "String",
+    tier: Optional[str] = None,
+) -> None:
     """
     Write an SSM parameter (creates or overwrites).
 
@@ -188,15 +194,21 @@ def ssm_put(name: str, value: str, *, param_type: str = "String") -> None:
         name: Full parameter name.
         value: Parameter value.
         param_type: SSM parameter type (String, SecureString, StringList).
+        tier: SSM parameter tier (Standard, Advanced, Intelligent-Tiering).
+              Standard supports up to 4KB, Advanced up to 8KB.
+              Omit to use the AWS default (Standard).
     """
-    run_cmd([
+    cmd = [
         "aws", "ssm", "put-parameter",
         "--name", name,
         "--value", value,
         "--type", param_type,
         "--overwrite",
         "--region", AWS_REGION,
-    ])
+    ]
+    if tier:
+        cmd.extend(["--tier", tier])
+    run_cmd(cmd)
 
 
 # =============================================================================
