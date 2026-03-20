@@ -40,6 +40,7 @@ Usage:
 
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -233,6 +234,8 @@ def _handle_second_run() -> None:
         run_cmd(["chown", "ssm-user:ssm-user", "/home/ssm-user/.kube/config"])
         run_cmd(["chmod", "600", "/home/ssm-user/.kube/config"])
 
+    _publish_kubeconfig_to_ssm()
+
     result = run_cmd(
         ["kubectl", "get", "nodes"],
         check=False, env=KUBECONFIG_ENV,
@@ -278,7 +281,7 @@ def _init_cluster() -> None:
         f"--pod-network-cidr={POD_CIDR}",
         f"--service-cidr={SERVICE_CIDR}",
         f"--control-plane-endpoint={api_endpoint}",
-        f"--apiserver-cert-extra-sans={private_ip},{API_DNS_NAME}"
+        f"--apiserver-cert-extra-sans=127.0.0.1,{private_ip},{API_DNS_NAME}"
         + (f",{public_ip}" if public_ip else ""),
         "--upload-certs",
     ]
@@ -311,6 +314,7 @@ def _init_cluster() -> None:
 
     log_info("Control plane taint preserved — only Traefik + system pods will run here")
     _publish_ssm_params(private_ip, public_ip, instance_id)
+    _publish_kubeconfig_to_ssm()
 
 
 def _publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> None:
@@ -339,6 +343,36 @@ def _publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> No
 
     log_info("Cluster credentials published to SSM successfully")
     run_cmd(["kubectl", "get", "nodes", "-o", "wide"], check=False, env=KUBECONFIG_ENV)
+
+
+def _publish_kubeconfig_to_ssm() -> None:
+    """Store a tunnel-ready kubeconfig in SSM for developer access.
+
+    Reads /etc/kubernetes/admin.conf, rewrites the server address to
+    https://127.0.0.1:6443 (for SSM port-forwarding tunnel), and stores
+    the result as an SSM SecureString parameter. This enables developers
+    to run `just k8s-fetch-kubeconfig` to restore cluster access after
+    any control plane rebuild.
+    """
+    admin_conf = Path(ADMIN_CONF)
+    if not admin_conf.exists():
+        log_warn(f"{ADMIN_CONF} not found — skipping kubeconfig publish")
+        return
+
+    kubeconfig_content = admin_conf.read_text()
+
+    # Rewrite the server address so the kubeconfig works through the SSM tunnel
+    # Original: server: https://k8s-api.k8s.internal:6443 (or private IP)
+    # Rewritten: server: https://127.0.0.1:6443
+    tunnel_kubeconfig = re.sub(
+        r"server:\s*https?://[^:]+:6443",
+        "server: https://127.0.0.1:6443",
+        kubeconfig_content,
+    )
+
+    ssm_path = f"{SSM_PREFIX}/kubeconfig"
+    log_info(f"Publishing tunnel-ready kubeconfig to SSM: {ssm_path}")
+    ssm_put(ssm_path, tunnel_kubeconfig, param_type="SecureString")
 
 
 def step_init_kubeadm() -> None:
