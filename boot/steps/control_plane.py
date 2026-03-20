@@ -8,14 +8,16 @@ entry point. Each step is wrapped in a StepRunner for structured
 logging, timing, and idempotency guards.
 
 Steps (in order):
-    1. validate_ami       — Verify Golden AMI binaries and kernel settings
-    2. init_kubeadm       — kubeadm init + publish join credentials to SSM
-    3. install_calico     — Calico CNI via Tigera operator
-    4. configure_kubectl  — kubeconfig for root, ec2-user, ssm-user
-    5. sync_manifests     — Download bootstrap manifests from S3
-    6. bootstrap_argocd   — Install ArgoCD and App-of-Apps
-    7. verify_cluster     — Lightweight post-boot health checks
-    8. install_cw_agent   — CloudWatch Agent for log streaming
+    1.  validate_ami       — Verify Golden AMI binaries and kernel settings
+    2.  restore_backup     — Restore etcd + certs from S3 if EBS is empty (DR)
+    3.  init_kubeadm       — kubeadm init + publish join credentials to SSM
+    4.  install_calico     — Calico CNI via Tigera operator
+    5.  configure_kubectl  — kubeconfig for root, ec2-user, ssm-user
+    6.  sync_manifests     — Download bootstrap manifests from S3
+    7.  bootstrap_argocd   — Install ArgoCD and App-of-Apps
+    8.  verify_cluster     — Lightweight post-boot health checks
+    9.  install_cw_agent   — CloudWatch Agent for log streaming
+    10. install_etcd_backup — Set up hourly etcd backup timer
 
 Idempotent: each step uses marker files or existence checks to skip
 if already completed. Safe to re-run on instance replacement.
@@ -42,6 +44,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -73,6 +76,10 @@ CALICO_VERSION = os.environ.get("CALICO_VERSION", "v3.29.3")
 ADMIN_CONF = "/etc/kubernetes/admin.conf"
 KUBECONFIG_ENV = {"KUBECONFIG": ADMIN_CONF}
 CALICO_MARKER = "/etc/kubernetes/.calico-installed"
+
+# DR backup paths
+DR_BACKUP_PREFIX = "dr-backups"
+DR_RESTORE_MARKER = "/etc/kubernetes/.dr-restored"
 
 
 # =============================================================================
@@ -315,6 +322,7 @@ def _init_cluster() -> None:
     log_info("Control plane taint preserved — only Traefik + system pods will run here")
     _publish_ssm_params(private_ip, public_ip, instance_id)
     _publish_kubeconfig_to_ssm()
+    _backup_certificates()
 
 
 def _publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> None:
@@ -373,6 +381,198 @@ def _publish_kubeconfig_to_ssm() -> None:
     ssm_path = f"{SSM_PREFIX}/kubeconfig"
     log_info(f"Publishing tunnel-ready kubeconfig to SSM: {ssm_path}")
     ssm_put(ssm_path, tunnel_kubeconfig, param_type="SecureString", tier="Advanced")
+
+
+def _backup_certificates() -> None:
+    """Archive /etc/kubernetes/pki/ to S3 for disaster recovery.
+
+    Called after kubeadm init and on certificate renewal. The archive
+    preserves the cluster's CA identity — without it, recovering from
+    a lost EBS volume requires all workers to rejoin with new certs.
+
+    S3 path: s3://<bucket>/dr-backups/pki/<timestamp>.tar.gz
+    """
+    if not S3_BUCKET:
+        log_warn("S3_BUCKET not set — skipping certificate backup")
+        return
+
+    pki_dir = Path("/etc/kubernetes/pki")
+    if not pki_dir.exists():
+        log_warn("PKI directory not found — skipping certificate backup")
+        return
+
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    archive_path = f"/tmp/k8s-pki-{timestamp}.tar.gz"
+
+    try:
+        log_info("Backing up PKI certificates to S3...")
+        run_cmd(["tar", "czf", archive_path, "-C", "/etc/kubernetes", "pki"])
+
+        s3_key = f"{DR_BACKUP_PREFIX}/pki/{timestamp}.tar.gz"
+        run_cmd([
+            "aws", "s3", "cp", archive_path,
+            f"s3://{S3_BUCKET}/{s3_key}",
+            "--sse", "AES256", "--region", AWS_REGION,
+        ])
+
+        # Maintain a 'latest' pointer for easy restore
+        run_cmd([
+            "aws", "s3", "cp", archive_path,
+            f"s3://{S3_BUCKET}/{DR_BACKUP_PREFIX}/pki/latest.tar.gz",
+            "--sse", "AES256", "--region", AWS_REGION,
+        ])
+
+        log_info(f"✓ PKI certificates backed up to s3://{S3_BUCKET}/{s3_key}")
+    except Exception as err:
+        log_error(f"Certificate backup failed: {err}")
+        log_warn("Continuing bootstrap — backup failure is non-fatal")
+    finally:
+        if Path(archive_path).exists():
+            os.remove(archive_path)
+
+
+# =============================================================================
+# Step 2 — Restore from S3 Backup (Disaster Recovery)
+# =============================================================================
+
+def _s3_object_exists(s3_path: str) -> bool:
+    """Check if an S3 object exists without downloading it."""
+    result = run_cmd(
+        ["aws", "s3", "ls", s3_path, "--region", AWS_REGION],
+        check=False,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def _restore_certificates() -> bool:
+    """Download and extract PKI certificates from S3.
+
+    Returns True if certificates were restored successfully.
+    """
+    s3_path = f"s3://{S3_BUCKET}/{DR_BACKUP_PREFIX}/pki/latest.tar.gz"
+    if not _s3_object_exists(s3_path):
+        log_warn("No PKI backup found in S3 — fresh init will generate new certs")
+        return False
+
+    archive_path = "/tmp/k8s-pki-restore.tar.gz"
+    try:
+        log_info(f"Downloading PKI backup from {s3_path}...")
+        run_cmd([
+            "aws", "s3", "cp", s3_path, archive_path,
+            "--region", AWS_REGION,
+        ])
+
+        pki_dir = Path("/etc/kubernetes/pki")
+        pki_dir.mkdir(parents=True, exist_ok=True)
+        run_cmd(["tar", "xzf", archive_path, "-C", "/etc/kubernetes"])
+
+        log_info("✓ PKI certificates restored from S3 backup")
+        return True
+    except Exception as err:
+        log_error(f"Certificate restore failed: {err}")
+        return False
+    finally:
+        if Path(archive_path).exists():
+            os.remove(archive_path)
+
+
+def _restore_etcd_snapshot() -> bool:
+    """Download and prepare etcd snapshot for kubeadm init.
+
+    Restores the etcd data directory so kubeadm init finds existing
+    etcd data and preserves all Kubernetes objects.
+
+    Returns True if etcd was restored successfully.
+    """
+    s3_path = f"s3://{S3_BUCKET}/{DR_BACKUP_PREFIX}/etcd/latest.db"
+    if not _s3_object_exists(s3_path):
+        log_warn("No etcd backup found in S3 — fresh init will start empty")
+        return False
+
+    snapshot_path = "/tmp/etcd-restore.db"
+    etcd_data_dir = f"{DATA_DIR}/etcd"
+
+    try:
+        log_info(f"Downloading etcd snapshot from {s3_path}...")
+        run_cmd([
+            "aws", "s3", "cp", s3_path, snapshot_path,
+            "--region", AWS_REGION,
+        ])
+
+        # Resolve etcdctl — prefer binary, fall back to container
+        etcdctl = shutil.which("etcdctl")
+        if not etcdctl:
+            log_warn("etcdctl not found on PATH — attempting restore via container")
+            # etcdctl may be available after kubeadm images are pulled
+            etcdctl = "etcdctl"
+
+        log_info(f"Restoring etcd snapshot to {etcd_data_dir}...")
+        env = {"ETCDCTL_API": "3"}
+        run_cmd([
+            etcdctl, "snapshot", "restore", snapshot_path,
+            "--data-dir", etcd_data_dir,
+            "--skip-hash-check",
+        ], env=env)
+
+        log_info(f"✓ etcd snapshot restored to {etcd_data_dir}")
+        return True
+    except Exception as err:
+        log_error(f"etcd restore failed: {err}")
+        # Clean up partial restore so kubeadm init starts fresh
+        if Path(etcd_data_dir).exists():
+            shutil.rmtree(etcd_data_dir, ignore_errors=True)
+        return False
+    finally:
+        if Path(snapshot_path).exists():
+            os.remove(snapshot_path)
+
+
+def step_restore_from_backup() -> None:
+    """Step 2: Restore etcd + certificates from S3 if EBS is empty.
+
+    This step enables Scenario B disaster recovery:
+    - If admin.conf exists (EBS has data) → skip (normal self-healing)
+    - If admin.conf missing AND S3 backups exist → restore before init
+    - If admin.conf missing AND no S3 backups → skip (fresh init)
+
+    Must run BEFORE step_init_kubeadm so that kubeadm init finds
+    the restored certificates and etcd data.
+    """
+    with StepRunner("restore-backup", skip_if=DR_RESTORE_MARKER) as step:
+        if step.skipped:
+            return
+
+        # If admin.conf exists, the EBS volume has data — no restore needed
+        if Path(ADMIN_CONF).exists():
+            log_info("admin.conf exists — EBS volume has data, skipping DR restore")
+            step.details["action"] = "skipped_ebs_has_data"
+            return
+
+        if not S3_BUCKET:
+            log_warn("S3_BUCKET not set — cannot check for backups")
+            step.details["action"] = "skipped_no_bucket"
+            return
+
+        log_info("EBS volume appears empty — checking S3 for DR backups...")
+
+        # Restore certificates first (required for etcd restore)
+        certs_restored = _restore_certificates()
+        step.details["certs_restored"] = certs_restored
+
+        # Restore etcd snapshot
+        etcd_restored = _restore_etcd_snapshot()
+        step.details["etcd_restored"] = etcd_restored
+
+        if certs_restored or etcd_restored:
+            log_info(
+                "DR restore complete — kubeadm init will use restored data\n"
+                f"  Certificates: {'✓ restored' if certs_restored else '✗ not found'}\n"
+                f"  etcd data:    {'✓ restored' if etcd_restored else '✗ not found'}"
+            )
+            step.details["action"] = "restored"
+        else:
+            log_info("No S3 backups found — kubeadm init will start fresh")
+            step.details["action"] = "fresh_init"
 
 
 def step_init_kubeadm() -> None:
@@ -868,6 +1068,46 @@ def step_install_cloudwatch_agent() -> None:
 
 
 # =============================================================================
+# Step 10 — Install etcd Backup Timer
+# =============================================================================
+
+DR_TIMER_MARKER = "/etc/systemd/system/etcd-backup.timer"
+
+
+def step_install_etcd_backup() -> None:
+    """Step 10: Set up hourly etcd backup to S3 via systemd timer.
+
+    Installs the etcd-backup.sh script and creates a systemd timer
+    that runs hourly. The initial backup runs immediately after
+    installation.
+
+    Idempotent: skips if the timer unit file already exists.
+    """
+    with StepRunner("install-etcd-backup", skip_if=DR_TIMER_MARKER) as step:
+        if step.skipped:
+            return
+
+        # The DR scripts are synced from S3 as part of the bootstrap bundle
+        bootstrap_dir = Path(MOUNT_POINT) / "k8s-bootstrap"
+        installer = bootstrap_dir / "system" / "dr" / "install-etcd-backup-timer.sh"
+
+        if not installer.exists():
+            log_warn(
+                f"etcd backup installer not found at {installer}. "
+                f"DR scripts may not have been synced from S3 yet."
+            )
+            step.details["installed"] = False
+            return
+
+        log_info(f"Installing etcd backup timer: {installer}")
+        run_cmd([str(installer)], capture=False, timeout=120)
+
+        step.details["installed"] = True
+        step.details["timer_unit"] = DR_TIMER_MARKER
+        log_info("✓ etcd backup timer installed")
+
+
+# =============================================================================
 # Main — Sequential Control Plane Bootstrap
 # =============================================================================
 
@@ -875,6 +1115,7 @@ def main() -> None:
     """Execute all control plane bootstrap steps in order."""
     steps = [
         step_validate_ami,
+        step_restore_from_backup,
         step_init_kubeadm,
         step_install_calico,
         step_configure_kubectl,
@@ -882,6 +1123,7 @@ def main() -> None:
         step_bootstrap_argocd,
         step_verify_cluster,
         step_install_cloudwatch_agent,
+        step_install_etcd_backup,
     ]
 
     log_info(f"Control plane bootstrap starting ({len(steps)} steps)")
