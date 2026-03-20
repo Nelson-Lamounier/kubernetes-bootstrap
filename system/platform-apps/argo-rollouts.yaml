@@ -5,6 +5,10 @@
 # Deploys CRDs (Rollout, AnalysisTemplate, AnalysisRun, Experiment) and the controller
 # that manages rollout lifecycle, traffic splitting, and metric analysis.
 #
+# Uses the official Helm chart from the argo-helm repository instead of raw
+# manifests. The Helm chart avoids the `metadata.managedFields must be nil`
+# error that occurs when applying raw CRD manifests via Server-Side Apply.
+#
 # Wave 3: Platform tier — must be installed before Business Apps (wave 5)
 # that use Rollout resources instead of Deployments.
 
@@ -24,24 +28,34 @@ metadata:
 spec:
   project: default
 
-  # Ignore CRD drift — Kubernetes auto-populates fields (status, conversion,
-  # annotations, labels, managedFields) that will never match the upstream
-  # Git source exactly. Using jqPathExpressions for broader coverage than
-  # jsonPointers to prevent the sync loop on server-side mutated fields.
-  ignoreDifferences:
-    - group: apiextensions.k8s.io
-      kind: CustomResourceDefinition
-      jqPathExpressions:
-        - .metadata.annotations
-        - .metadata.labels
-        - .metadata.managedFields
-        - .status
-        - .spec.conversion
-
   source:
-    repoURL: https://github.com/argoproj/argo-rollouts.git
-    targetRevision: v1.7.2
-    path: manifests/cluster-install
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: 2.40.6
+    helm:
+      releaseName: argo-rollouts
+      valuesObject:
+        # Install CRDs — required for Rollout, AnalysisTemplate, etc.
+        installCRDs: true
+        controller:
+          replicas: 1
+          # Schedule on the ArgoCD worker node (Spot)
+          nodeSelector:
+            workload: argocd
+          tolerations:
+            - key: workload
+              operator: Equal
+              value: argocd
+              effect: NoSchedule
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 25m
+              memory: 64Mi
+        dashboard:
+          enabled: false  # Not needed — use kubectl or ArgoCD UI
 
   destination:
     server: https://kubernetes.default.svc
@@ -56,7 +70,6 @@ spec:
       - CreateNamespace=true
       - PruneLast=true
       - ServerSideApply=true
-      - RespectIgnoreDifferences=true
     retry:
       limit: 3
       backoff:

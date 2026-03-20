@@ -61,27 +61,3 @@ spec:
       value: monitoring
       effect: NoSchedule
 
----
-# ProviderConfig — AWS Credential Binding
-#
-# Tells all Crossplane AWS providers where to find credentials.
-# References the K8s Secret created by the bootstrap script
-# from the Secrets Manager secret provisioned by CrossplaneStack.
-#
-# Secret format (created by bootstrap):
-#   [default]
-#   aws_access_key_id = AKIA...
-#   aws_secret_access_key = ...
-apiVersion: aws.upbound.io/v1beta1
-kind: ProviderConfig
-metadata:
-  name: default
-  labels:
-    platform.engineering/component: infrastructure-abstraction
-spec:
-  credentials:
-    source: Secret
-    secretRef:
-      namespace: crossplane-system
-      name: crossplane-aws-creds
-      key: credentials
