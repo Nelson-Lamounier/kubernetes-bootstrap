@@ -61,7 +61,7 @@ KUBELET_CONF = "/etc/kubernetes/kubelet.conf"
 # Step 1 — Validate Golden AMI
 # =============================================================================
 
-REQUIRED_BINARIES = ["containerd", "kubeadm", "kubelet", "kubectl", "helm"]
+REQUIRED_BINARIES = ["containerd", "kubeadm", "kubelet", "kubectl", "helm", "k8sgpt"]
 REQUIRED_KERNEL_MODULES = ["overlay", "br_netfilter"]
 REQUIRED_SYSCTL = {
     "net.bridge.bridge-nf-call-iptables": "1",
