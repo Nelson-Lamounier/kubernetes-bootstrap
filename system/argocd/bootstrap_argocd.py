@@ -598,6 +598,56 @@ def seed_ecr_credentials(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 5d-pre: Restore TLS certificate from SSM (prevents rate-limit exhaustion)
+# ---------------------------------------------------------------------------
+def restore_tls_cert(cfg: Config) -> None:
+    """Restore a previously backed-up TLS certificate from SSM Parameter Store.
+
+    On instance replacement the etcd data is lost, including the TLS Secret
+    that cert-manager previously issued. Without this restore step, cert-manager
+    requests a brand-new certificate from Let's Encrypt, which eventually
+    hits the 5-per-168h rate limit.
+
+    The persist-tls-cert.py script (in k8s-bootstrap/system/cert-manager/) is
+    called with --restore. If an SSM backup exists, the Secret is created
+    *before* cert-manager syncs, so cert-manager sees the Secret already
+    exists and skips issuance.
+    """
+    log("=== Step 5d-pre: Restoring TLS certificate from SSM ===")
+
+    cert_manager_dir = Path(cfg.argocd_dir).parent / "cert-manager"
+    persist_script = cert_manager_dir / "persist-tls-cert.py"
+
+    if not persist_script.exists():
+        log(f"  ⚠ {persist_script} not found — skipping TLS restore")
+        log("    cert-manager will request a new certificate\n")
+        return
+
+    args = [
+        sys.executable, str(persist_script),
+        "--restore",
+        "--secret", "ops-tls-cert",
+        "--namespace", "kube-system",
+    ]
+    if cfg.dry_run:
+        args.append("--dry-run")
+
+    env = {
+        **os.environ,
+        "KUBECONFIG": cfg.kubeconfig,
+        "SSM_PREFIX": cfg.ssm_prefix,
+        "AWS_REGION": cfg.aws_region,
+    }
+
+    result = subprocess.run(args, env=env, check=False)
+
+    if result.returncode == 0:
+        log("  ✓ TLS restore completed\n")
+    else:
+        log("  ⚠ TLS restore failed — cert-manager will request a new certificate\n")
+
+
+# ---------------------------------------------------------------------------
 # Step 5d: Apply cert-manager ClusterIssuer (DNS-01 via Route 53)
 # ---------------------------------------------------------------------------
 def apply_cert_manager_issuer(cfg: Config) -> None:
@@ -1149,6 +1199,76 @@ def set_admin_password(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 10c: Back up TLS certificate to SSM (for next redeploy)
+# ---------------------------------------------------------------------------
+def backup_tls_cert(cfg: Config) -> None:
+    """Back up the TLS certificate to SSM Parameter Store after bootstrap.
+
+    cert-manager may still be issuing the certificate when this runs.
+    We wait up to 5 minutes for the Secret to appear, then back it up.
+    If the cert isn't ready yet (e.g. rate-limited), we log a warning
+    and skip — the next successful bootstrap will back it up.
+    """
+    log("=== Step 10c: Backing up TLS certificate to SSM ===")
+
+    cert_manager_dir = Path(cfg.argocd_dir).parent / "cert-manager"
+    persist_script = cert_manager_dir / "persist-tls-cert.py"
+
+    if not persist_script.exists():
+        log(f"  ⚠ {persist_script} not found — skipping TLS backup\n")
+        return
+
+    # Wait for the TLS Secret to appear (cert-manager may still be issuing)
+    if not cfg.dry_run:
+        log("  → Waiting for ops-tls-cert Secret to be ready...")
+        max_wait = 10  # attempts × 30s = 5 min
+        secret_ready = False
+        for attempt in range(1, max_wait + 1):
+            check = subprocess.run(
+                ["kubectl", "get", "secret", "ops-tls-cert", "-n", "kube-system",
+                 "-o", "jsonpath={.data.tls\\.crt}"],
+                env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+                capture_output=True, text=True,
+            )
+            if check.returncode == 0 and check.stdout.strip():
+                log(f"  ✓ TLS Secret ready (attempt {attempt}/{max_wait})")
+                secret_ready = True
+                break
+            if attempt < max_wait:
+                log(f"    Attempt {attempt}/{max_wait} — not ready, waiting 30s...")
+                time.sleep(30)
+
+        if not secret_ready:
+            log("  ⚠ TLS Secret not ready after 5 min — skipping backup")
+            log("    This is expected if cert-manager is rate-limited")
+            log("    The cert will be backed up on the next successful bootstrap\n")
+            return
+
+    args = [
+        sys.executable, str(persist_script),
+        "--backup",
+        "--secret", "ops-tls-cert",
+        "--namespace", "kube-system",
+    ]
+    if cfg.dry_run:
+        args.append("--dry-run")
+
+    env = {
+        **os.environ,
+        "KUBECONFIG": cfg.kubeconfig,
+        "SSM_PREFIX": cfg.ssm_prefix,
+        "AWS_REGION": cfg.aws_region,
+    }
+
+    result = subprocess.run(args, env=env, check=False)
+
+    if result.returncode == 0:
+        log("  ✓ TLS backup completed\n")
+    else:
+        log("  ⚠ TLS backup failed — cert will be re-requested on next redeploy\n")
+
+
+# ---------------------------------------------------------------------------
 # Step 11: Summary
 # ---------------------------------------------------------------------------
 def print_summary(cfg: Config) -> None:
@@ -1239,6 +1359,9 @@ def main() -> None:
     # Step 5c: Seed ECR credentials (Day-1 — CronJob hasn't fired yet)
     seed_ecr_credentials(cfg)
 
+    # Step 5d-pre: Restore TLS cert from SSM (before cert-manager syncs)
+    restore_tls_cert(cfg)
+
     # Step 5d: Apply cert-manager ClusterIssuer with DNS-01 solver (from SSM)
     apply_cert_manager_issuer(cfg)
 
@@ -1265,6 +1388,9 @@ def main() -> None:
 
     # Step 10b: Set admin password from SSM (runs regardless of CLI availability)
     set_admin_password(cfg)
+
+    # Step 10c: Back up TLS cert to SSM (for next redeploy)
+    backup_tls_cert(cfg)
 
     # Step 11: Summary
     print_summary(cfg)
