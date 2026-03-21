@@ -702,6 +702,26 @@ def apply_cert_manager_issuer(cfg: Config) -> None:
         return
 
     # Apply ClusterIssuer with DNS-01 Route 53 solver
+    #
+    # PRODUCTION NOTE — Rate-limit recovery:
+    #   Let's Encrypt enforces 5 certs per exact domain set per 168 hours.
+    #   If the TLS Secret is lost (etcd wipe) and the rate limit is hit,
+    #   switch to the STAGING server temporarily to unblock cert-manager:
+    #
+    #     kubectl patch clusterissuer letsencrypt --type=merge -p \
+    #       '{"spec":{"acme":{"server":"https://acme-staging-v02.api.letsencrypt.org/directory"}}}'
+    #     kubectl delete order,certificaterequest --all -n kube-system
+    #
+    #   Staging certs are NOT browser-trusted but allow cert-manager-config
+    #   to reach Healthy status. Switch back to production after 168h:
+    #
+    #     kubectl patch clusterissuer letsencrypt --type=merge -p \
+    #       '{"spec":{"acme":{"server":"https://acme-v02.api.letsencrypt.org/directory"}}}'
+    #     kubectl delete order,certificaterequest --all -n kube-system
+    #
+    #   The persist-tls-cert.py backup/restore flow prevents this scenario
+    #   by preserving the TLS Secret across redeploys via SSM.
+    #
     manifest = f"""apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
