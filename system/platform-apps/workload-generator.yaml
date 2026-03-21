@@ -46,6 +46,12 @@ spec:
           - path: kubernetes-app/workloads/charts/*
           - path: kubernetes-app/workloads/charts/golden-path-service
             exclude: true
+          # nextjs is excluded because it requires custom annotations
+          # (ArgoCD Image Updater, ECR write-back) and a specific namespace
+          # (nextjs-app) that the generic template cannot provide.
+          # The manually committed workloads/argocd-apps/nextjs.yaml is used instead.
+          - path: kubernetes-app/workloads/charts/nextjs
+            exclude: true
 
   template:
     metadata:
