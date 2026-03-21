@@ -86,7 +86,7 @@ DR_RESTORE_MARKER = "/etc/kubernetes/.dr-restored"
 # Step 1 — Validate Golden AMI
 # =============================================================================
 
-REQUIRED_BINARIES = ["containerd", "kubeadm", "kubelet", "kubectl", "helm", "k8sgpt"]
+REQUIRED_BINARIES = ["containerd", "kubeadm", "kubelet", "kubectl", "helm"]
 REQUIRED_KERNEL_MODULES = ["overlay", "br_netfilter"]
 REQUIRED_SYSCTL = {
     "net.bridge.bridge-nf-call-iptables": "1",
