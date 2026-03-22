@@ -30,6 +30,7 @@ Usage:
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -311,12 +312,27 @@ def _join_cluster(endpoint: str) -> None:
             raise RuntimeError(f"CA hash never became available after {JOIN_MAX_RETRIES} attempts")
 
         log_info("Running kubeadm join...")
-        result = run_cmd(
-            ["kubeadm", "join", endpoint,
-             "--token", join_token,
-             "--discovery-token-ca-cert-hash", ca_hash],
-            check=False, capture=False, timeout=120,
-        )
+        try:
+            result = run_cmd(
+                ["kubeadm", "join", endpoint,
+                 "--token", join_token,
+                 "--discovery-token-ca-cert-hash", ca_hash],
+                check=False, capture=False, timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            log_warn(
+                f"kubeadm join timed out on attempt {attempt}/{JOIN_MAX_RETRIES} "
+                f"— API server may still be initialising"
+            )
+            if attempt < JOIN_MAX_RETRIES:
+                log_info("Running kubeadm reset before retry...")
+                run_cmd(["kubeadm", "reset", "-f"], check=False)
+                time.sleep(JOIN_RETRY_INTERVAL)
+                continue
+            raise RuntimeError(
+                f"kubeadm join timed out on all {JOIN_MAX_RETRIES} attempts. "
+                f"Check that the API server at {endpoint} is reachable."
+            )
 
         if result.returncode == 0:
             log_info(f"kubeadm join succeeded on attempt {attempt}")
