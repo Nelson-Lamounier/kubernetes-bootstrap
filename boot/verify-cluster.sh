@@ -956,8 +956,8 @@ if df -h /data &>/dev/null; then
 else
   warn "/data mount point not found (expected on control plane)" \
 "COMPONENT: The EBS volume mounted at /data stores persistent data including
-etcd backups and local-path-provisioner volumes. It's attached by the CDK
-BaseStack and mounted by boot-k8s.sh.
+etcd backups and local-path-provisioner volumes. It's attached and mounted
+by control_plane.py (step_attach_ebs_volume) during bootstrap.
 
 DIAGNOSTIC:
   lsblk
