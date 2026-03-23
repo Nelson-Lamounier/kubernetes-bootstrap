@@ -3,15 +3,23 @@
 @format
 Common utilities for K8s bootstrap step scripts.
 
-Provides structured logging, subprocess execution, SSM helpers, and
-idempotency guards used by all step scripts.
+Provides structured logging, subprocess execution, SSM helpers,
+idempotency guards, and shared bootstrap steps used by all step scripts.
+
+Shared Steps:
+    - step_validate_ami: Validate Golden AMI binaries and kernel settings
+    - step_install_cloudwatch_agent: Install and configure CloudWatch Agent
 
 Usage from a step script:
-    from common import StepRunner, run_cmd, ssm_get, ssm_put, log
+    from common import (
+        StepRunner, run_cmd, ssm_get, ssm_put, log_info,
+        step_validate_ami, step_install_cloudwatch_agent,
+    )
 """
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -493,4 +501,229 @@ def ensure_ecr_credential_provider() -> None:
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(_ECR_PROVIDER_CONFIG_CONTENT)
         log_info(f"ECR credential provider config created at {ECR_PROVIDER_CONFIG}")
+
+
+# =============================================================================
+# Shared Step — Validate Golden AMI
+#
+# Used by both control_plane.py and worker.py.  Verifies that the
+# Golden AMI includes all required binaries, kernel modules, and
+# sysctl settings.  These are prerequisites baked into the AMI —
+# the bootstrap scripts do NOT install packages at boot time.
+# =============================================================================
+
+REQUIRED_BINARIES = ["containerd", "kubeadm", "kubelet", "kubectl", "helm"]
+REQUIRED_KERNEL_MODULES = ["overlay", "br_netfilter"]
+REQUIRED_SYSCTL = {
+    "net.bridge.bridge-nf-call-iptables": "1",
+    "net.bridge.bridge-nf-call-ip6tables": "1",
+    "net.ipv4.ip_forward": "1",
+}
+
+
+def validate_binaries() -> list[str]:
+    """Check that all required binaries are on $PATH. Returns missing list."""
+    missing = []
+    found = []
+    for binary in REQUIRED_BINARIES:
+        path = shutil.which(binary)
+        if path:
+            found.append(f"{binary} -> {path}")
+        else:
+            missing.append(binary)
+    for f in found:
+        log_info(f"  ✓ {f}")
+    return missing
+
+
+def validate_kernel_modules() -> list[str]:
+    """Check kernel modules are loaded. Returns missing list."""
+    missing = []
+    try:
+        loaded = Path("/proc/modules").read_text()
+    except FileNotFoundError:
+        log_error("/proc/modules not found — cannot validate kernel modules")
+        return list(REQUIRED_KERNEL_MODULES)
+
+    for mod in REQUIRED_KERNEL_MODULES:
+        if mod in loaded:
+            log_info(f"  ✓ Kernel module: {mod}")
+        else:
+            missing.append(mod)
+    return missing
+
+
+def validate_sysctl() -> list[str]:
+    """Check sysctl settings. Returns misconfigured list."""
+    errors = []
+    for key, expected in REQUIRED_SYSCTL.items():
+        sysctl_path = Path(f"/proc/sys/{key.replace('.', '/')}")
+        try:
+            actual = sysctl_path.read_text().strip()
+            if actual == expected:
+                log_info(f"  ✓ sysctl {key} = {actual}")
+            else:
+                errors.append(f"{key}: expected={expected}, actual={actual}")
+        except FileNotFoundError:
+            errors.append(f"{key}: not found at {sysctl_path}")
+    return errors
+
+
+def step_validate_ami() -> None:
+    """Validate Golden AMI binaries and kernel settings.
+
+    Shared by control plane and worker bootstrap scripts.
+    Raises RuntimeError if any required binary, kernel module,
+    or sysctl setting is missing or misconfigured.
+    """
+    with StepRunner("validate-ami") as step:
+        if step.skipped:
+            return
+
+        log_info("Checking required binaries...")
+        missing_bins = validate_binaries()
+        step.details["binaries_checked"] = REQUIRED_BINARIES
+        step.details["binaries_missing"] = missing_bins
+
+        log_info("Checking kernel modules...")
+        missing_mods = validate_kernel_modules()
+        step.details["modules_missing"] = missing_mods
+
+        log_info("Checking sysctl settings...")
+        sysctl_errors = validate_sysctl()
+        step.details["sysctl_errors"] = sysctl_errors
+
+        errors = []
+        if missing_bins:
+            errors.append(f"Missing binaries: {', '.join(missing_bins)}")
+        if missing_mods:
+            errors.append(f"Missing kernel modules: {', '.join(missing_mods)}")
+        if sysctl_errors:
+            errors.append(f"Sysctl errors: {'; '.join(sysctl_errors)}")
+
+        if errors:
+            msg = (
+                "Golden AMI validation FAILED.\n"
+                "  The bootstrap script does NOT install packages at boot time.\n"
+                "  All binaries must be pre-baked into the Golden AMI.\n\n"
+                f"  Errors:\n" +
+                "\n".join(f"    - {e}" for e in errors) +
+                "\n\n  Resolution: Rebuild the Golden AMI with the missing components."
+            )
+            raise RuntimeError(msg)
+
+        log_info("✓ Golden AMI validated — all required binaries and settings present")
+
+
+# =============================================================================
+# Shared Step — Install CloudWatch Agent
+#
+# Used by both control_plane.py and worker.py.  Installs the
+# CloudWatch Agent and configures it to stream system log files
+# to a CloudWatch log group.
+# =============================================================================
+
+CW_MARKER_FILE = "/tmp/.cw-agent-installed"
+CW_AGENT_CTL = "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl"
+CW_AGENT_CONFIG_PATH = "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
+K8S_ENV_FILE = "/etc/profile.d/k8s-env.sh"
+
+CW_LOG_FILES = [
+    {"file_path": "/var/log/messages", "log_stream_name": "{instance_id}/messages"},
+    {"file_path": "/var/log/user-data.log", "log_stream_name": "{instance_id}/user-data"},
+    {"file_path": "/var/log/cloud-init-output.log", "log_stream_name": "{instance_id}/cloud-init"},
+]
+
+
+def _resolve_log_group_name() -> str:
+    """Resolve the CloudWatch log group name from environment or k8s-env.sh."""
+    log_group = os.environ.get("LOG_GROUP_NAME", "")
+    if log_group:
+        return log_group
+
+    env_file = Path(K8S_ENV_FILE)
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("export LOG_GROUP_NAME="):
+                value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if value:
+                    return value
+    return ""
+
+
+def step_install_cloudwatch_agent() -> None:
+    """Install and configure CloudWatch Agent for log streaming.
+
+    Shared by control plane and worker bootstrap scripts.
+    Idempotent: skips if marker file ``/tmp/.cw-agent-installed`` exists.
+    """
+    with StepRunner("install-cloudwatch-agent", skip_if=CW_MARKER_FILE) as step:
+        if step.skipped:
+            return
+
+        log_group_name = _resolve_log_group_name()
+        if not log_group_name:
+            log_warn(
+                "LOG_GROUP_NAME not found in environment or k8s-env.sh — "
+                "skipping CloudWatch Agent installation"
+            )
+            step.details["skipped_reason"] = "LOG_GROUP_NAME not set"
+            return
+
+        log_info(f"Target log group: {log_group_name}")
+        step.details["log_group_name"] = log_group_name
+
+        log_info("Installing amazon-cloudwatch-agent...")
+        result = run_cmd(
+            "dnf install -y amazon-cloudwatch-agent 2>/dev/null || "
+            "yum install -y amazon-cloudwatch-agent",
+            shell=True, check=True, timeout=120,
+        )
+        step.details["install_exit_code"] = result.returncode
+
+        collect_list = []
+        for lf in CW_LOG_FILES:
+            collect_list.append({
+                "file_path": lf["file_path"],
+                "log_group_name": log_group_name,
+                "log_stream_name": lf["log_stream_name"],
+                "retention_in_days": 30,
+            })
+
+        config = {
+            "agent": {
+                "metrics_collection_interval": 60,
+                "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
+            },
+            "logs": {
+                "logs_collected": {
+                    "files": {"collect_list": collect_list},
+                },
+            },
+        }
+
+        config_path = Path(CW_AGENT_CONFIG_PATH)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(config, indent=2))
+        log_info(f"Agent config written to {CW_AGENT_CONFIG_PATH}")
+        step.details["log_files"] = [lf["file_path"] for lf in CW_LOG_FILES]
+
+        log_info("Starting CloudWatch Agent...")
+        run_cmd([
+            CW_AGENT_CTL,
+            "-a", "fetch-config",
+            "-m", "ec2",
+            "-c", f"file:{CW_AGENT_CONFIG_PATH}",
+            "-s",
+        ], timeout=60)
+
+        result = run_cmd([CW_AGENT_CTL, "-a", "status"], check=False)
+        if result.returncode == 0 and "running" in result.stdout.lower():
+            log_info("CloudWatch Agent is running")
+            step.details["agent_status"] = "running"
+        else:
+            log_warn("CloudWatch Agent may not be running — check agent logs")
+            step.details["agent_status"] = "unknown"
+
 
