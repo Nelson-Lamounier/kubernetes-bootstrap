@@ -598,6 +598,120 @@ def seed_ecr_credentials(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 5c-cp: Provision Crossplane AWS credentials (Secrets Manager → K8s)
+# ---------------------------------------------------------------------------
+def provision_crossplane_credentials(cfg: Config) -> None:
+    """Pull Crossplane AWS credentials from Secrets Manager → K8s Secret.
+
+    CDK CrossplaneStack creates an IAM user with tightly scoped permissions
+    (S3, SQS, KMS) and stores the access key in Secrets Manager at:
+        {namePrefix}/crossplane/aws-credentials
+
+    This step bridges that credential into the crossplane-system namespace
+    as the K8s Secret 'crossplane-aws-creds', which ProviderConfig references.
+
+    The Secret format matches what Crossplane's AWS ProviderConfig expects:
+        [default]
+        aws_access_key_id = AKIA...
+        aws_secret_access_key = ...
+    """
+    log("=== Step 5c-cp: Provisioning Crossplane AWS Credentials ===")
+
+    # Derive the Secrets Manager secret name from environment.
+    # CDK uses: {namePrefix}/crossplane/aws-credentials
+    # where namePrefix = 'shared-{env}' (e.g. 'shared-dev')
+    env_short = cfg.env[:3]  # 'development' → 'dev'
+    secret_name = f"shared-{env_short}/crossplane/aws-credentials"
+
+    if cfg.dry_run:
+        log(f"  [DRY-RUN] Would provision crossplane-aws-creds from {secret_name}\n")
+        return
+
+    # 1. Read credentials from Secrets Manager
+    try:
+        sm = get_secrets_client(cfg)
+        resp = sm.get_secret_value(SecretId=secret_name)
+        secret_data = json.loads(resp["SecretString"])
+
+        access_key = secret_data.get("aws_access_key_id", "")
+        secret_key = secret_data.get("aws_secret_access_key", "")
+
+        if not access_key or not secret_key:
+            log(f"  ⚠ Secrets Manager secret '{secret_name}' has empty credentials")
+            log("    Crossplane providers will fail to authenticate to AWS\n")
+            return
+
+        log(f"  ✓ Retrieved credentials from Secrets Manager ({secret_name})")
+    except Exception as e:
+        log(f"  ⚠ Failed to read Secrets Manager secret '{secret_name}': {e}")
+        log("    Crossplane providers will fail to authenticate to AWS")
+        log("    Deploy the Shared-Crossplane CDK stack first:\n")
+        log(f"      npx cdk deploy 'Shared-Crossplane-{cfg.env}'\n")
+        return
+
+    # 2. Format as INI-style credentials (ProviderConfig expects this)
+    credentials_ini = (
+        f"[default]\n"
+        f"aws_access_key_id = {access_key}\n"
+        f"aws_secret_access_key = {secret_key}\n"
+    )
+
+    # 3. Create the K8s Secret in crossplane-system namespace
+    try:
+        from kubernetes import client, config as k8s_config
+
+        k8s_config.load_kube_config(config_file=cfg.kubeconfig)
+        v1 = client.CoreV1Api()
+
+        # Ensure crossplane-system namespace exists
+        try:
+            v1.read_namespace("crossplane-system")
+        except client.exceptions.ApiException as e:
+            if e.status == 404:
+                v1.create_namespace(client.V1Namespace(
+                    metadata=client.V1ObjectMeta(name="crossplane-system"),
+                ))
+                log("  ✓ Created crossplane-system namespace")
+            else:
+                raise
+
+        creds_b64 = base64.b64encode(credentials_ini.encode()).decode()
+
+        secret = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name="crossplane-aws-creds",
+                namespace="crossplane-system",
+                labels={
+                    "app.kubernetes.io/managed-by": "bootstrap",
+                    "app.kubernetes.io/part-of": "crossplane",
+                    "platform.engineering/component": "infrastructure-abstraction",
+                },
+            ),
+            data={"credentials": creds_b64},
+            type="Opaque",
+        )
+
+        try:
+            v1.create_namespaced_secret("crossplane-system", secret)
+            log("  ✓ crossplane-aws-creds secret created")
+        except client.exceptions.ApiException as e:
+            if e.status == 409:
+                v1.replace_namespaced_secret(
+                    "crossplane-aws-creds", "crossplane-system", secret,
+                )
+                log("  ✓ crossplane-aws-creds secret updated")
+            else:
+                raise
+
+        log("  ✓ Crossplane ProviderConfig can now authenticate to AWS")
+    except Exception as e:
+        log(f"  ⚠ Failed to create crossplane-aws-creds secret: {e}")
+        log("    Crossplane providers will fail to authenticate to AWS")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
 # Step 5d-pre: Restore TLS certificate from SSM (prevents rate-limit exhaustion)
 # ---------------------------------------------------------------------------
 def restore_tls_cert(cfg: Config) -> None:
@@ -1423,6 +1537,9 @@ def main() -> None:
 
     # Step 5c: Seed ECR credentials (Day-1 — CronJob hasn't fired yet)
     seed_ecr_credentials(cfg)
+
+    # Step 5c-cp: Provision Crossplane AWS credentials (Secrets Manager → K8s)
+    provision_crossplane_credentials(cfg)
 
     # Step 5d-pre: Restore TLS cert from SSM (before cert-manager syncs)
     restore_tls_cert(cfg)
