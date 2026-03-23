@@ -601,19 +601,22 @@ def seed_ecr_credentials(cfg: Config) -> None:
 # Step 5d-pre: Restore TLS certificate from SSM (prevents rate-limit exhaustion)
 # ---------------------------------------------------------------------------
 def restore_tls_cert(cfg: Config) -> None:
-    """Restore a previously backed-up TLS certificate from SSM Parameter Store.
+    """Restore backed-up TLS certificate AND ACME account key from SSM.
 
-    On instance replacement the etcd data is lost, including the TLS Secret
-    that cert-manager previously issued. Without this restore step, cert-manager
-    requests a brand-new certificate from Let's Encrypt, which eventually
-    hits the 5-per-168h rate limit.
+    On instance replacement the etcd data may be lost (DR recovery, fresh EBS),
+    including the TLS Secret and the ACME account key. Without this restore:
+      - cert-manager requests a new certificate → rate-limit exhaustion
+      - A new ACME account is registered → rate limits count from zero
 
     The persist-tls-cert.py script (in k8s-bootstrap/system/cert-manager/) is
-    called with --restore. If an SSM backup exists, the Secret is created
-    *before* cert-manager syncs, so cert-manager sees the Secret already
-    exists and skips issuance.
+    called with --restore for each Secret. If an SSM backup exists, the Secret
+    is created *before* cert-manager syncs, so cert-manager sees the Secret
+    already exists and skips issuance.
+
+    Note: When the EBS volume is re-attached cleanly, etcd preserves all
+    Secrets and this step becomes a no-op (the script skips existing Secrets).
     """
-    log("=== Step 5d-pre: Restoring TLS certificate from SSM ===")
+    log("=== Step 5d-pre: Restoring TLS certificate + ACME key from SSM ===")
 
     cert_manager_dir = Path(cfg.argocd_dir).parent / "cert-manager"
     persist_script = cert_manager_dir / "persist-tls-cert.py"
@@ -623,15 +626,6 @@ def restore_tls_cert(cfg: Config) -> None:
         log("    cert-manager will request a new certificate\n")
         return
 
-    args = [
-        sys.executable, str(persist_script),
-        "--restore",
-        "--secret", "ops-tls-cert",
-        "--namespace", "kube-system",
-    ]
-    if cfg.dry_run:
-        args.append("--dry-run")
-
     env = {
         **os.environ,
         "KUBECONFIG": cfg.kubeconfig,
@@ -639,12 +633,33 @@ def restore_tls_cert(cfg: Config) -> None:
         "AWS_REGION": cfg.aws_region,
     }
 
-    result = subprocess.run(args, env=env, check=False)
+    # Restore both the TLS cert and the ACME account key.
+    # The ACME account key preserves the Let's Encrypt account identity,
+    # preventing a new account from being registered on DR recovery.
+    secrets_to_restore = [
+        ("ops-tls-cert", "kube-system"),
+        ("letsencrypt-account-key", "cert-manager"),
+    ]
 
-    if result.returncode == 0:
-        log("  ✓ TLS restore completed\n")
-    else:
-        log("  ⚠ TLS restore failed — cert-manager will request a new certificate\n")
+    for secret_name, namespace in secrets_to_restore:
+        log(f"  → Restoring {namespace}/{secret_name}...")
+        args = [
+            sys.executable, str(persist_script),
+            "--restore",
+            "--secret", secret_name,
+            "--namespace", namespace,
+        ]
+        if cfg.dry_run:
+            args.append("--dry-run")
+
+        result = subprocess.run(args, env=env, check=False)
+
+        if result.returncode == 0:
+            log(f"  ✓ {secret_name} restore completed")
+        else:
+            log(f"  ⚠ {secret_name} restore failed — cert-manager may request a new certificate")
+
+    log("")
 
 
 # ---------------------------------------------------------------------------
@@ -766,12 +781,27 @@ spec:
         cfg=cfg, check=False,
     )
 
-    # Clean up stale cert-manager resources from previous failed attempts.
-    # If the ClusterIssuer previously had invalid config (e.g., unresolved
-    # template placeholders), challenges and orders will be stuck with
-    # finalizers that can't clean up. Removing finalizers + deleting allows
-    # cert-manager to re-issue with the corrected DNS-01 solver.
-    log("  → Cleaning up stale cert-manager resources...")
+    # Clean up stale cert-manager resources ONLY if the TLS Secret is missing.
+    # If the Secret exists (restored from SSM or persisted via EBS/etcd),
+    # cleaning up CertificateRequests would force cert-manager to re-issue,
+    # which exhausts Let's Encrypt rate limits (5 certs per 168h per domain).
+    #
+    # The cleanup is still valuable on first bootstrap or after DR recovery
+    # (no existing Secret), where stale resources from a previous broken
+    # ClusterIssuer config could block new issuance.
+    secret_exists = subprocess.run(
+        ["kubectl", "get", "secret", "ops-tls-cert", "-n", "kube-system"],
+        env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+        capture_output=True, text=True,
+    )
+
+    if secret_exists.returncode == 0:
+        log("  ✓ TLS Secret 'ops-tls-cert' exists — skipping stale resource cleanup")
+        log("    (cleaning up would force cert-manager to re-issue)")
+        log("")
+        return
+
+    log("  → TLS Secret missing — cleaning up stale cert-manager resources...")
     for resource in ("challenge", "order", "certificaterequest"):
         # First remove finalizers from stuck resources
         list_result = run(
@@ -1222,14 +1252,18 @@ def set_admin_password(cfg: Config) -> None:
 # Step 10c: Back up TLS certificate to SSM (for next redeploy)
 # ---------------------------------------------------------------------------
 def backup_tls_cert(cfg: Config) -> None:
-    """Back up the TLS certificate to SSM Parameter Store after bootstrap.
+    """Back up the TLS certificate AND ACME account key to SSM after bootstrap.
 
     cert-manager may still be issuing the certificate when this runs.
-    We wait up to 5 minutes for the Secret to appear, then back it up.
+    We wait up to 5 minutes for the TLS Secret to appear, then back it up.
+    The ACME account key is backed up immediately (it's created when the
+    ClusterIssuer first registers with Let's Encrypt).
+
     If the cert isn't ready yet (e.g. rate-limited), we log a warning
-    and skip — the next successful bootstrap will back it up.
+    and skip the TLS backup — the next successful bootstrap will back it up.
+    The ACME key backup is always attempted regardless.
     """
-    log("=== Step 10c: Backing up TLS certificate to SSM ===")
+    log("=== Step 10c: Backing up TLS certificate + ACME key to SSM ===")
 
     cert_manager_dir = Path(cfg.argocd_dir).parent / "cert-manager"
     persist_script = cert_manager_dir / "persist-tls-cert.py"
@@ -1238,11 +1272,19 @@ def backup_tls_cert(cfg: Config) -> None:
         log(f"  ⚠ {persist_script} not found — skipping TLS backup\n")
         return
 
+    env = {
+        **os.environ,
+        "KUBECONFIG": cfg.kubeconfig,
+        "SSM_PREFIX": cfg.ssm_prefix,
+        "AWS_REGION": cfg.aws_region,
+    }
+
     # Wait for the TLS Secret to appear (cert-manager may still be issuing)
+    tls_ready = True
     if not cfg.dry_run:
         log("  → Waiting for ops-tls-cert Secret to be ready...")
         max_wait = 10  # attempts × 30s = 5 min
-        secret_ready = False
+        tls_ready = False
         for attempt in range(1, max_wait + 1):
             check = subprocess.run(
                 ["kubectl", "get", "secret", "ops-tls-cert", "-n", "kube-system",
@@ -1252,40 +1294,43 @@ def backup_tls_cert(cfg: Config) -> None:
             )
             if check.returncode == 0 and check.stdout.strip():
                 log(f"  ✓ TLS Secret ready (attempt {attempt}/{max_wait})")
-                secret_ready = True
+                tls_ready = True
                 break
             if attempt < max_wait:
                 log(f"    Attempt {attempt}/{max_wait} — not ready, waiting 30s...")
                 time.sleep(30)
 
-        if not secret_ready:
-            log("  ⚠ TLS Secret not ready after 5 min — skipping backup")
+        if not tls_ready:
+            log("  ⚠ TLS Secret not ready after 5 min — skipping TLS backup")
             log("    This is expected if cert-manager is rate-limited")
-            log("    The cert will be backed up on the next successful bootstrap\n")
-            return
 
-    args = [
-        sys.executable, str(persist_script),
-        "--backup",
-        "--secret", "ops-tls-cert",
-        "--namespace", "kube-system",
+    # Back up both secrets. The ACME key is always backed up (it's created
+    # immediately). The TLS cert is only backed up if it's ready.
+    secrets_to_backup = [
+        ("letsencrypt-account-key", "cert-manager"),
     ]
-    if cfg.dry_run:
-        args.append("--dry-run")
+    if tls_ready:
+        secrets_to_backup.insert(0, ("ops-tls-cert", "kube-system"))
 
-    env = {
-        **os.environ,
-        "KUBECONFIG": cfg.kubeconfig,
-        "SSM_PREFIX": cfg.ssm_prefix,
-        "AWS_REGION": cfg.aws_region,
-    }
+    for secret_name, namespace in secrets_to_backup:
+        log(f"  → Backing up {namespace}/{secret_name}...")
+        args = [
+            sys.executable, str(persist_script),
+            "--backup",
+            "--secret", secret_name,
+            "--namespace", namespace,
+        ]
+        if cfg.dry_run:
+            args.append("--dry-run")
 
-    result = subprocess.run(args, env=env, check=False)
+        result = subprocess.run(args, env=env, check=False)
 
-    if result.returncode == 0:
-        log("  ✓ TLS backup completed\n")
-    else:
-        log("  ⚠ TLS backup failed — cert will be re-requested on next redeploy\n")
+        if result.returncode == 0:
+            log(f"  ✓ {secret_name} backup completed")
+        else:
+            log(f"  ⚠ {secret_name} backup failed — will retry on next bootstrap")
+
+    log("")
 
 
 # ---------------------------------------------------------------------------
