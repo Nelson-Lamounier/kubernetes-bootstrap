@@ -21,6 +21,7 @@ data:
       trace_idle_period: 30s
       max_block_bytes: 1073741824
       max_block_duration: 5m
+      max_bytes_per_trace: 5000000  # 5MB cap — prevents single large traces from spiking memory
     compactor:
       compaction:
         block_retention: 72h
@@ -34,24 +35,18 @@ data:
     metrics_generator:
       processor:
         local_blocks:
-          max_live_traces: 10000
-          flush_check_period: 10s
-          complete_block_timeout: 30s
+          max_live_traces: 2000
+          flush_check_period: 5s
+          complete_block_timeout: 15s
         service_graphs:
           dimensions:
-            - db.system
-            - db.operation
             - http.method
             - http.status_code
         span_metrics:
           dimensions:
             - service.name
-            - db.system
-            - db.operation
             - http.method
             - http.status_code
-            - http.route
-            - status
           enable_target_info: true
       registry:
         external_labels:
