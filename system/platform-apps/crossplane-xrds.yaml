@@ -16,7 +16,7 @@ metadata:
   name: crossplane-xrds
   annotations:
     kubernetes.io/description: "Crossplane XRDs — golden-path AWS resource definitions"
-    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-wave: "6"  # Wave 6: After providers (wave 5) register S3/SQS CRDs
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: argocd

@@ -22,7 +22,7 @@ metadata:
   name: crossplane-providers
   annotations:
     kubernetes.io/description: "Crossplane AWS providers (S3, SQS) and ProviderConfig"
-    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-wave: "5"  # Wave 5: After Crossplane core (wave 4) installs Provider CRD
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: argocd
