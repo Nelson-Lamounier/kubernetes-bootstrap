@@ -57,7 +57,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "count(kube_node_status_condition{condition=\\\"Ready\\\",status=\\\"true\\\"} == 1)",
+          "expr": "count(kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1)",
           "legendFormat": "Nodes",
           "refId": "A"
         }
@@ -355,8 +355,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "" },
-          "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\",job=\"kube-state-metrics\"} * on(node) group_left(label_workload) kube_node_labels{job=\"kube-state-metrics\"}",
-          "legendFormat": "{{label_workload}}",
+          "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\",job=\"kube-state-metrics\"} * on(node) group_left(label_workload, label_node_role_kubernetes_io_control_plane) kube_node_labels{job=\"kube-state-metrics\"}",
+          "legendFormat": "{{node}} ({{label_workload}})",
           "refId": "A"
         }
       ],
