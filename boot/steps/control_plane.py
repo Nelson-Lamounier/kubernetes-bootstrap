@@ -572,10 +572,11 @@ def _init_cluster() -> None:
     Path("/etc/sysconfig").mkdir(parents=True, exist_ok=True)
     Path("/etc/sysconfig/kubelet").write_text(
         "KUBELET_EXTRA_ARGS="
-        f"--image-credential-provider-config={ECR_PROVIDER_CONFIG}"
+        "--cloud-provider=external"
+        f" --image-credential-provider-config={ECR_PROVIDER_CONFIG}"
         " --image-credential-provider-bin-dir=/usr/local/bin\n"
     )
-    log_info("Kubelet ECR credential provider args configured")
+    log_info("Kubelet args configured: cloud-provider=external + ECR credential provider")
 
     private_ip = get_imds_value("local-ipv4")
     public_ip = get_imds_value("public-ipv4")

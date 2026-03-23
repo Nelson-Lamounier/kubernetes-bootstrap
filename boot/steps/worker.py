@@ -284,7 +284,8 @@ def _join_cluster(endpoint: str) -> None:
     log_info(f"Configuring kubelet with node label: {NODE_LABEL}")
     Path("/etc/sysconfig").mkdir(parents=True, exist_ok=True)
     Path("/etc/sysconfig/kubelet").write_text(
-        f"KUBELET_EXTRA_ARGS=--node-labels={NODE_LABEL}"
+        f"KUBELET_EXTRA_ARGS=--cloud-provider=external"
+        f" --node-labels={NODE_LABEL}"
         f" --image-credential-provider-config={ECR_PROVIDER_CONFIG}"
         " --image-credential-provider-bin-dir=/usr/local/bin\n"
     )
