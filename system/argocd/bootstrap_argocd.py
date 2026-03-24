@@ -950,9 +950,22 @@ def apply_ingress(cfg: Config) -> None:
     log("=== Step 7: Applying ArgoCD ingress ===")
     argocd_path = Path(cfg.argocd_dir)
 
-    ingress_yaml = argocd_path / "ingress.yaml"
-    if not ingress_yaml.exists():
-        log("  ⚠ ingress.yaml not found — skipping\n")
+    # Collect all ingress manifests to apply
+    ingress_files = [
+        ("ingress.yaml", "Main ArgoCD ingress"),
+        ("webhook-ingress.yaml", "GitHub webhook ingress"),
+    ]
+
+    manifests_to_apply: list[tuple[Path, str]] = []
+    for filename, label in ingress_files:
+        path = argocd_path / filename
+        if path.exists():
+            manifests_to_apply.append((path, label))
+        else:
+            log(f"  ⚠ {filename} not found — skipping {label}")
+
+    if not manifests_to_apply:
+        log("  ⚠ No ingress manifests found — skipping\n")
         return
 
     # Traefik CRDs (IngressRoute, Middleware) are installed by ArgoCD via the
@@ -961,12 +974,17 @@ def apply_ingress(cfg: Config) -> None:
     log("  → Waiting for Traefik CRDs before applying ingress...")
     max_retries = 10
     for attempt in range(1, max_retries + 1):
-        result = run(
-            ["kubectl", "apply", "-f", str(ingress_yaml)],
-            cfg=cfg, check=False,
-        )
-        if result.returncode == 0:
-            log("  ✓ Ingress applied")
+        all_applied = True
+        for manifest_path, label in manifests_to_apply:
+            result = run(
+                ["kubectl", "apply", "-f", str(manifest_path)],
+                cfg=cfg, check=False,
+            )
+            if result.returncode == 0:
+                log(f"  ✓ {label} applied")
+            else:
+                all_applied = False
+        if all_applied:
             break
         if attempt < max_retries:
             log(f"  Attempt {attempt}/{max_retries} — Traefik CRDs not ready, waiting 30s...")
@@ -974,7 +992,94 @@ def apply_ingress(cfg: Config) -> None:
         else:
             log("  ⚠ Ingress not applied — Traefik CRDs not available after 5 min.")
             log("    ArgoCD will install Traefik shortly. Apply manually:")
-            log(f"    kubectl apply -f {ingress_yaml}")
+            for manifest_path, _ in manifests_to_apply:
+                log(f"    kubectl apply -f {manifest_path}")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
+# Step 7c: Configure ArgoCD GitHub webhook secret
+# ---------------------------------------------------------------------------
+def configure_webhook_secret(cfg: Config) -> None:
+    """Generate a random webhook secret and patch it into argocd-secret.
+
+    ArgoCD validates incoming GitHub webhook payloads using HMAC-SHA256
+    with the secret stored at 'webhook.github.secret' in argocd-secret.
+    The same secret value must be configured in the GitHub repository's
+    webhook settings.
+
+    The secret is also stored in SSM so it can be retrieved when
+    configuring the GitHub webhook (manually or via GitHub Actions).
+    """
+    log("=== Step 7c: Configuring ArgoCD GitHub webhook secret ===")
+
+    ssm_path = f"{cfg.ssm_prefix}/argocd-webhook-secret"
+
+    if cfg.dry_run:
+        log(f"  [DRY-RUN] Would generate webhook secret and store at: {ssm_path}")
+        log("  [DRY-RUN] Would patch argocd-secret with webhook.github.secret\n")
+        return
+
+    # 1. Check if a webhook secret already exists in SSM (idempotent)
+    existing_secret: Optional[str] = None
+    try:
+        ssm = get_ssm_client(cfg)
+        resp = ssm.get_parameter(Name=ssm_path, WithDecryption=True)
+        existing_secret = resp["Parameter"]["Value"]
+        log("  ✓ Webhook secret already exists in SSM — reusing")
+    except Exception:
+        pass  # Secret doesn't exist yet — generate a new one
+
+    # 2. Generate a new secret if one doesn't exist
+    if existing_secret:
+        webhook_secret = existing_secret
+    else:
+        import secrets as secrets_mod
+        webhook_secret = secrets_mod.token_hex(32)
+        log("  ✓ Generated new webhook secret (64 hex chars)")
+
+        # Store in SSM for retrieval when configuring the GitHub webhook
+        try:
+            ssm = get_ssm_client(cfg)
+            try:
+                ssm.put_parameter(
+                    Name=ssm_path,
+                    Description="ArgoCD GitHub webhook secret for HMAC validation",
+                    Value=webhook_secret,
+                    Type="SecureString",
+                )
+                log(f"  ✓ Webhook secret stored in SSM: {ssm_path}")
+            except ssm.exceptions.ParameterAlreadyExists:
+                ssm.put_parameter(
+                    Name=ssm_path,
+                    Value=webhook_secret,
+                    Type="SecureString",
+                    Overwrite=True,
+                )
+                log(f"  ✓ Webhook secret updated in SSM: {ssm_path}")
+        except Exception as e:
+            log(f"  ⚠ Failed to store webhook secret in SSM: {e}")
+            log(f"    Store it manually: aws ssm put-parameter --name {ssm_path} ...")
+
+    # 3. Patch argocd-secret with the webhook secret
+    patch = json.dumps({
+        "stringData": {
+            "webhook.github.secret": webhook_secret,
+        }
+    })
+
+    result = run(
+        ["kubectl", "-n", "argocd", "patch", "secret", "argocd-secret",
+         "--type", "merge", "-p", patch],
+        cfg=cfg, check=False,
+    )
+
+    if result.returncode == 0:
+        log("  ✓ argocd-secret patched with webhook.github.secret")
+    else:
+        log("  ⚠ Failed to patch argocd-secret")
+        log("    Manual fix: kubectl -n argocd patch secret argocd-secret ...")
 
     log("")
 
@@ -1555,6 +1660,9 @@ def main() -> None:
 
     # Step 7b: Create ArgoCD IP allowlist middleware from SSM
     create_argocd_ip_allowlist(cfg)
+
+    # Step 7c: Configure GitHub webhook secret for instant syncs
+    configure_webhook_secret(cfg)
 
     # Step 8: CLI
     cli_installed = install_argocd_cli(cfg)

@@ -1,0 +1,30 @@
+# @format
+# ArgoCD GitHub Webhook IngressRoute
+#
+# Exposes ONLY the /argocd/api/webhook endpoint to the public internet
+# so that GitHub push events trigger immediate ArgoCD syncs.
+#
+# This route intentionally has NO IP allowlist — authentication is
+# handled by ArgoCD's webhook.github.secret in argocd-secret.
+#
+# Higher priority (200) ensures this matches before the main argocd-ingress (100)
+# which applies the admin-ip-allowlist middleware.
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-webhook-ingress
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`ops.nelsonlamounier.com`) && PathPrefix(`/argocd/api/webhook`)
+      kind: Rule
+      priority: 200
+      services:
+        - name: argocd-server
+          port: 80
+  tls: {}
