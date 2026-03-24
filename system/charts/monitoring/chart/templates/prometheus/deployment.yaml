@@ -14,6 +14,8 @@ spec:
       {{- include "monitoring.selectorLabels" "prometheus" | nindent 6}}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/prometheus/configmap.yaml") . | sha256sum }}
       labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 8}}
     spec:
       serviceAccountName: prometheus

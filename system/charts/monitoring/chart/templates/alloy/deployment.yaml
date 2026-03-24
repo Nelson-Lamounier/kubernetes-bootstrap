@@ -14,6 +14,8 @@ spec:
       {{- include "monitoring.selectorLabels" "alloy" | nindent 6 }}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/alloy/configmap.yaml") . | sha256sum }}
       labels: {{- include "monitoring.fullLabels" "alloy" | nindent 8 }}
     spec:
       securityContext:

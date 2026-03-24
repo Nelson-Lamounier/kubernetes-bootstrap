@@ -14,6 +14,8 @@ spec:
       {{- include "monitoring.selectorLabels" "loki" | nindent 6}}
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/loki/configmap.yaml") . | sha256sum }}
       labels: {{- include "monitoring.fullLabels" "loki" | nindent 8}}
     spec:
       securityContext:
