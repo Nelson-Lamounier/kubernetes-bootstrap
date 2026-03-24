@@ -75,6 +75,7 @@ S3_BUCKET = os.environ.get("S3_BUCKET", "")
 MOUNT_POINT = os.environ.get("MOUNT_POINT", "/data")
 VOLUME_ID = os.environ.get("VOLUME_ID", "")
 CALICO_VERSION = os.environ.get("CALICO_VERSION", "v3.29.3")
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "development")
 
 ADMIN_CONF = "/etc/kubernetes/admin.conf"
 KUBECONFIG_ENV = {"KUBECONFIG": ADMIN_CONF}
@@ -396,6 +397,41 @@ def step_attach_ebs_volume() -> None:
 # Step 2 — Initialize kubeadm Control Plane
 # =============================================================================
 
+
+def _label_control_plane_node() -> None:
+    """Apply workload and environment labels to the control plane node.
+
+    Enables Grafana dashboards to identify the control plane by role
+    rather than by IP address. Idempotent — re-labelling an already-labelled
+    node is a no-op.
+    """
+    hostname = run_cmd(
+        ["kubectl", "get", "nodes",
+         "-l", "node-role.kubernetes.io/control-plane=",
+         "-o", "jsonpath={.items[0].metadata.name}"],
+        check=False, env=KUBECONFIG_ENV,
+    )
+    node_name = hostname.stdout.strip()
+    if not node_name:
+        log_warn("Could not resolve control plane node name — skipping labelling")
+        return
+
+    labels = {
+        "workload": "control-plane",
+        "environment": ENVIRONMENT,
+    }
+    label_args = [f"{k}={v}" for k, v in labels.items()]
+
+    result = run_cmd(
+        ["kubectl", "label", "node", node_name, "--overwrite"] + label_args,
+        check=False, env=KUBECONFIG_ENV,
+    )
+    if result.returncode == 0:
+        log_info(f"Control plane node labelled: {', '.join(label_args)}")
+    else:
+        log_warn(f"Failed to label control plane node: {result.stderr.strip()}")
+
+
 def _update_dns_record(private_ip: str) -> None:
     """Update Route 53 A record to point to the current private IP."""
     if not HOSTED_ZONE_ID:
@@ -459,6 +495,7 @@ def _handle_second_run() -> None:
         log_warn("API server not responding — certs may need renewal + restart")
     else:
         log_info("API server healthy — second-run maintenance complete")
+        _label_control_plane_node()
 
 
 def _init_cluster() -> None:
@@ -529,6 +566,7 @@ def _init_cluster() -> None:
         time.sleep(1)
 
     log_info("Control plane taint preserved — only Traefik + system pods will run here")
+    _label_control_plane_node()
     _publish_ssm_params(private_ip, public_ip, instance_id)
     _publish_kubeconfig_to_ssm()
     _backup_certificates()
