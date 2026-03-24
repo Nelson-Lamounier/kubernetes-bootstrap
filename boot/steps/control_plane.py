@@ -509,21 +509,22 @@ def _init_cluster() -> None:
 
     ensure_ecr_credential_provider()
 
+    private_ip = get_imds_value("local-ipv4")
+    if not private_ip:
+        raise RuntimeError("Failed to retrieve private IP from IMDS")
+
     Path("/etc/sysconfig").mkdir(parents=True, exist_ok=True)
     Path("/etc/sysconfig/kubelet").write_text(
         "KUBELET_EXTRA_ARGS="
         "--cloud-provider=external"
+        f" --node-ip={private_ip}"
         f" --image-credential-provider-config={ECR_PROVIDER_CONFIG}"
         " --image-credential-provider-bin-dir=/usr/local/bin\n"
     )
-    log_info("Kubelet args configured: cloud-provider=external + ECR credential provider")
+    log_info(f"Kubelet args configured: cloud-provider=external, node-ip={private_ip}")
 
-    private_ip = get_imds_value("local-ipv4")
     public_ip = get_imds_value("public-ipv4")
     instance_id = get_imds_value("instance-id")
-
-    if not private_ip:
-        raise RuntimeError("Failed to retrieve private IP from IMDS")
 
     log_info("Running kubeadm init...")
     _update_dns_record(private_ip)

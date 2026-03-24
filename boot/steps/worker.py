@@ -183,10 +183,18 @@ def _join_cluster(endpoint: str) -> None:
 
     ensure_ecr_credential_provider()
 
-    log_info(f"Configuring kubelet with node label: {NODE_LABEL}")
+    private_ip = get_imds_value("local-ipv4")
+    if not private_ip:
+        raise RuntimeError(
+            "Failed to retrieve private IP from IMDS — "
+            "cannot configure kubelet --node-ip"
+        )
+
+    log_info(f"Configuring kubelet with node label: {NODE_LABEL}, node-ip: {private_ip}")
     Path("/etc/sysconfig").mkdir(parents=True, exist_ok=True)
     Path("/etc/sysconfig/kubelet").write_text(
         f"KUBELET_EXTRA_ARGS=--cloud-provider=external"
+        f" --node-ip={private_ip}"
         f" --node-labels={NODE_LABEL}"
         f" --image-credential-provider-config={ECR_PROVIDER_CONFIG}"
         " --image-credential-provider-bin-dir=/usr/local/bin\n"
