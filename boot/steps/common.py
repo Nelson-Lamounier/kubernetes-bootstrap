@@ -356,6 +356,61 @@ def get_imds_value(path: str) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def patch_provider_id(kubeconfig: str = "/etc/kubernetes/kubelet.conf") -> None:
+    """Patch the node's spec.providerID so the AWS Cloud Controller Manager
+    can map this Kubernetes node to its underlying EC2 instance.
+
+    Without providerID, the CCM cannot detect terminated instances and
+    will not auto-delete dead nodes from the cluster.
+
+    Must be called after ``kubeadm join`` / ``kubeadm init`` completes
+    and the kubelet has registered the node with the API server.
+
+    Args:
+        kubeconfig: Path to kubeconfig with permissions to patch nodes.
+    """
+    instance_id = get_imds_value("instance-id")
+    az = get_imds_value("placement/availability-zone")
+    hostname = get_imds_value("hostname")
+
+    if not instance_id or not az:
+        log_warn(
+            "Could not retrieve instance-id or AZ from IMDS — "
+            "providerID will not be set. The AWS CCM should set it "
+            "when it initialises this node."
+        )
+        return
+
+    provider_id = f"aws:///{az}/{instance_id}"
+    log_info(f"Setting providerID: {provider_id}")
+
+    # Use the node's hostname (FQDN) as the node name in kubectl.
+    # kubeadm registers the node with this name by default.
+    if not hostname:
+        log_warn("Could not determine hostname from IMDS — skipping providerID patch")
+        return
+
+    patch_payload = json.dumps({"spec": {"providerID": provider_id}})
+    result = run_cmd(
+        [
+            "kubectl", "--kubeconfig", kubeconfig,
+            "patch", "node", hostname,
+            "--type", "merge",
+            "-p", patch_payload,
+        ],
+        check=False,
+        env={"KUBECONFIG": kubeconfig},
+    )
+
+    if result.returncode == 0:
+        log_info(f"providerID set on node {hostname}: {provider_id}")
+    else:
+        log_warn(
+            f"Failed to patch providerID on {hostname} (exit {result.returncode}). "
+            f"The AWS CCM will set it during node initialisation."
+        )
+
+
 # =============================================================================
 # ECR Credential Provider
 # =============================================================================

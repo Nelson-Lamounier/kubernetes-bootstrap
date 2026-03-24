@@ -53,7 +53,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
     StepRunner, run_cmd, ssm_get, ssm_put, log_info, log_warn, log_error,
-    get_imds_value, ensure_ecr_credential_provider, ECR_PROVIDER_CONFIG,
+    get_imds_value, patch_provider_id,
+    ensure_ecr_credential_provider, ECR_PROVIDER_CONFIG,
     step_validate_ami, step_install_cloudwatch_agent,
     SSM_PREFIX as DEFAULT_SSM_PREFIX, AWS_REGION as DEFAULT_AWS_REGION,
 )
@@ -567,6 +568,12 @@ def _init_cluster() -> None:
 
     log_info("Control plane taint preserved — only Traefik + system pods will run here")
     _label_control_plane_node()
+
+    # Set providerID immediately so the AWS CCM can map this node
+    # to its EC2 instance — required for auto-deletion of dead nodes.
+    # Control plane uses admin kubeconfig (kubelet.conf not yet trusted).
+    patch_provider_id(kubeconfig="/root/.kube/config")
+
     _publish_ssm_params(private_ip, public_ip, instance_id)
     _publish_kubeconfig_to_ssm()
     _backup_certificates()

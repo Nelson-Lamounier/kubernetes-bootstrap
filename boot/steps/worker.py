@@ -37,7 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
     StepRunner, run_cmd, ssm_get, log_info, log_warn, log_error,
-    get_imds_value,
+    get_imds_value, patch_provider_id,
     ensure_ecr_credential_provider, ECR_PROVIDER_CONFIG,
     step_validate_ami, step_install_cloudwatch_agent,
     SSM_PREFIX as DEFAULT_SSM_PREFIX, AWS_REGION as DEFAULT_AWS_REGION,
@@ -289,6 +289,10 @@ def step_join_cluster() -> None:
         endpoint = _resolve_control_plane_endpoint()
         _join_cluster(endpoint)
         _wait_for_kubelet()
+
+        # Set providerID immediately so the AWS CCM can map this node
+        # to its EC2 instance — required for auto-deletion of dead nodes.
+        patch_provider_id()
 
         kubelet_version = run_cmd(
             ["kubelet", "--version"], check=False
