@@ -9,6 +9,9 @@ data:
     global:
       scrape_interval: {{ .Values.prometheus.scrapeInterval }}
       evaluation_interval: {{ .Values.prometheus.scrapeInterval }}
+      external_labels:
+        cluster: {{ .Values.clusterName | default "portfolio-development" }}
+        environment: {{ .Values.environment | default "development" }}
 
     scrape_configs:
       - job_name: prometheus
@@ -76,6 +79,8 @@ data:
           - source_labels: [__meta_kubernetes_service_name]
             action: keep
             regex: node-exporter
+          - source_labels: [__meta_kubernetes_endpoint_node_name]
+            target_label: node
 
       - job_name: kube-state-metrics
         static_configs:
