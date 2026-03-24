@@ -21,7 +21,6 @@ data:
       trace_idle_period: 30s
       max_block_bytes: 1073741824
       max_block_duration: 5m
-      max_bytes_per_trace: 5000000  # 5MB cap — prevents single large traces from spiking memory
     compactor:
       compaction:
         block_retention: 72h
@@ -58,6 +57,7 @@ data:
             send_exemplars: true
     overrides:
       defaults:
+        max_bytes_per_trace: 5000000  # 5MB cap — prevents single large traces from spiking memory
         metrics_generator:
           processors:
             - local-blocks
