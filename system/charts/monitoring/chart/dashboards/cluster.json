@@ -36,7 +36,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -86,7 +86,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "count(kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1)",
           "legendFormat": "Nodes",
@@ -99,7 +99,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -149,7 +149,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "count(kube_pod_info)",
           "legendFormat": "Pods",
@@ -162,7 +162,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -219,7 +219,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum(increase(kube_pod_container_status_restarts_total[24h]))",
           "legendFormat": "Restarts",
@@ -232,7 +232,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -342,7 +342,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "count(kube_pod_status_phase{phase=\"Running\"} == 1)",
           "legendFormat": "Running",
@@ -351,7 +351,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "count(kube_pod_status_phase{phase=\"Pending\"} == 1) or vector(0)",
           "legendFormat": "Pending",
@@ -360,7 +360,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "count(kube_pod_status_phase{phase=\"Failed\"} == 1) or vector(0)",
           "legendFormat": "Failed",
@@ -373,7 +373,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -431,7 +431,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "(1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * 100",
           "legendFormat": "CPU",
@@ -444,7 +444,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -502,7 +502,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100",
           "legendFormat": "Memory",
@@ -527,7 +527,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -593,7 +593,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\",job=\"kube-state-metrics\"} * on(node) group_left(label_workload, label_node_role_kubernetes_io_control_plane) kube_node_labels{job=\"kube-state-metrics\"}",
           "legendFormat": "{{label_workload}}",
@@ -606,7 +606,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -671,7 +671,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum by (label_workload) ((1 - avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(node) group_left(label_workload) kube_node_labels * 100)",
           "legendFormat": "{{label_workload}}",
@@ -684,7 +684,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -749,7 +749,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(node) group_left(label_workload) kube_node_labels * 100",
           "legendFormat": "{{label_workload}}",
@@ -774,7 +774,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -895,7 +895,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\"})",
           "legendFormat": "Requests",
@@ -904,7 +904,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum(kube_pod_container_resource_limits{resource=\"cpu\"})",
           "legendFormat": "Limits",
@@ -913,7 +913,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum(kube_node_status_allocatable{resource=\"cpu\"})",
           "legendFormat": "Capacity",
@@ -926,7 +926,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1047,7 +1047,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum(kube_pod_container_resource_requests{resource=\"memory\"})",
           "legendFormat": "Requests",
@@ -1056,7 +1056,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum(kube_pod_container_resource_limits{resource=\"memory\"})",
           "legendFormat": "Limits",
@@ -1065,7 +1065,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum(kube_node_status_allocatable{resource=\"memory\"})",
           "legendFormat": "Capacity",
@@ -1090,7 +1090,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1155,19 +1155,19 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}) * on(node) group_left(label_workload) kube_node_labels * 100",
-          "legendFormat": "{{label_workload}} \u2014 root (/)",
+          "legendFormat": "{{label_workload}} — root (/)",
           "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"}) * on(node) group_left(label_workload) kube_node_labels * 100",
-          "legendFormat": "{{label_workload}} \u2014 data (/data)",
+          "legendFormat": "{{label_workload}} — data (/data)",
           "refId": "B"
         }
       ],
@@ -1177,7 +1177,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1233,23 +1233,23 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum by (node) (rate(node_disk_read_bytes_total[5m])) * on(node) group_left(label_workload) kube_node_labels",
-          "legendFormat": "{{label_workload}} \u2014 Read",
+          "legendFormat": "{{label_workload}} — Read",
           "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum by (node) (rate(node_disk_written_bytes_total[5m])) * on(node) group_left(label_workload) kube_node_labels * -1",
-          "legendFormat": "{{label_workload}} \u2014 Write",
+          "legendFormat": "{{label_workload}} — Write",
           "refId": "B"
         }
       ],
-      "title": "Disk I/O (Read \u25b2 / Write \u25bc)",
+      "title": "Disk I/O (Read ▲ / Write ▼)",
       "type": "timeseries"
     },
     {
@@ -1267,7 +1267,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1323,19 +1323,19 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum by (node) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(node) group_left(label_workload) kube_node_labels",
-          "legendFormat": "{{label_workload}} \u2014 Receive \u25b2",
+          "legendFormat": "{{label_workload}} — Receive ▲",
           "refId": "A"
         },
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum by (node) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(node) group_left(label_workload) kube_node_labels * -1",
-          "legendFormat": "{{label_workload}} \u2014 Transmit \u25bc",
+          "legendFormat": "{{label_workload}} — Transmit ▼",
           "refId": "B"
         }
       ],
@@ -1357,7 +1357,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1406,7 +1406,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum by (namespace) (kube_pod_info)",
           "legendFormat": "{{namespace}}",
@@ -1419,7 +1419,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1529,7 +1529,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "count(kube_pod_status_phase{phase=\"Running\"} == 1)",
           "legendFormat": "Running",
@@ -1538,7 +1538,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "count(kube_pod_status_phase{phase=\"Pending\"} == 1) or vector(0)",
           "legendFormat": "Pending",
@@ -1547,7 +1547,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "count(kube_pod_status_phase{phase=\"Succeeded\"} == 1) or vector(0)",
           "legendFormat": "Succeeded",
@@ -1556,7 +1556,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "count(kube_pod_status_phase{phase=\"Failed\"} == 1) or vector(0)",
           "legendFormat": "Failed",
@@ -1569,7 +1569,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1628,7 +1628,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "sum by (label_workload) (sum by (node) (kube_pod_info{job=\"kube-state-metrics\"}) * on(node) group_left(label_workload) kube_node_labels{job=\"kube-state-metrics\"})",
           "legendFormat": "{{label_workload}}",
@@ -1653,7 +1653,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1711,7 +1711,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "(1 - avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(node) group_left(label_workload) kube_node_labels * 100",
           "legendFormat": "{{label_workload}}",
@@ -1724,7 +1724,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": ""
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -1782,7 +1782,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": ""
+            "uid": "prometheus"
           },
           "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(node) group_left(label_workload) kube_node_labels * 100",
           "legendFormat": "{{label_workload}}",
