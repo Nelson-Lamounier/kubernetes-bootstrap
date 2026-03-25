@@ -13,6 +13,7 @@ Steps (in order):
     2.  restore_backup     — Restore etcd + certs from S3 if EBS is empty (DR)
     3.  init_kubeadm       — kubeadm init + publish join credentials to SSM
     4.  install_calico     — Calico CNI via Tigera operator
+    4b. install_ccm        — AWS Cloud Controller Manager (removes uninitialized taint)
     5.  configure_kubectl  — kubeconfig for root, ec2-user, ssm-user
     6.  sync_manifests     — Download bootstrap manifests from S3
     7.  bootstrap_argocd   — Install ArgoCD and App-of-Apps
@@ -81,6 +82,7 @@ ENVIRONMENT = os.environ.get("ENVIRONMENT", "development")
 ADMIN_CONF = "/etc/kubernetes/admin.conf"
 KUBECONFIG_ENV = {"KUBECONFIG": ADMIN_CONF}
 CALICO_MARKER = "/etc/kubernetes/.calico-installed"
+CCM_MARKER = "/etc/kubernetes/.ccm-installed"
 EBS_ATTACH_MARKER = "/etc/kubernetes/.ebs-attached"
 
 # EBS attachment constants
@@ -930,6 +932,121 @@ def step_install_calico() -> None:
 
 
 # =============================================================================
+# Step 4b — Install AWS Cloud Controller Manager
+# =============================================================================
+
+CCM_HELM_REPO = "https://kubernetes.github.io/cloud-provider-aws"
+CCM_HELM_RELEASE = "aws-cloud-controller-manager"
+CCM_HELM_CHART = "aws-cloud-controller-manager"
+CCM_HELM_NAMESPACE = "kube-system"
+CCM_TAINT_TIMEOUT_SECONDS = 120
+
+# Helm values mirroring the ArgoCD Application manifest
+# (kubernetes-app/platform/argocd-apps/aws-cloud-controller-manager.yaml)
+CCM_HELM_VALUES = """\
+args:
+  - --v=2
+  - --cloud-provider=aws
+  - --configure-cloud-routes=false
+nodeSelector:
+  node-role.kubernetes.io/control-plane: ""
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+  - key: node.cloudprovider.kubernetes.io/uninitialized
+    value: "true"
+    effect: NoSchedule
+hostNetworking: true
+"""
+
+
+def step_install_ccm() -> None:
+    """Step 4b: Install AWS Cloud Controller Manager via Helm.
+
+    The CCM removes the 'node.cloudprovider.kubernetes.io/uninitialized'
+    taint from nodes, which is required before any pods (including ArgoCD
+    and CoreDNS) can be scheduled.
+
+    Installing the CCM here — after Calico networking is ready but before
+    ArgoCD bootstrap — breaks the otherwise circular dependency:
+      - Kubelet starts with --cloud-provider=external → nodes are tainted
+      - CCM removes the taint → pods can schedule
+      - ArgoCD can start → remaining platform apps deploy
+
+    ArgoCD will adopt the Helm release on subsequent syncs via the
+    aws-cloud-controller-manager Application (sync-wave 2, selfHeal: true).
+
+    Idempotent: skips if the marker file already exists.
+    """
+    with StepRunner("install-ccm", skip_if=CCM_MARKER) as step:
+        if step.skipped:
+            return
+
+        # Write Helm values to a temporary file
+        values_path = Path("/tmp/ccm-values.yaml")
+        values_path.write_text(CCM_HELM_VALUES)
+
+        try:
+            # Add the Helm repo
+            log_info("Adding cloud-provider-aws Helm repo...")
+            run_cmd(
+                ["helm", "repo", "add", "aws-cloud-controller-manager",
+                 CCM_HELM_REPO, "--force-update"],
+                env=KUBECONFIG_ENV,
+            )
+            run_cmd(["helm", "repo", "update"], env=KUBECONFIG_ENV)
+
+            # Install (or upgrade if already present) the CCM
+            log_info("Installing AWS Cloud Controller Manager...")
+            run_cmd(
+                ["helm", "upgrade", "--install",
+                 CCM_HELM_RELEASE, f"aws-cloud-controller-manager/{CCM_HELM_CHART}",
+                 "--namespace", CCM_HELM_NAMESPACE,
+                 "--values", str(values_path),
+                 "--wait", "--timeout", "120s"],
+                env=KUBECONFIG_ENV,
+            )
+            log_info("✓ AWS CCM Helm release installed")
+
+            # Wait for the 'uninitialized' taint to be removed
+            log_info("Waiting for CCM to remove the 'uninitialized' taint...")
+            taint_removed = False
+            for i in range(1, CCM_TAINT_TIMEOUT_SECONDS + 1):
+                result = run_cmd(
+                    ["kubectl", "get", "nodes", "-o",
+                     "jsonpath={.items[*].spec.taints}"],
+                    check=False, env=KUBECONFIG_ENV,
+                )
+                if result.returncode == 0:
+                    taints_json = result.stdout.strip()
+                    if "node.cloudprovider.kubernetes.io/uninitialized" not in taints_json:
+                        log_info(
+                            f"✓ 'uninitialized' taint removed from all nodes "
+                            f"(waited {i}s)"
+                        )
+                        taint_removed = True
+                        break
+                time.sleep(1)
+
+            if not taint_removed:
+                log_warn(
+                    f"'uninitialized' taint still present after "
+                    f"{CCM_TAINT_TIMEOUT_SECONDS}s — ArgoCD may fail to schedule. "
+                    f"Check CCM pod logs: kubectl logs -n kube-system "
+                    f"-l app.kubernetes.io/name=aws-cloud-controller-manager"
+                )
+
+            step.details["helm_release"] = CCM_HELM_RELEASE
+            step.details["taint_removed"] = taint_removed
+            log_info("AWS Cloud Controller Manager installed successfully")
+
+        finally:
+            # Clean up temporary values file
+            if values_path.exists():
+                values_path.unlink()
+
+
+# =============================================================================
 # Step 5 — Configure kubectl Access
 # =============================================================================
 
@@ -1278,6 +1395,7 @@ def main() -> None:
         step_restore_from_backup,
         step_init_kubeadm,
         step_install_calico,
+        step_install_ccm,
         step_configure_kubectl,
         step_sync_manifests,
         step_bootstrap_argocd,
