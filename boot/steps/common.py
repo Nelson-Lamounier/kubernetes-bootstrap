@@ -21,13 +21,11 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Union
-
+from typing import Optional, Union
 
 # =============================================================================
 # Configuration
@@ -80,7 +78,7 @@ class CmdResult:
 
 
 def run_cmd(
-    cmd: Union[List[str], str],
+    cmd: Union[list[str], str],
     *,
     shell: bool = False,
     check: bool = True,
@@ -120,7 +118,7 @@ def run_cmd(
             timeout=timeout,
             env=merged_env,
         )
-    except subprocess.TimeoutExpired as e:
+    except subprocess.TimeoutExpired:
         duration = time.monotonic() - start
         log_error(f"Command timed out after {timeout}s", command=cmd_str)
         raise
@@ -149,7 +147,7 @@ def run_cmd(
             )
     else:
         log_info(
-            f"Command succeeded",
+            "Command succeeded",
             command=cmd_str,
             duration=cmd_result.duration_seconds,
         )
@@ -661,7 +659,7 @@ def step_validate_ami() -> None:
                 "Golden AMI validation FAILED.\n"
                 "  The bootstrap script does NOT install packages at boot time.\n"
                 "  All binaries must be pre-baked into the Golden AMI.\n\n"
-                f"  Errors:\n" +
+                "  Errors:\n" +
                 "\n".join(f"    - {e}" for e in errors) +
                 "\n\n  Resolution: Rebuild the Golden AMI with the missing components."
             )

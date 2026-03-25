@@ -22,7 +22,13 @@ set -euo pipefail
 # ─── Configuration ────────────────────────────────────────────────────
 SCRIPT_NAME="etcd-backup"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-SNAPSHOT_PATH="/tmp/etcd-snapshot-${TIMESTAMP}.db"
+
+# Use /var/lib/etcd/snapshots/ — this path is host-mounted in kubeadm's
+# etcd static pod, so the snapshot is visible from both the container
+# (where etcdctl saves it) and the host (where stat/aws s3 cp run).
+SNAPSHOT_DIR="/var/lib/etcd/snapshots"
+mkdir -p "${SNAPSHOT_DIR}"
+SNAPSHOT_PATH="${SNAPSHOT_DIR}/etcd-snapshot-${TIMESTAMP}.db"
 
 # Source environment variables from bootstrap
 ENV_FILE="/etc/profile.d/k8s-env.sh"
@@ -58,35 +64,40 @@ for cert_file in "${ETCD_CACERT}" "${ETCD_CERT}" "${ETCD_KEY}"; do
 done
 
 # ─── Resolve etcdctl ──────────────────────────────────────────────────
-# etcdctl may be available as a binary or via the etcd container
-if command -v etcdctl &>/dev/null; then
-    ETCDCTL="etcdctl"
-else
-    # Fall back to running etcdctl from the etcd container image
-    ETCD_IMAGE=$(crictl images --no-trunc 2>/dev/null \
-        | grep "etcd" | head -1 | awk '{print $1":"$2}')
-    if [[ -z "${ETCD_IMAGE}" ]]; then
-        log "ERROR: etcdctl binary not found and no etcd container image available"
-        exit 1
+# etcdctl may be available as a binary or via the etcd container.
+# Uses a function wrapper to avoid word-splitting issues with container exec.
+run_etcdctl() {
+    if command -v etcdctl &>/dev/null; then
+        etcdctl "$@"
+    else
+        local container_id
+        container_id=$(crictl ps --name etcd -q | head -1)
+        if [[ -z "${container_id}" ]]; then
+            log "ERROR: etcdctl binary not found and no etcd container running"
+            exit 1
+        fi
+        crictl exec "${container_id}" etcdctl "$@"
     fi
-    ETCDCTL="crictl exec $(crictl ps --name etcd -q | head -1) etcdctl"
-    log "Using etcdctl from container: ${ETCD_IMAGE}"
-fi
+}
 
 # ─── Take Snapshot ────────────────────────────────────────────────────
 log "Taking etcd snapshot..."
-ETCDCTL_API=3 ${ETCDCTL} snapshot save "${SNAPSHOT_PATH}" \
+ETCDCTL_API=3 run_etcdctl snapshot save "${SNAPSHOT_PATH}" \
     --cacert="${ETCD_CACERT}" \
     --cert="${ETCD_CERT}" \
     --key="${ETCD_KEY}" \
     --endpoints=https://127.0.0.1:2379
 
-SNAPSHOT_SIZE=$(stat -c%s "${SNAPSHOT_PATH}" 2>/dev/null || stat -f%z "${SNAPSHOT_PATH}")
+SNAPSHOT_SIZE=$(stat -c%s "${SNAPSHOT_PATH}")
 log "Snapshot created: ${SNAPSHOT_PATH} (${SNAPSHOT_SIZE} bytes)"
 
-# Verify snapshot integrity
-ETCDCTL_API=3 ${ETCDCTL} snapshot status "${SNAPSHOT_PATH}" --write-out=table \
-    2>/dev/null || log "WARNING: Could not verify snapshot (non-fatal)"
+# Verify snapshot integrity — etcd 3.6 moved this to etcdutl
+if command -v etcdutl &>/dev/null; then
+    etcdutl snapshot status "${SNAPSHOT_PATH}" --write-out=table || \
+        log "WARNING: Could not verify snapshot (non-fatal)"
+else
+    log "INFO: etcdutl not available — skipping snapshot verification (etcd 3.6+)"
+fi
 
 # ─── Upload to S3 ────────────────────────────────────────────────────
 S3_KEY="${S3_PREFIX}/${TIMESTAMP}.db"
@@ -97,8 +108,8 @@ aws s3 cp "${SNAPSHOT_PATH}" "s3://${S3_BUCKET}/${S3_KEY}" \
     --region "${AWS_REGION}" \
     --quiet
 
-# Also maintain a "latest" pointer for easy restore
-aws s3 cp "${SNAPSHOT_PATH}" "s3://${S3_BUCKET}/${S3_PREFIX}/latest.db" \
+# Maintain a "latest" pointer for easy restore (in-bucket copy avoids re-upload)
+aws s3 cp "s3://${S3_BUCKET}/${S3_KEY}" "s3://${S3_BUCKET}/${S3_PREFIX}/latest.db" \
     --sse AES256 \
     --region "${AWS_REGION}" \
     --quiet

@@ -46,20 +46,32 @@ import glob
 import json
 import os
 import re
-import subprocess
+import shutil
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
-    StepRunner, run_cmd, ssm_get, ssm_put, log_info, log_warn, log_error,
-    get_imds_value, patch_provider_id,
-    ensure_ecr_credential_provider, ECR_PROVIDER_CONFIG,
-    step_validate_ami, step_install_cloudwatch_agent,
-    SSM_PREFIX as DEFAULT_SSM_PREFIX, AWS_REGION as DEFAULT_AWS_REGION,
+    AWS_REGION as DEFAULT_AWS_REGION,
 )
-
+from common import (
+    ECR_PROVIDER_CONFIG,
+    StepRunner,
+    ensure_ecr_credential_provider,
+    get_imds_value,
+    log_error,
+    log_info,
+    log_warn,
+    patch_provider_id,
+    run_cmd,
+    ssm_put,
+    step_install_cloudwatch_agent,
+    step_validate_ami,
+)
+from common import (
+    SSM_PREFIX as DEFAULT_SSM_PREFIX,
+)
 
 # =============================================================================
 # Configuration
@@ -426,7 +438,7 @@ def _label_control_plane_node() -> None:
     label_args = [f"{k}={v}" for k, v in labels.items()]
 
     result = run_cmd(
-        ["kubectl", "label", "node", node_name, "--overwrite"] + label_args,
+        ["kubectl", "label", "node", node_name, "--overwrite", *label_args],
         check=False, env=KUBECONFIG_ENV,
     )
     if result.returncode == 0:
