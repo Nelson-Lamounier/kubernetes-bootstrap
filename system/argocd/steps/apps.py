@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from helpers.config import Config
@@ -440,6 +441,36 @@ def apply_cert_manager_issuer(cfg: Config) -> None:
         log("    Then re-run bootstrap or apply ClusterIssuer manually\n")
         return
 
+    # Wait for cert-manager CRDs to be installed by ArgoCD.
+    # Step 5d runs BEFORE wait_for_argocd (Step 6), so ArgoCD may still be
+    # syncing the cert-manager Application. Without this wait, kubectl apply
+    # fails with "no matches for kind ClusterIssuer" and the function returns
+    # silently, leaving cert-manager-config stuck in Progressing.
+    crd_name = "clusterissuers.cert-manager.io"
+    crd_max_attempts = 18  # 18 × 10s = 3 min
+    log(f"  → Waiting for CRD '{crd_name}' to be available...")
+
+    crd_ready = False
+    for attempt in range(1, crd_max_attempts + 1):
+        check = subprocess.run(
+            ["kubectl", "get", "crd", crd_name],
+            env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+            capture_output=True, text=True,
+        )
+        if check.returncode == 0:
+            log(f"  ✓ CRD ready (attempt {attempt}/{crd_max_attempts})")
+            crd_ready = True
+            break
+        if attempt < crd_max_attempts:
+            log(f"    Attempt {attempt}/{crd_max_attempts} — CRD not found, waiting 10s...")
+            time.sleep(10)
+
+    if not crd_ready:
+        log(f"  ⚠ CRD '{crd_name}' not available after 3 min")
+        log("    cert-manager may not be synced yet — ClusterIssuer will be missing")
+        log("    Re-run bootstrap after cert-manager is healthy\n")
+        return
+
     # Apply ClusterIssuer with DNS-01 Route 53 solver
     #
     # PRODUCTION NOTE — Rate-limit recovery:
@@ -491,7 +522,6 @@ spec:
         log("  ✓ ClusterIssuer 'letsencrypt' applied with DNS-01 solver")
     else:
         log(f"  ⚠ Failed to apply ClusterIssuer: {result.stderr.strip()}")
-        log("    cert-manager CRDs may not be installed yet — ArgoCD will sync them")
         log("    Re-run bootstrap after cert-manager is healthy")
         log("")
         return
@@ -522,6 +552,27 @@ spec:
     if secret_exists.returncode == 0:
         log("  ✓ TLS Secret 'ops-tls-cert' exists — skipping stale resource cleanup")
         log("    (cleaning up would force cert-manager to re-issue)")
+
+        # Patch issuer annotations so cert-manager recognises the restored
+        # Secret as issued by the 'letsencrypt' ClusterIssuer.
+        # Without these annotations, cert-manager detects 'IncorrectIssuer'
+        # and attempts re-issuance — hitting Let's Encrypt rate limits.
+        # The persist-tls-cert.py restore script creates a plain TLS Secret
+        # without cert-manager metadata; this patch fills the gap.
+        log("  → Patching TLS Secret with ClusterIssuer annotations...")
+        patch_result = run(
+            ["kubectl", "annotate", "secret", "ops-tls-cert", "-n", "kube-system",
+             "cert-manager.io/issuer-name=letsencrypt",
+             "cert-manager.io/issuer-kind=ClusterIssuer",
+             "cert-manager.io/issuer-group=cert-manager.io",
+             "--overwrite"],
+            cfg=cfg, check=False,
+        )
+        if patch_result.returncode == 0:
+            log("  ✓ TLS Secret annotated — cert-manager will accept existing cert")
+        else:
+            log("  ⚠ Failed to annotate TLS Secret — cert-manager may re-issue")
+
         log("")
         return
 

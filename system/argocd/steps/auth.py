@@ -125,8 +125,64 @@ def create_ci_bot(cfg: Config) -> None:
 # ---------------------------------------------------------------------------
 # Step 10: Generate API token → Secrets Manager
 # ---------------------------------------------------------------------------
+def _resolve_admin_password(cfg: Config) -> str:
+    """Resolve the active ArgoCD admin password.
+
+    Tries two sources in order:
+      1. SSM Parameter Store (set by previous bootstrap's Step 10b)
+      2. argocd-initial-admin-secret (Day-0 only — before first 10b run)
+
+    Returns:
+        The plaintext admin password, or empty string if unresolvable.
+    """
+    # Source 1: SSM — covers re-bootstrap scenarios where Step 10b
+    # previously rotated the password away from the initial secret.
+    ssm_path = f"{cfg.ssm_prefix}/argocd-admin-password"
+    try:
+        ssm = get_ssm_client(cfg)
+        resp = ssm.get_parameter(Name=ssm_path, WithDecryption=True)
+        password = resp["Parameter"]["Value"]
+        log(f"  ✓ Admin password resolved from SSM: {ssm_path}")
+        return password
+    except Exception:
+        log(f"  ⚠ SSM parameter {ssm_path} not found — trying initial-admin-secret")
+
+    # Source 2: argocd-initial-admin-secret — Day-0 only.
+    # The auto-generated password is base64-encoded in the Secret.
+    result = run(
+        ["kubectl", "-n", "argocd", "get", "secret", "argocd-initial-admin-secret",
+         "-o", "jsonpath={.data.password}"],
+        cfg=cfg, check=False, capture=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        import base64
+        password = base64.b64decode(result.stdout.strip()).decode()
+        log("  ✓ Admin password resolved from argocd-initial-admin-secret (Day-0)")
+        return password
+
+    log("  ⚠ No admin password available from SSM or initial-admin-secret")
+    return ""
+
+
+# ArgoCD service endpoint accessible from the control plane node.
+# Uses plaintext HTTP (:80) since TLS termination is handled by Traefik.
+_ARGOCD_API_ENDPOINT = "argocd-server.argocd.svc.cluster.local"
+
+
 def generate_ci_token(cfg: Config) -> None:
-    """Generate a CI bot API token and store it in Secrets Manager."""
+    """Generate a CI bot API token and store it in Secrets Manager.
+
+    Uses the ArgoCD REST API (not ``--core`` mode) to avoid Kubernetes
+    RBAC dependencies. The ``--core`` flag requires the calling context
+    to have ``list services`` permission in the argocd namespace, which
+    the node's kubeconfig may not grant in all deployment scenarios.
+
+    Flow:
+      1. Resolve admin password (SSM → initial-admin-secret fallback)
+      2. Login to ArgoCD API via in-cluster service endpoint
+      3. Generate CI bot API token via ArgoCD API
+      4. Store token in Secrets Manager
+    """
     log("=== Step 10: Generating CI bot token ===")
 
     secret_name = f"k8s/{cfg.env}/argocd-ci-token"
@@ -135,17 +191,34 @@ def generate_ci_token(cfg: Config) -> None:
         log(f"  [DRY-RUN] Would generate token and store at: {secret_name}\n")
         return
 
-    log("  → Generating API token for ci-bot...")
+    # 1. Resolve admin password
+    log("  → Resolving ArgoCD admin password...")
+    admin_password = _resolve_admin_password(cfg)
+    if not admin_password:
+        log("  ⚠ Cannot generate CI bot token without admin credentials\n")
+        return
 
-    # ArgoCD CLI in --core mode uses the kubectl context's current namespace.
-    # Set it to argocd so the CLI can find argocd-cm.
-    run(
-        ["kubectl", "config", "set-context", "--current", "--namespace=argocd"],
+    # 2. Login to ArgoCD API (not --core mode)
+    #    Uses the in-cluster service endpoint with --plaintext since
+    #    TLS termination is handled by Traefik, not the ArgoCD server.
+    log(f"  → Logging into ArgoCD API ({_ARGOCD_API_ENDPOINT})...")
+    login_result = run(
+        ["argocd", "login", _ARGOCD_API_ENDPOINT,
+         "--username", "admin", "--password", admin_password, "--plaintext"],
         cfg=cfg, check=False,
     )
 
+    if login_result.returncode != 0:
+        log("  ⚠ ArgoCD API login failed — cannot generate CI bot token")
+        log("  ⚠ Verify the admin password in SSM or argocd-initial-admin-secret\n")
+        return
+
+    log("  ✓ ArgoCD API login successful")
+
+    # 3. Generate token via ArgoCD API (no --core, no --grpc-web)
+    log("  → Generating API token for ci-bot...")
     result = run(
-        ["argocd", "account", "generate-token", "--account", "ci-bot", "--core", "--grpc-web"],
+        ["argocd", "account", "generate-token", "--account", "ci-bot"],
         cfg=cfg, check=False, capture=True,
     )
 
@@ -156,6 +229,8 @@ def generate_ci_token(cfg: Config) -> None:
         return
 
     log("  ✓ API token generated")
+
+    # 4. Store token in Secrets Manager
     log(f"  → Pushing token to Secrets Manager: {secret_name}")
 
     try:

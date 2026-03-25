@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -64,9 +65,23 @@ def wait_for_argocd(cfg: Config) -> None:
 # Step 7: Apply ArgoCD ingress (after ArgoCD is ready and syncing Traefik)
 # ---------------------------------------------------------------------------
 def apply_ingress(cfg: Config) -> None:
-    """Apply ingress manifests, retrying while Traefik CRDs become available."""
+    """Apply ingress manifests after Traefik CRDs are available.
+
+    Waits for the ``ingressroutes.traefik.io`` CRD to be registered before
+    attempting ``kubectl apply``. This is more reliable than the previous
+    retry-on-failure approach because ArgoCD may take several minutes to
+    sync Traefik after the root app is applied.
+
+    Applied manifests:
+      - ingress.yaml — ArgoCD UI IngressRoute (``/argocd``)
+      - webhook-ingress.yaml — GitHub webhook IngressRoute
+    """
     log("=== Step 7: Applying ArgoCD ingress ===")
     argocd_path = Path(cfg.argocd_dir)
+
+    if cfg.dry_run:
+        log("  [DRY-RUN] Would apply ingress manifests\n")
+        return
 
     # Collect all ingress manifests to apply
     ingress_files = [
@@ -86,32 +101,46 @@ def apply_ingress(cfg: Config) -> None:
         log("  ⚠ No ingress manifests found — skipping\n")
         return
 
-    # Traefik CRDs (IngressRoute, Middleware) are installed by ArgoCD via the
-    # root app. ArgoCD is now running (Step 6 passed), but it may still be
-    # syncing Traefik. Retry with generous backoff.
-    log("  → Waiting for Traefik CRDs before applying ingress...")
-    max_retries = 10
-    for attempt in range(1, max_retries + 1):
-        all_applied = True
-        for manifest_path, label in manifests_to_apply:
-            result = run(
-                ["kubectl", "apply", "-f", str(manifest_path)],
-                cfg=cfg, check=False,
-            )
-            if result.returncode == 0:
-                log(f"  ✓ {label} applied")
-            else:
-                all_applied = False
-        if all_applied:
+    # Wait for Traefik CRDs to be installed by ArgoCD.
+    # The root app triggers ArgoCD to sync Traefik, but CRD registration
+    # can take minutes depending on cluster load and sync wave ordering.
+    traefik_crd = "ingressroutes.traefik.io"
+    crd_max_attempts = 30  # 30 × 10s = 5 min
+    log(f"  → Waiting for Traefik CRD '{traefik_crd}' to be available...")
+
+    crd_ready = False
+    for attempt in range(1, crd_max_attempts + 1):
+        check = subprocess.run(
+            ["kubectl", "get", "crd", traefik_crd],
+            env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+            capture_output=True, text=True,
+        )
+        if check.returncode == 0:
+            log(f"  ✓ Traefik CRD ready (attempt {attempt}/{crd_max_attempts})")
+            crd_ready = True
             break
-        if attempt < max_retries:
-            log(f"  Attempt {attempt}/{max_retries} — Traefik CRDs not ready, waiting 30s...")
-            time.sleep(30)
+        if attempt < crd_max_attempts:
+            log(f"    Attempt {attempt}/{crd_max_attempts} — CRD not found, waiting 10s...")
+            time.sleep(10)
+
+    if not crd_ready:
+        log(f"  ⚠ Traefik CRD '{traefik_crd}' not available after 5 min")
+        log("    ArgoCD may not have synced Traefik yet. Apply manually:")
+        for manifest_path, _ in manifests_to_apply:
+            log(f"    kubectl apply -f {manifest_path}")
+        log("")
+        return
+
+    # Apply all ingress manifests now that CRDs are available
+    for manifest_path, label in manifests_to_apply:
+        result = run(
+            ["kubectl", "apply", "-f", str(manifest_path)],
+            cfg=cfg, check=False,
+        )
+        if result.returncode == 0:
+            log(f"  ✓ {label} applied")
         else:
-            log("  ⚠ Ingress not applied — Traefik CRDs not available after 5 min.")
-            log("    ArgoCD will install Traefik shortly. Apply manually:")
-            for manifest_path, _ in manifests_to_apply:
-                log(f"    kubectl apply -f {manifest_path}")
+            log(f"  ⚠ Failed to apply {label}: {manifest_path}")
 
     log("")
 
