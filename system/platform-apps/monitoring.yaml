@@ -27,6 +27,15 @@ metadata:
 spec:
   project: default
 
+  # Preserve bootstrap-injected Helm parameters (IP allowlists from SSM).
+  # Without this, selfHeal overwrites the patched parameters back to the
+  # Git-declared state (no parameters), breaking the Traefik middleware.
+  ignoreDifferences:
+    - group: ""
+      kind: ""
+      jsonPointers:
+        - /spec/source/helm/parameters
+
   source:
     repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
     # PRODUCTION: Change to 'main' when deploying to production.

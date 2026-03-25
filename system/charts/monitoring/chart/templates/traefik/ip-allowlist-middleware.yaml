@@ -17,7 +17,11 @@ metadata:
 spec:
   ipAllowList:
     sourceRange:
+      {{- if .Values.adminAccess.allowedIps }}
       {{- range .Values.adminAccess.allowedIps }}
       - {{ . | quote }}
+      {{- end }}
+      {{- else }}
+      []
       {{- end }}
 {{- end }}
