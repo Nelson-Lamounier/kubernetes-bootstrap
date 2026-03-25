@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""persist-tls-cert.py — Back up / restore TLS certificates via SSM Parameter Store.
+"""persist-tls-cert.py — Back up / restore K8s Secrets via SSM Parameter Store.
 
 Prevents Let's Encrypt rate-limit exhaustion on instance replacement by
-persisting the issued certificate + private key to SSM SecureString *after*
-cert-manager successfully issues it, and restoring it *before* cert-manager
-starts on the next bootstrap.
+persisting cert-manager Secrets to SSM SecureString *after* issuance,
+and restoring them *before* cert-manager starts on the next bootstrap.
+
+Supports two Secret types:
+  - kubernetes.io/tls  (e.g. ops-tls-cert: tls.crt + tls.key)
+  - Opaque             (e.g. letsencrypt-account-key: tls.key only)
 
 Modes:
   --backup   Read the K8s Secret → store in SSM (run after cert is Ready)
   --restore  Read SSM → create K8s Secret (run before cert-manager syncs)
 
 SSM Parameter: {ssm_prefix}/tls/{secret_name}
-  Stored as JSON: {"tls.crt": "<base64>", "tls.key": "<base64>"}
+  Stored as JSON: {"data": {"key": "base64value", ...}, "type": "kubernetes.io/tls"}
 
 Usage:
   python3 persist-tls-cert.py --backup  --secret ops-tls-cert --namespace kube-system
+  python3 persist-tls-cert.py --backup  --secret letsencrypt-account-key --namespace cert-manager
   python3 persist-tls-cert.py --restore --secret ops-tls-cert --namespace kube-system
 """
 from __future__ import annotations
@@ -56,7 +60,10 @@ def ssm_param_path(secret_name: str) -> str:
 # Backup: K8s Secret → SSM
 # ---------------------------------------------------------------------------
 def backup_cert(secret_name: str, namespace: str, dry_run: bool = False) -> bool:
-    """Read a kubernetes.io/tls Secret and store its data in SSM.
+    """Read a K8s Secret (TLS or Opaque) and store its data in SSM.
+
+    Stores both the data fields and the Secret type so the restore
+    step can recreate the correct Secret kind.
 
     Args:
         secret_name: Name of the K8s Secret to back up.
@@ -66,12 +73,12 @@ def backup_cert(secret_name: str, namespace: str, dry_run: bool = False) -> bool
     Returns:
         True if backup succeeded, False otherwise.
     """
-    log(f"=== TLS Cert Backup: {namespace}/{secret_name} → SSM ===")
+    log(f"=== Secret Backup: {namespace}/{secret_name} → SSM ===")
 
-    # 1. Read the K8s Secret
+    # 1. Read the K8s Secret (data + type)
     result = subprocess.run(
         ["kubectl", "get", "secret", secret_name, "-n", namespace,
-         "-o", "jsonpath={.data}"],
+         "-o", "jsonpath={.data},{.type}"],
         env={**os.environ, "KUBECONFIG": KUBECONFIG},
         capture_output=True, text=True,
     )
@@ -81,24 +88,35 @@ def backup_cert(secret_name: str, namespace: str, dry_run: bool = False) -> bool
         log(f"    stderr: {result.stderr.strip()}")
         return False
 
+    # Parse the jsonpath output: "{data_json},{type_string}"
+    raw_output = result.stdout.strip()
+    # Split on last comma to separate data JSON from type string
+    # The data JSON may contain commas, so find the last '},' boundary
+    last_brace = raw_output.rfind("}")
+    if last_brace == -1:
+        log(f"  ⚠ Unexpected Secret format: {raw_output[:200]}")
+        return False
+
+    data_json = raw_output[:last_brace + 1]
+    secret_type = raw_output[last_brace + 2:]  # Skip '},'
+
     try:
-        secret_data = json.loads(result.stdout)
+        secret_data = json.loads(data_json)
     except json.JSONDecodeError:
-        log(f"  ⚠ Failed to parse Secret data: {result.stdout[:200]}")
+        log(f"  ⚠ Failed to parse Secret data: {data_json[:200]}")
         return False
 
-    tls_crt = secret_data.get("tls.crt", "")
-    tls_key = secret_data.get("tls.key", "")
-
-    if not tls_crt or not tls_key:
-        log("  ⚠ Secret exists but tls.crt or tls.key is empty — skipping backup")
+    if not secret_data:
+        log("  ⚠ Secret exists but has no data fields — skipping backup")
         return False
 
-    log(f"  ✓ Secret read ({len(tls_crt)} chars cert, {len(tls_key)} chars key)")
+    field_summary = ", ".join(f"{k}={len(v)} chars" for k, v in secret_data.items())
+    log(f"  ✓ Secret read (type={secret_type}, {field_summary})")
 
     # 2. Store in SSM as SecureString
+    # Include the Secret type so restore knows whether to create TLS or Opaque
     param_path = ssm_param_path(secret_name)
-    payload = json.dumps({"tls.crt": tls_crt, "tls.key": tls_key})
+    payload = json.dumps({"data": secret_data, "type": secret_type})
 
     if dry_run:
         log(f"  [DRY-RUN] Would store at SSM: {param_path}")
@@ -108,7 +126,7 @@ def backup_cert(secret_name: str, namespace: str, dry_run: bool = False) -> bool
         ssm = get_ssm_client()
         ssm.put_parameter(
             Name=param_path,
-            Description=f"TLS cert+key backup for {namespace}/{secret_name}",
+            Description=f"Secret backup for {namespace}/{secret_name} (type={secret_type})",
             Value=payload,
             Type="SecureString",
             Overwrite=True,
@@ -125,7 +143,11 @@ def backup_cert(secret_name: str, namespace: str, dry_run: bool = False) -> bool
 # Restore: SSM → K8s Secret
 # ---------------------------------------------------------------------------
 def restore_cert(secret_name: str, namespace: str, dry_run: bool = False) -> bool:
-    """Read TLS data from SSM and create the K8s Secret.
+    """Read Secret data from SSM and create the K8s Secret.
+
+    Supports both kubernetes.io/tls Secrets (cert + key) and Opaque Secrets
+    (e.g. ACME account key). The Secret type is auto-detected from the SSM
+    backup payload.
 
     If the Secret already exists in the cluster, it is left untouched
     (cert-manager will manage it from there).
@@ -138,7 +160,7 @@ def restore_cert(secret_name: str, namespace: str, dry_run: bool = False) -> boo
     Returns:
         True if restore succeeded or Secret already exists, False otherwise.
     """
-    log(f"=== TLS Cert Restore: SSM → {namespace}/{secret_name} ===")
+    log(f"=== Secret Restore: SSM → {namespace}/{secret_name} ===")
 
     # 1. Check if Secret already exists
     check = subprocess.run(
@@ -156,23 +178,32 @@ def restore_cert(secret_name: str, namespace: str, dry_run: bool = False) -> boo
     log(f"  → Reading from SSM: {param_path}")
 
     if dry_run:
-        log(f"  [DRY-RUN] Would read SSM and create Secret")
+        log("  [DRY-RUN] Would read SSM and create Secret")
         return True
 
     try:
         ssm = get_ssm_client()
         resp = ssm.get_parameter(Name=param_path, WithDecryption=True)
         payload = json.loads(resp["Parameter"]["Value"])
-        tls_crt = payload["tls.crt"]
-        tls_key = payload["tls.key"]
-        log(f"  ✓ SSM parameter read ({len(tls_crt)} chars cert)")
-    except ssm.exceptions.ParameterNotFound:
-        log(f"  ⚠ SSM parameter {param_path} not found — no backup available")
-        log("    cert-manager will request a new certificate")
-        return False
     except Exception as e:
-        log(f"  ⚠ Failed to read SSM: {e}")
+        if "ParameterNotFound" in str(type(e).__name__) or "ParameterNotFound" in str(e):
+            log(f"  ⚠ SSM parameter {param_path} not found — no backup available")
+            log("    cert-manager will request a new certificate")
+        else:
+            log(f"  ⚠ Failed to read SSM: {e}")
         return False
+
+    # Handle both old format ({"tls.crt": ..., "tls.key": ...}) and
+    # new format ({"data": {...}, "type": "kubernetes.io/tls"})
+    if "data" in payload and "type" in payload:
+        secret_data = payload["data"]
+        secret_type = payload["type"]
+    else:
+        # Legacy format — assume TLS
+        secret_data = payload
+        secret_type = "kubernetes.io/tls"
+
+    log(f"  ✓ SSM parameter read (type={secret_type}, fields={list(secret_data.keys())})")
 
     # 3. Ensure namespace exists
     subprocess.run(
@@ -181,8 +212,24 @@ def restore_cert(secret_name: str, namespace: str, dry_run: bool = False) -> boo
         capture_output=True, text=True,
     )
 
-    # 4. Create the K8s TLS Secret
-    #    Decode the base64 values so kubectl create secret tls can re-encode them
+    # 4. Create the K8s Secret
+    if secret_type == "kubernetes.io/tls":
+        return _restore_tls_secret(secret_name, namespace, secret_data)
+    else:
+        return _restore_opaque_secret(secret_name, namespace, secret_data)
+
+
+def _restore_tls_secret(
+    secret_name: str, namespace: str, secret_data: dict[str, str],
+) -> bool:
+    """Restore a kubernetes.io/tls Secret from decoded data."""
+    tls_crt = secret_data.get("tls.crt", "")
+    tls_key = secret_data.get("tls.key", "")
+
+    if not tls_crt or not tls_key:
+        log("  ⚠ Backup missing tls.crt or tls.key — cannot restore")
+        return False
+
     try:
         cert_pem = base64.b64decode(tls_crt).decode()
         key_pem = base64.b64decode(tls_key).decode()
@@ -208,15 +255,55 @@ def restore_cert(secret_name: str, namespace: str, dry_run: bool = False) -> boo
         )
 
         if result.returncode == 0:
-            log(f"  ✓ Secret {namespace}/{secret_name} restored from SSM")
+            log(f"  ✓ TLS Secret {namespace}/{secret_name} restored from SSM")
             return True
         else:
-            log(f"  ⚠ Failed to create Secret: {result.stderr.strip()}")
+            log(f"  ⚠ Failed to create TLS Secret: {result.stderr.strip()}")
             return False
     finally:
-        # Clean up temp files (contain private key)
         cert_file.unlink(missing_ok=True)
         key_file.unlink(missing_ok=True)
+
+
+def _restore_opaque_secret(
+    secret_name: str, namespace: str, secret_data: dict[str, str],
+) -> bool:
+    """Restore an Opaque Secret (e.g. ACME account key) from backed-up data."""
+    # Build kubectl create secret generic command with --from-literal for each field
+    cmd = [
+        "kubectl", "create", "secret", "generic", secret_name,
+        "-n", namespace,
+    ]
+
+    # Each field is base64-encoded in the backup; decode and pass as literal
+    temp_files: list[Path] = []
+    try:
+        for key, b64_value in secret_data.items():
+            decoded = base64.b64decode(b64_value)
+            # Write to a temp file (values may contain binary data)
+            tmp = Path(f"/tmp/secret-restore-{key.replace('.', '-')}")
+            tmp.write_bytes(decoded)
+            temp_files.append(tmp)
+            cmd.append(f"--from-file={key}={tmp}")
+
+        result = subprocess.run(
+            cmd,
+            env={**os.environ, "KUBECONFIG": KUBECONFIG},
+            capture_output=True, text=True,
+        )
+
+        if result.returncode == 0:
+            log(f"  ✓ Opaque Secret {namespace}/{secret_name} restored from SSM")
+            return True
+        else:
+            log(f"  ⚠ Failed to create Opaque Secret: {result.stderr.strip()}")
+            return False
+    except Exception as e:
+        log(f"  ⚠ Failed to decode secret data: {e}")
+        return False
+    finally:
+        for tmp in temp_files:
+            tmp.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------

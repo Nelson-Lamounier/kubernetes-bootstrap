@@ -13,6 +13,7 @@ Steps (in order):
     2.  restore_backup     — Restore etcd + certs from S3 if EBS is empty (DR)
     3.  init_kubeadm       — kubeadm init + publish join credentials to SSM
     4.  install_calico     — Calico CNI via Tigera operator
+    4b. install_ccm        — AWS Cloud Controller Manager (removes uninitialized taint)
     5.  configure_kubectl  — kubeconfig for root, ec2-user, ssm-user
     6.  sync_manifests     — Download bootstrap manifests from S3
     7.  bootstrap_argocd   — Install ArgoCD and App-of-Apps
@@ -45,7 +46,6 @@ import glob
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -54,7 +54,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
     StepRunner, run_cmd, ssm_get, ssm_put, log_info, log_warn, log_error,
-    get_imds_value, ensure_ecr_credential_provider, ECR_PROVIDER_CONFIG,
+    get_imds_value, patch_provider_id,
+    ensure_ecr_credential_provider, ECR_PROVIDER_CONFIG,
+    step_validate_ami, step_install_cloudwatch_agent,
     SSM_PREFIX as DEFAULT_SSM_PREFIX, AWS_REGION as DEFAULT_AWS_REGION,
 )
 
@@ -75,10 +77,12 @@ S3_BUCKET = os.environ.get("S3_BUCKET", "")
 MOUNT_POINT = os.environ.get("MOUNT_POINT", "/data")
 VOLUME_ID = os.environ.get("VOLUME_ID", "")
 CALICO_VERSION = os.environ.get("CALICO_VERSION", "v3.29.3")
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "development")
 
 ADMIN_CONF = "/etc/kubernetes/admin.conf"
 KUBECONFIG_ENV = {"KUBECONFIG": ADMIN_CONF}
 CALICO_MARKER = "/etc/kubernetes/.calico-installed"
+CCM_MARKER = "/etc/kubernetes/.ccm-installed"
 EBS_ATTACH_MARKER = "/etc/kubernetes/.ebs-attached"
 
 # EBS attachment constants
@@ -388,111 +392,48 @@ def step_attach_ebs_volume() -> None:
         )
 
 
-# =============================================================================
 # Step 1 — Validate Golden AMI
-# =============================================================================
-
-REQUIRED_BINARIES = ["containerd", "kubeadm", "kubelet", "kubectl", "helm"]
-REQUIRED_KERNEL_MODULES = ["overlay", "br_netfilter"]
-REQUIRED_SYSCTL = {
-    "net.bridge.bridge-nf-call-iptables": "1",
-    "net.bridge.bridge-nf-call-ip6tables": "1",
-    "net.ipv4.ip_forward": "1",
-}
-
-
-def _validate_binaries() -> list[str]:
-    """Check that all required binaries are on $PATH. Returns missing list."""
-    missing = []
-    found = []
-    for binary in REQUIRED_BINARIES:
-        path = shutil.which(binary)
-        if path:
-            found.append(f"{binary} -> {path}")
-        else:
-            missing.append(binary)
-    for f in found:
-        log_info(f"  ✓ {f}")
-    return missing
-
-
-def _validate_kernel_modules() -> list[str]:
-    """Check kernel modules are loaded. Returns missing list."""
-    missing = []
-    try:
-        loaded = Path("/proc/modules").read_text()
-    except FileNotFoundError:
-        log_error("/proc/modules not found — cannot validate kernel modules")
-        return REQUIRED_KERNEL_MODULES
-
-    for mod in REQUIRED_KERNEL_MODULES:
-        if mod in loaded:
-            log_info(f"  ✓ Kernel module: {mod}")
-        else:
-            missing.append(mod)
-    return missing
-
-
-def _validate_sysctl() -> list[str]:
-    """Check sysctl settings. Returns misconfigured list."""
-    errors = []
-    for key, expected in REQUIRED_SYSCTL.items():
-        sysctl_path = Path(f"/proc/sys/{key.replace('.', '/')}")
-        try:
-            actual = sysctl_path.read_text().strip()
-            if actual == expected:
-                log_info(f"  ✓ sysctl {key} = {actual}")
-            else:
-                errors.append(f"{key}: expected={expected}, actual={actual}")
-        except FileNotFoundError:
-            errors.append(f"{key}: not found at {sysctl_path}")
-    return errors
-
-
-def step_validate_ami() -> None:
-    """Step 1: Validate Golden AMI binaries and kernel settings."""
-    with StepRunner("validate-ami") as step:
-        if step.skipped:
-            return
-
-        log_info("Checking required binaries...")
-        missing_bins = _validate_binaries()
-        step.details["binaries_checked"] = REQUIRED_BINARIES
-        step.details["binaries_missing"] = missing_bins
-
-        log_info("Checking kernel modules...")
-        missing_mods = _validate_kernel_modules()
-        step.details["modules_missing"] = missing_mods
-
-        log_info("Checking sysctl settings...")
-        sysctl_errors = _validate_sysctl()
-        step.details["sysctl_errors"] = sysctl_errors
-
-        errors = []
-        if missing_bins:
-            errors.append(f"Missing binaries: {', '.join(missing_bins)}")
-        if missing_mods:
-            errors.append(f"Missing kernel modules: {', '.join(missing_mods)}")
-        if sysctl_errors:
-            errors.append(f"Sysctl errors: {'; '.join(sysctl_errors)}")
-
-        if errors:
-            msg = (
-                "Golden AMI validation FAILED.\n"
-                "  The bootstrap script does NOT install packages at boot time.\n"
-                "  All binaries must be pre-baked into the Golden AMI.\n\n"
-                f"  Errors:\n" +
-                "\n".join(f"    - {e}" for e in errors) +
-                "\n\n  Resolution: Rebuild the Golden AMI with the missing components."
-            )
-            raise RuntimeError(msg)
-
-        log_info("✓ Golden AMI validated — all required binaries and settings present")
+# Imported from common: step_validate_ami()
 
 
 # =============================================================================
 # Step 2 — Initialize kubeadm Control Plane
 # =============================================================================
+
+
+def _label_control_plane_node() -> None:
+    """Apply workload and environment labels to the control plane node.
+
+    Enables Grafana dashboards to identify the control plane by role
+    rather than by IP address. Idempotent — re-labelling an already-labelled
+    node is a no-op.
+    """
+    hostname = run_cmd(
+        ["kubectl", "get", "nodes",
+         "-l", "node-role.kubernetes.io/control-plane=",
+         "-o", "jsonpath={.items[0].metadata.name}"],
+        check=False, env=KUBECONFIG_ENV,
+    )
+    node_name = hostname.stdout.strip()
+    if not node_name:
+        log_warn("Could not resolve control plane node name — skipping labelling")
+        return
+
+    labels = {
+        "workload": "control-plane",
+        "environment": ENVIRONMENT,
+    }
+    label_args = [f"{k}={v}" for k, v in labels.items()]
+
+    result = run_cmd(
+        ["kubectl", "label", "node", node_name, "--overwrite"] + label_args,
+        check=False, env=KUBECONFIG_ENV,
+    )
+    if result.returncode == 0:
+        log_info(f"Control plane node labelled: {', '.join(label_args)}")
+    else:
+        log_warn(f"Failed to label control plane node: {result.stderr.strip()}")
+
 
 def _update_dns_record(private_ip: str) -> None:
     """Update Route 53 A record to point to the current private IP."""
@@ -557,6 +498,7 @@ def _handle_second_run() -> None:
         log_warn("API server not responding — certs may need renewal + restart")
     else:
         log_info("API server healthy — second-run maintenance complete")
+        _label_control_plane_node()
 
 
 def _init_cluster() -> None:
@@ -569,20 +511,22 @@ def _init_cluster() -> None:
 
     ensure_ecr_credential_provider()
 
+    private_ip = get_imds_value("local-ipv4")
+    if not private_ip:
+        raise RuntimeError("Failed to retrieve private IP from IMDS")
+
     Path("/etc/sysconfig").mkdir(parents=True, exist_ok=True)
     Path("/etc/sysconfig/kubelet").write_text(
         "KUBELET_EXTRA_ARGS="
-        f"--image-credential-provider-config={ECR_PROVIDER_CONFIG}"
+        "--cloud-provider=external"
+        f" --node-ip={private_ip}"
+        f" --image-credential-provider-config={ECR_PROVIDER_CONFIG}"
         " --image-credential-provider-bin-dir=/usr/local/bin\n"
     )
-    log_info("Kubelet ECR credential provider args configured")
+    log_info(f"Kubelet args configured: cloud-provider=external, node-ip={private_ip}")
 
-    private_ip = get_imds_value("local-ipv4")
     public_ip = get_imds_value("public-ipv4")
     instance_id = get_imds_value("instance-id")
-
-    if not private_ip:
-        raise RuntimeError("Failed to retrieve private IP from IMDS")
 
     log_info("Running kubeadm init...")
     _update_dns_record(private_ip)
@@ -626,6 +570,13 @@ def _init_cluster() -> None:
         time.sleep(1)
 
     log_info("Control plane taint preserved — only Traefik + system pods will run here")
+    _label_control_plane_node()
+
+    # Set providerID immediately so the AWS CCM can map this node
+    # to its EC2 instance — required for auto-deletion of dead nodes.
+    # Control plane uses admin kubeconfig (kubelet.conf not yet trusted).
+    patch_provider_id(kubeconfig="/root/.kube/config")
+
     _publish_ssm_params(private_ip, public_ip, instance_id)
     _publish_kubeconfig_to_ssm()
     _backup_certificates()
@@ -981,6 +932,121 @@ def step_install_calico() -> None:
 
 
 # =============================================================================
+# Step 4b — Install AWS Cloud Controller Manager
+# =============================================================================
+
+CCM_HELM_REPO = "https://kubernetes.github.io/cloud-provider-aws"
+CCM_HELM_RELEASE = "aws-cloud-controller-manager"
+CCM_HELM_CHART = "aws-cloud-controller-manager"
+CCM_HELM_NAMESPACE = "kube-system"
+CCM_TAINT_TIMEOUT_SECONDS = 120
+
+# Helm values mirroring the ArgoCD Application manifest
+# (kubernetes-app/platform/argocd-apps/aws-cloud-controller-manager.yaml)
+CCM_HELM_VALUES = """\
+args:
+  - --v=2
+  - --cloud-provider=aws
+  - --configure-cloud-routes=false
+nodeSelector:
+  node-role.kubernetes.io/control-plane: ""
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+  - key: node.cloudprovider.kubernetes.io/uninitialized
+    value: "true"
+    effect: NoSchedule
+hostNetworking: true
+"""
+
+
+def step_install_ccm() -> None:
+    """Step 4b: Install AWS Cloud Controller Manager via Helm.
+
+    The CCM removes the 'node.cloudprovider.kubernetes.io/uninitialized'
+    taint from nodes, which is required before any pods (including ArgoCD
+    and CoreDNS) can be scheduled.
+
+    Installing the CCM here — after Calico networking is ready but before
+    ArgoCD bootstrap — breaks the otherwise circular dependency:
+      - Kubelet starts with --cloud-provider=external → nodes are tainted
+      - CCM removes the taint → pods can schedule
+      - ArgoCD can start → remaining platform apps deploy
+
+    ArgoCD will adopt the Helm release on subsequent syncs via the
+    aws-cloud-controller-manager Application (sync-wave 2, selfHeal: true).
+
+    Idempotent: skips if the marker file already exists.
+    """
+    with StepRunner("install-ccm", skip_if=CCM_MARKER) as step:
+        if step.skipped:
+            return
+
+        # Write Helm values to a temporary file
+        values_path = Path("/tmp/ccm-values.yaml")
+        values_path.write_text(CCM_HELM_VALUES)
+
+        try:
+            # Add the Helm repo
+            log_info("Adding cloud-provider-aws Helm repo...")
+            run_cmd(
+                ["helm", "repo", "add", "aws-cloud-controller-manager",
+                 CCM_HELM_REPO, "--force-update"],
+                env=KUBECONFIG_ENV,
+            )
+            run_cmd(["helm", "repo", "update"], env=KUBECONFIG_ENV)
+
+            # Install (or upgrade if already present) the CCM
+            log_info("Installing AWS Cloud Controller Manager...")
+            run_cmd(
+                ["helm", "upgrade", "--install",
+                 CCM_HELM_RELEASE, f"aws-cloud-controller-manager/{CCM_HELM_CHART}",
+                 "--namespace", CCM_HELM_NAMESPACE,
+                 "--values", str(values_path),
+                 "--wait", "--timeout", "120s"],
+                env=KUBECONFIG_ENV,
+            )
+            log_info("✓ AWS CCM Helm release installed")
+
+            # Wait for the 'uninitialized' taint to be removed
+            log_info("Waiting for CCM to remove the 'uninitialized' taint...")
+            taint_removed = False
+            for i in range(1, CCM_TAINT_TIMEOUT_SECONDS + 1):
+                result = run_cmd(
+                    ["kubectl", "get", "nodes", "-o",
+                     "jsonpath={.items[*].spec.taints}"],
+                    check=False, env=KUBECONFIG_ENV,
+                )
+                if result.returncode == 0:
+                    taints_json = result.stdout.strip()
+                    if "node.cloudprovider.kubernetes.io/uninitialized" not in taints_json:
+                        log_info(
+                            f"✓ 'uninitialized' taint removed from all nodes "
+                            f"(waited {i}s)"
+                        )
+                        taint_removed = True
+                        break
+                time.sleep(1)
+
+            if not taint_removed:
+                log_warn(
+                    f"'uninitialized' taint still present after "
+                    f"{CCM_TAINT_TIMEOUT_SECONDS}s — ArgoCD may fail to schedule. "
+                    f"Check CCM pod logs: kubectl logs -n kube-system "
+                    f"-l app.kubernetes.io/name=aws-cloud-controller-manager"
+                )
+
+            step.details["helm_release"] = CCM_HELM_RELEASE
+            step.details["taint_removed"] = taint_removed
+            log_info("AWS Cloud Controller Manager installed successfully")
+
+        finally:
+            # Clean up temporary values file
+            if values_path.exists():
+                values_path.unlink()
+
+
+# =============================================================================
 # Step 5 — Configure kubectl Access
 # =============================================================================
 
@@ -1273,104 +1339,8 @@ def step_verify_cluster() -> None:
 # Step 9 — Install CloudWatch Agent
 # =============================================================================
 
-CW_MARKER_FILE = "/tmp/.cw-agent-installed"
-CW_AGENT_CTL = "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl"
-CW_AGENT_CONFIG_PATH = "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
-K8S_ENV_FILE = "/etc/profile.d/k8s-env.sh"
-
-CW_LOG_FILES = [
-    {"file_path": "/var/log/messages", "log_stream_name": "{instance_id}/messages"},
-    {"file_path": "/var/log/user-data.log", "log_stream_name": "{instance_id}/user-data"},
-    {"file_path": "/var/log/cloud-init-output.log", "log_stream_name": "{instance_id}/cloud-init"},
-]
-
-
-def _resolve_log_group_name() -> str:
-    """Resolve the CloudWatch log group name from environment or k8s-env.sh."""
-    log_group = os.environ.get("LOG_GROUP_NAME", "")
-    if log_group:
-        return log_group
-
-    env_file = Path(K8S_ENV_FILE)
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("export LOG_GROUP_NAME="):
-                value = line.split("=", 1)[1].strip().strip('"').strip("'")
-                if value:
-                    return value
-    return ""
-
-
-def step_install_cloudwatch_agent() -> None:
-    """Step 9: Install and configure CloudWatch Agent for log streaming."""
-    with StepRunner("install-cloudwatch-agent", skip_if=CW_MARKER_FILE) as step:
-        if step.skipped:
-            return
-
-        log_group_name = _resolve_log_group_name()
-        if not log_group_name:
-            log_warn(
-                "LOG_GROUP_NAME not found in environment or k8s-env.sh — "
-                "skipping CloudWatch Agent installation"
-            )
-            step.details["skipped_reason"] = "LOG_GROUP_NAME not set"
-            return
-
-        log_info(f"Target log group: {log_group_name}")
-        step.details["log_group_name"] = log_group_name
-
-        log_info("Installing amazon-cloudwatch-agent...")
-        result = run_cmd(
-            "dnf install -y amazon-cloudwatch-agent 2>/dev/null || "
-            "yum install -y amazon-cloudwatch-agent",
-            shell=True, check=True, timeout=120,
-        )
-        step.details["install_exit_code"] = result.returncode
-
-        collect_list = []
-        for lf in CW_LOG_FILES:
-            collect_list.append({
-                "file_path": lf["file_path"],
-                "log_group_name": log_group_name,
-                "log_stream_name": lf["log_stream_name"],
-                "retention_in_days": 30,
-            })
-
-        config = {
-            "agent": {
-                "metrics_collection_interval": 60,
-                "logfile": "/opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log",
-            },
-            "logs": {
-                "logs_collected": {
-                    "files": {"collect_list": collect_list},
-                },
-            },
-        }
-
-        config_path = Path(CW_AGENT_CONFIG_PATH)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(config, indent=2))
-        log_info(f"Agent config written to {CW_AGENT_CONFIG_PATH}")
-        step.details["log_files"] = [lf["file_path"] for lf in CW_LOG_FILES]
-
-        log_info("Starting CloudWatch Agent...")
-        run_cmd([
-            CW_AGENT_CTL,
-            "-a", "fetch-config",
-            "-m", "ec2",
-            "-c", f"file:{CW_AGENT_CONFIG_PATH}",
-            "-s",
-        ], timeout=60)
-
-        result = run_cmd([CW_AGENT_CTL, "-a", "status"], check=False)
-        if result.returncode == 0 and "running" in result.stdout.lower():
-            log_info("CloudWatch Agent is running")
-            step.details["agent_status"] = "running"
-        else:
-            log_warn("CloudWatch Agent may not be running — check agent logs")
-            step.details["agent_status"] = "unknown"
+# Step 9 — Install CloudWatch Agent
+# Imported from common: step_install_cloudwatch_agent()
 
 
 # =============================================================================
@@ -1425,6 +1395,7 @@ def main() -> None:
         step_restore_from_backup,
         step_init_kubeadm,
         step_install_calico,
+        step_install_ccm,
         step_configure_kubectl,
         step_sync_manifests,
         step_bootstrap_argocd,

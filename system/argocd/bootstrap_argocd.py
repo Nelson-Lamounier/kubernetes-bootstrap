@@ -598,22 +598,139 @@ def seed_ecr_credentials(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 5c-cp: Provision Crossplane AWS credentials (Secrets Manager → K8s)
+# ---------------------------------------------------------------------------
+def provision_crossplane_credentials(cfg: Config) -> None:
+    """Pull Crossplane AWS credentials from Secrets Manager → K8s Secret.
+
+    CDK CrossplaneStack creates an IAM user with tightly scoped permissions
+    (S3, SQS, KMS) and stores the access key in Secrets Manager at:
+        {namePrefix}/crossplane/aws-credentials
+
+    This step bridges that credential into the crossplane-system namespace
+    as the K8s Secret 'crossplane-aws-creds', which ProviderConfig references.
+
+    The Secret format matches what Crossplane's AWS ProviderConfig expects:
+        [default]
+        aws_access_key_id = AKIA...
+        aws_secret_access_key = ...
+    """
+    log("=== Step 5c-cp: Provisioning Crossplane AWS Credentials ===")
+
+    # Derive the Secrets Manager secret name from environment.
+    # CDK uses: {namePrefix}/crossplane/aws-credentials
+    # where namePrefix = 'shared-{env}' (e.g. 'shared-dev')
+    env_short = cfg.env[:3]  # 'development' → 'dev'
+    secret_name = f"shared-{env_short}/crossplane/aws-credentials"
+
+    if cfg.dry_run:
+        log(f"  [DRY-RUN] Would provision crossplane-aws-creds from {secret_name}\n")
+        return
+
+    # 1. Read credentials from Secrets Manager
+    try:
+        sm = get_secrets_client(cfg)
+        resp = sm.get_secret_value(SecretId=secret_name)
+        secret_data = json.loads(resp["SecretString"])
+
+        access_key = secret_data.get("aws_access_key_id", "")
+        secret_key = secret_data.get("aws_secret_access_key", "")
+
+        if not access_key or not secret_key:
+            log(f"  ⚠ Secrets Manager secret '{secret_name}' has empty credentials")
+            log("    Crossplane providers will fail to authenticate to AWS\n")
+            return
+
+        log(f"  ✓ Retrieved credentials from Secrets Manager ({secret_name})")
+    except Exception as e:
+        log(f"  ⚠ Failed to read Secrets Manager secret '{secret_name}': {e}")
+        log("    Crossplane providers will fail to authenticate to AWS")
+        log("    Deploy the Shared-Crossplane CDK stack first:\n")
+        log(f"      npx cdk deploy 'Shared-Crossplane-{cfg.env}'\n")
+        return
+
+    # 2. Format as INI-style credentials (ProviderConfig expects this)
+    credentials_ini = (
+        f"[default]\n"
+        f"aws_access_key_id = {access_key}\n"
+        f"aws_secret_access_key = {secret_key}\n"
+    )
+
+    # 3. Create the K8s Secret in crossplane-system namespace
+    try:
+        from kubernetes import client, config as k8s_config
+
+        k8s_config.load_kube_config(config_file=cfg.kubeconfig)
+        v1 = client.CoreV1Api()
+
+        # Ensure crossplane-system namespace exists
+        try:
+            v1.read_namespace("crossplane-system")
+        except client.exceptions.ApiException as e:
+            if e.status == 404:
+                v1.create_namespace(client.V1Namespace(
+                    metadata=client.V1ObjectMeta(name="crossplane-system"),
+                ))
+                log("  ✓ Created crossplane-system namespace")
+            else:
+                raise
+
+        creds_b64 = base64.b64encode(credentials_ini.encode()).decode()
+
+        secret = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name="crossplane-aws-creds",
+                namespace="crossplane-system",
+                labels={
+                    "app.kubernetes.io/managed-by": "bootstrap",
+                    "app.kubernetes.io/part-of": "crossplane",
+                    "platform.engineering/component": "infrastructure-abstraction",
+                },
+            ),
+            data={"credentials": creds_b64},
+            type="Opaque",
+        )
+
+        try:
+            v1.create_namespaced_secret("crossplane-system", secret)
+            log("  ✓ crossplane-aws-creds secret created")
+        except client.exceptions.ApiException as e:
+            if e.status == 409:
+                v1.replace_namespaced_secret(
+                    "crossplane-aws-creds", "crossplane-system", secret,
+                )
+                log("  ✓ crossplane-aws-creds secret updated")
+            else:
+                raise
+
+        log("  ✓ Crossplane ProviderConfig can now authenticate to AWS")
+    except Exception as e:
+        log(f"  ⚠ Failed to create crossplane-aws-creds secret: {e}")
+        log("    Crossplane providers will fail to authenticate to AWS")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
 # Step 5d-pre: Restore TLS certificate from SSM (prevents rate-limit exhaustion)
 # ---------------------------------------------------------------------------
 def restore_tls_cert(cfg: Config) -> None:
-    """Restore a previously backed-up TLS certificate from SSM Parameter Store.
+    """Restore backed-up TLS certificate AND ACME account key from SSM.
 
-    On instance replacement the etcd data is lost, including the TLS Secret
-    that cert-manager previously issued. Without this restore step, cert-manager
-    requests a brand-new certificate from Let's Encrypt, which eventually
-    hits the 5-per-168h rate limit.
+    On instance replacement the etcd data may be lost (DR recovery, fresh EBS),
+    including the TLS Secret and the ACME account key. Without this restore:
+      - cert-manager requests a new certificate → rate-limit exhaustion
+      - A new ACME account is registered → rate limits count from zero
 
     The persist-tls-cert.py script (in k8s-bootstrap/system/cert-manager/) is
-    called with --restore. If an SSM backup exists, the Secret is created
-    *before* cert-manager syncs, so cert-manager sees the Secret already
-    exists and skips issuance.
+    called with --restore for each Secret. If an SSM backup exists, the Secret
+    is created *before* cert-manager syncs, so cert-manager sees the Secret
+    already exists and skips issuance.
+
+    Note: When the EBS volume is re-attached cleanly, etcd preserves all
+    Secrets and this step becomes a no-op (the script skips existing Secrets).
     """
-    log("=== Step 5d-pre: Restoring TLS certificate from SSM ===")
+    log("=== Step 5d-pre: Restoring TLS certificate + ACME key from SSM ===")
 
     cert_manager_dir = Path(cfg.argocd_dir).parent / "cert-manager"
     persist_script = cert_manager_dir / "persist-tls-cert.py"
@@ -623,15 +740,6 @@ def restore_tls_cert(cfg: Config) -> None:
         log("    cert-manager will request a new certificate\n")
         return
 
-    args = [
-        sys.executable, str(persist_script),
-        "--restore",
-        "--secret", "ops-tls-cert",
-        "--namespace", "kube-system",
-    ]
-    if cfg.dry_run:
-        args.append("--dry-run")
-
     env = {
         **os.environ,
         "KUBECONFIG": cfg.kubeconfig,
@@ -639,12 +747,33 @@ def restore_tls_cert(cfg: Config) -> None:
         "AWS_REGION": cfg.aws_region,
     }
 
-    result = subprocess.run(args, env=env, check=False)
+    # Restore both the TLS cert and the ACME account key.
+    # The ACME account key preserves the Let's Encrypt account identity,
+    # preventing a new account from being registered on DR recovery.
+    secrets_to_restore = [
+        ("ops-tls-cert", "kube-system"),
+        ("letsencrypt-account-key", "cert-manager"),
+    ]
 
-    if result.returncode == 0:
-        log("  ✓ TLS restore completed\n")
-    else:
-        log("  ⚠ TLS restore failed — cert-manager will request a new certificate\n")
+    for secret_name, namespace in secrets_to_restore:
+        log(f"  → Restoring {namespace}/{secret_name}...")
+        args = [
+            sys.executable, str(persist_script),
+            "--restore",
+            "--secret", secret_name,
+            "--namespace", namespace,
+        ]
+        if cfg.dry_run:
+            args.append("--dry-run")
+
+        result = subprocess.run(args, env=env, check=False)
+
+        if result.returncode == 0:
+            log(f"  ✓ {secret_name} restore completed")
+        else:
+            log(f"  ⚠ {secret_name} restore failed — cert-manager may request a new certificate")
+
+    log("")
 
 
 # ---------------------------------------------------------------------------
@@ -766,12 +895,27 @@ spec:
         cfg=cfg, check=False,
     )
 
-    # Clean up stale cert-manager resources from previous failed attempts.
-    # If the ClusterIssuer previously had invalid config (e.g., unresolved
-    # template placeholders), challenges and orders will be stuck with
-    # finalizers that can't clean up. Removing finalizers + deleting allows
-    # cert-manager to re-issue with the corrected DNS-01 solver.
-    log("  → Cleaning up stale cert-manager resources...")
+    # Clean up stale cert-manager resources ONLY if the TLS Secret is missing.
+    # If the Secret exists (restored from SSM or persisted via EBS/etcd),
+    # cleaning up CertificateRequests would force cert-manager to re-issue,
+    # which exhausts Let's Encrypt rate limits (5 certs per 168h per domain).
+    #
+    # The cleanup is still valuable on first bootstrap or after DR recovery
+    # (no existing Secret), where stale resources from a previous broken
+    # ClusterIssuer config could block new issuance.
+    secret_exists = subprocess.run(
+        ["kubectl", "get", "secret", "ops-tls-cert", "-n", "kube-system"],
+        env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+        capture_output=True, text=True,
+    )
+
+    if secret_exists.returncode == 0:
+        log("  ✓ TLS Secret 'ops-tls-cert' exists — skipping stale resource cleanup")
+        log("    (cleaning up would force cert-manager to re-issue)")
+        log("")
+        return
+
+    log("  → TLS Secret missing — cleaning up stale cert-manager resources...")
     for resource in ("challenge", "order", "certificaterequest"):
         # First remove finalizers from stuck resources
         list_result = run(
@@ -806,9 +950,22 @@ def apply_ingress(cfg: Config) -> None:
     log("=== Step 7: Applying ArgoCD ingress ===")
     argocd_path = Path(cfg.argocd_dir)
 
-    ingress_yaml = argocd_path / "ingress.yaml"
-    if not ingress_yaml.exists():
-        log("  ⚠ ingress.yaml not found — skipping\n")
+    # Collect all ingress manifests to apply
+    ingress_files = [
+        ("ingress.yaml", "Main ArgoCD ingress"),
+        ("webhook-ingress.yaml", "GitHub webhook ingress"),
+    ]
+
+    manifests_to_apply: list[tuple[Path, str]] = []
+    for filename, label in ingress_files:
+        path = argocd_path / filename
+        if path.exists():
+            manifests_to_apply.append((path, label))
+        else:
+            log(f"  ⚠ {filename} not found — skipping {label}")
+
+    if not manifests_to_apply:
+        log("  ⚠ No ingress manifests found — skipping\n")
         return
 
     # Traefik CRDs (IngressRoute, Middleware) are installed by ArgoCD via the
@@ -817,12 +974,17 @@ def apply_ingress(cfg: Config) -> None:
     log("  → Waiting for Traefik CRDs before applying ingress...")
     max_retries = 10
     for attempt in range(1, max_retries + 1):
-        result = run(
-            ["kubectl", "apply", "-f", str(ingress_yaml)],
-            cfg=cfg, check=False,
-        )
-        if result.returncode == 0:
-            log("  ✓ Ingress applied")
+        all_applied = True
+        for manifest_path, label in manifests_to_apply:
+            result = run(
+                ["kubectl", "apply", "-f", str(manifest_path)],
+                cfg=cfg, check=False,
+            )
+            if result.returncode == 0:
+                log(f"  ✓ {label} applied")
+            else:
+                all_applied = False
+        if all_applied:
             break
         if attempt < max_retries:
             log(f"  Attempt {attempt}/{max_retries} — Traefik CRDs not ready, waiting 30s...")
@@ -830,7 +992,94 @@ def apply_ingress(cfg: Config) -> None:
         else:
             log("  ⚠ Ingress not applied — Traefik CRDs not available after 5 min.")
             log("    ArgoCD will install Traefik shortly. Apply manually:")
-            log(f"    kubectl apply -f {ingress_yaml}")
+            for manifest_path, _ in manifests_to_apply:
+                log(f"    kubectl apply -f {manifest_path}")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
+# Step 7c: Configure ArgoCD GitHub webhook secret
+# ---------------------------------------------------------------------------
+def configure_webhook_secret(cfg: Config) -> None:
+    """Generate a random webhook secret and patch it into argocd-secret.
+
+    ArgoCD validates incoming GitHub webhook payloads using HMAC-SHA256
+    with the secret stored at 'webhook.github.secret' in argocd-secret.
+    The same secret value must be configured in the GitHub repository's
+    webhook settings.
+
+    The secret is also stored in SSM so it can be retrieved when
+    configuring the GitHub webhook (manually or via GitHub Actions).
+    """
+    log("=== Step 7c: Configuring ArgoCD GitHub webhook secret ===")
+
+    ssm_path = f"{cfg.ssm_prefix}/argocd-webhook-secret"
+
+    if cfg.dry_run:
+        log(f"  [DRY-RUN] Would generate webhook secret and store at: {ssm_path}")
+        log("  [DRY-RUN] Would patch argocd-secret with webhook.github.secret\n")
+        return
+
+    # 1. Check if a webhook secret already exists in SSM (idempotent)
+    existing_secret: Optional[str] = None
+    try:
+        ssm = get_ssm_client(cfg)
+        resp = ssm.get_parameter(Name=ssm_path, WithDecryption=True)
+        existing_secret = resp["Parameter"]["Value"]
+        log("  ✓ Webhook secret already exists in SSM — reusing")
+    except Exception:
+        pass  # Secret doesn't exist yet — generate a new one
+
+    # 2. Generate a new secret if one doesn't exist
+    if existing_secret:
+        webhook_secret = existing_secret
+    else:
+        import secrets as secrets_mod
+        webhook_secret = secrets_mod.token_hex(32)
+        log("  ✓ Generated new webhook secret (64 hex chars)")
+
+        # Store in SSM for retrieval when configuring the GitHub webhook
+        try:
+            ssm = get_ssm_client(cfg)
+            try:
+                ssm.put_parameter(
+                    Name=ssm_path,
+                    Description="ArgoCD GitHub webhook secret for HMAC validation",
+                    Value=webhook_secret,
+                    Type="SecureString",
+                )
+                log(f"  ✓ Webhook secret stored in SSM: {ssm_path}")
+            except ssm.exceptions.ParameterAlreadyExists:
+                ssm.put_parameter(
+                    Name=ssm_path,
+                    Value=webhook_secret,
+                    Type="SecureString",
+                    Overwrite=True,
+                )
+                log(f"  ✓ Webhook secret updated in SSM: {ssm_path}")
+        except Exception as e:
+            log(f"  ⚠ Failed to store webhook secret in SSM: {e}")
+            log(f"    Store it manually: aws ssm put-parameter --name {ssm_path} ...")
+
+    # 3. Patch argocd-secret with the webhook secret
+    patch = json.dumps({
+        "stringData": {
+            "webhook.github.secret": webhook_secret,
+        }
+    })
+
+    result = run(
+        ["kubectl", "-n", "argocd", "patch", "secret", "argocd-secret",
+         "--type", "merge", "-p", patch],
+        cfg=cfg, check=False,
+    )
+
+    if result.returncode == 0:
+        log("  ✓ argocd-secret patched with webhook.github.secret")
+    else:
+        log("  ⚠ Failed to patch argocd-secret")
+        log("    Manual fix: kubectl -n argocd patch secret argocd-secret ...")
 
     log("")
 
@@ -1222,14 +1471,18 @@ def set_admin_password(cfg: Config) -> None:
 # Step 10c: Back up TLS certificate to SSM (for next redeploy)
 # ---------------------------------------------------------------------------
 def backup_tls_cert(cfg: Config) -> None:
-    """Back up the TLS certificate to SSM Parameter Store after bootstrap.
+    """Back up the TLS certificate AND ACME account key to SSM after bootstrap.
 
     cert-manager may still be issuing the certificate when this runs.
-    We wait up to 5 minutes for the Secret to appear, then back it up.
+    We wait up to 5 minutes for the TLS Secret to appear, then back it up.
+    The ACME account key is backed up immediately (it's created when the
+    ClusterIssuer first registers with Let's Encrypt).
+
     If the cert isn't ready yet (e.g. rate-limited), we log a warning
-    and skip — the next successful bootstrap will back it up.
+    and skip the TLS backup — the next successful bootstrap will back it up.
+    The ACME key backup is always attempted regardless.
     """
-    log("=== Step 10c: Backing up TLS certificate to SSM ===")
+    log("=== Step 10c: Backing up TLS certificate + ACME key to SSM ===")
 
     cert_manager_dir = Path(cfg.argocd_dir).parent / "cert-manager"
     persist_script = cert_manager_dir / "persist-tls-cert.py"
@@ -1238,11 +1491,19 @@ def backup_tls_cert(cfg: Config) -> None:
         log(f"  ⚠ {persist_script} not found — skipping TLS backup\n")
         return
 
+    env = {
+        **os.environ,
+        "KUBECONFIG": cfg.kubeconfig,
+        "SSM_PREFIX": cfg.ssm_prefix,
+        "AWS_REGION": cfg.aws_region,
+    }
+
     # Wait for the TLS Secret to appear (cert-manager may still be issuing)
+    tls_ready = True
     if not cfg.dry_run:
         log("  → Waiting for ops-tls-cert Secret to be ready...")
         max_wait = 10  # attempts × 30s = 5 min
-        secret_ready = False
+        tls_ready = False
         for attempt in range(1, max_wait + 1):
             check = subprocess.run(
                 ["kubectl", "get", "secret", "ops-tls-cert", "-n", "kube-system",
@@ -1252,40 +1513,43 @@ def backup_tls_cert(cfg: Config) -> None:
             )
             if check.returncode == 0 and check.stdout.strip():
                 log(f"  ✓ TLS Secret ready (attempt {attempt}/{max_wait})")
-                secret_ready = True
+                tls_ready = True
                 break
             if attempt < max_wait:
                 log(f"    Attempt {attempt}/{max_wait} — not ready, waiting 30s...")
                 time.sleep(30)
 
-        if not secret_ready:
-            log("  ⚠ TLS Secret not ready after 5 min — skipping backup")
+        if not tls_ready:
+            log("  ⚠ TLS Secret not ready after 5 min — skipping TLS backup")
             log("    This is expected if cert-manager is rate-limited")
-            log("    The cert will be backed up on the next successful bootstrap\n")
-            return
 
-    args = [
-        sys.executable, str(persist_script),
-        "--backup",
-        "--secret", "ops-tls-cert",
-        "--namespace", "kube-system",
+    # Back up both secrets. The ACME key is always backed up (it's created
+    # immediately). The TLS cert is only backed up if it's ready.
+    secrets_to_backup = [
+        ("letsencrypt-account-key", "cert-manager"),
     ]
-    if cfg.dry_run:
-        args.append("--dry-run")
+    if tls_ready:
+        secrets_to_backup.insert(0, ("ops-tls-cert", "kube-system"))
 
-    env = {
-        **os.environ,
-        "KUBECONFIG": cfg.kubeconfig,
-        "SSM_PREFIX": cfg.ssm_prefix,
-        "AWS_REGION": cfg.aws_region,
-    }
+    for secret_name, namespace in secrets_to_backup:
+        log(f"  → Backing up {namespace}/{secret_name}...")
+        args = [
+            sys.executable, str(persist_script),
+            "--backup",
+            "--secret", secret_name,
+            "--namespace", namespace,
+        ]
+        if cfg.dry_run:
+            args.append("--dry-run")
 
-    result = subprocess.run(args, env=env, check=False)
+        result = subprocess.run(args, env=env, check=False)
 
-    if result.returncode == 0:
-        log("  ✓ TLS backup completed\n")
-    else:
-        log("  ⚠ TLS backup failed — cert will be re-requested on next redeploy\n")
+        if result.returncode == 0:
+            log(f"  ✓ {secret_name} backup completed")
+        else:
+            log(f"  ⚠ {secret_name} backup failed — will retry on next bootstrap")
+
+    log("")
 
 
 # ---------------------------------------------------------------------------
@@ -1379,6 +1643,9 @@ def main() -> None:
     # Step 5c: Seed ECR credentials (Day-1 — CronJob hasn't fired yet)
     seed_ecr_credentials(cfg)
 
+    # Step 5c-cp: Provision Crossplane AWS credentials (Secrets Manager → K8s)
+    provision_crossplane_credentials(cfg)
+
     # Step 5d-pre: Restore TLS cert from SSM (before cert-manager syncs)
     restore_tls_cert(cfg)
 
@@ -1393,6 +1660,9 @@ def main() -> None:
 
     # Step 7b: Create ArgoCD IP allowlist middleware from SSM
     create_argocd_ip_allowlist(cfg)
+
+    # Step 7c: Configure GitHub webhook secret for instant syncs
+    configure_webhook_secret(cfg)
 
     # Step 8: CLI
     cli_installed = install_argocd_cli(cfg)
