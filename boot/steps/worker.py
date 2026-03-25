@@ -36,13 +36,25 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
-    StepRunner, run_cmd, ssm_get, log_info, log_warn, log_error,
-    get_imds_value, patch_provider_id,
-    ensure_ecr_credential_provider, ECR_PROVIDER_CONFIG,
-    step_validate_ami, step_install_cloudwatch_agent,
-    SSM_PREFIX as DEFAULT_SSM_PREFIX, AWS_REGION as DEFAULT_AWS_REGION,
+    AWS_REGION as DEFAULT_AWS_REGION,
 )
-
+from common import (
+    ECR_PROVIDER_CONFIG,
+    StepRunner,
+    ensure_ecr_credential_provider,
+    get_imds_value,
+    log_error,
+    log_info,
+    log_warn,
+    patch_provider_id,
+    run_cmd,
+    ssm_get,
+    step_install_cloudwatch_agent,
+    step_validate_ami,
+)
+from common import (
+    SSM_PREFIX as DEFAULT_SSM_PREFIX,
+)
 
 # =============================================================================
 # Configuration
@@ -243,7 +255,7 @@ def _join_cluster(endpoint: str) -> None:
             raise RuntimeError(
                 f"kubeadm join timed out on all {JOIN_MAX_RETRIES} attempts. "
                 f"Check that the API server at {endpoint} is reachable."
-            )
+            ) from None
 
         if result.returncode == 0:
             log_info(f"kubeadm join succeeded on attempt {attempt}")
@@ -509,7 +521,7 @@ def step_clean_stale_pvs() -> None:
         time.sleep(10)
 
         # Set KUBECONFIG so kubectl works from the worker
-        kubeconfig = os.environ.get("KUBECONFIG", "/etc/kubernetes/kubelet.conf")
+        os.environ.get("KUBECONFIG", "/etc/kubernetes/kubelet.conf")
         # Workers don't have admin.conf — use the CP endpoint via SSM
         # to get a kubeconfig. kubectl on workers uses the kubelet cert.
         # For PV cleanup, we need admin access. Retrieve admin kubeconfig
@@ -528,7 +540,7 @@ def step_clean_stale_pvs() -> None:
             admin_kc_path.write_text(base64.b64decode(admin_kc_b64).decode())
             admin_kc_path.chmod(0o600)
             os.environ["KUBECONFIG"] = str(admin_kc_path)
-            kubeconfig = str(admin_kc_path)
+            str(admin_kc_path)
             log_info("Using admin kubeconfig from SSM for PV cleanup")
 
         live_nodes = _get_cluster_node_names()
