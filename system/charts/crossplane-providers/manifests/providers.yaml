@@ -16,7 +16,7 @@ metadata:
     platform.engineering/component: infrastructure-abstraction
 spec:
   package: xpkg.upbound.io/upbound/provider-aws-s3:v1.18.0
-  controllerConfigRef:
+  runtimeConfigRef:
     name: crossplane-provider-config
 
 ---
@@ -31,33 +31,40 @@ metadata:
     platform.engineering/component: infrastructure-abstraction
 spec:
   package: xpkg.upbound.io/upbound/provider-aws-sqs:v1.18.0
-  controllerConfigRef:
+  runtimeConfigRef:
     name: crossplane-provider-config
 
 ---
-# ControllerConfig — Resource limits for provider pods
+# DeploymentRuntimeConfig — Resource limits + scheduling for provider pods
 #
+# Replaces the deprecated ControllerConfig (v1alpha1) with the stable
+# DeploymentRuntimeConfig (v1beta1). Required for Crossplane >= 1.14.
 # Constrains memory/CPU to fit a t3.medium monitoring node.
 # Both providers share this config to enforce consistent limits.
-apiVersion: pkg.crossplane.io/v1alpha1
-kind: ControllerConfig
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
 metadata:
   name: crossplane-provider-config
   labels:
     platform.engineering/component: infrastructure-abstraction
 spec:
-  resources:
-    limits:
-      cpu: 100m
-      memory: 128Mi
-    requests:
-      cpu: 25m
-      memory: 64Mi
-  nodeSelector:
-    workload: monitoring
-  tolerations:
-    - key: workload
-      operator: Equal
-      value: monitoring
-      effect: NoSchedule
-
+  deploymentTemplate:
+    spec:
+      template:
+        spec:
+          nodeSelector:
+            workload: monitoring
+          tolerations:
+            - key: workload
+              operator: Equal
+              value: monitoring
+              effect: NoSchedule
+          containers:
+            - name: package-runtime
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+                requests:
+                  cpu: 25m
+                  memory: 64Mi

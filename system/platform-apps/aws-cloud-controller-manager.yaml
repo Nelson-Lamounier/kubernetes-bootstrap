@@ -1,0 +1,70 @@
+# @format
+# ArgoCD Application: AWS Cloud Controller Manager
+#
+# Deploys the AWS Cloud Controller Manager (CCM) as a DaemonSet on
+# control-plane nodes. The CCM's Node Lifecycle Controller automatically
+# detects terminated EC2 instances and removes their stale K8s node
+# objects — eliminating the need for manual node cleanup.
+#
+# Prerequisites (handled in CDK):
+#   - All EC2 instances tagged with kubernetes.io/cluster/<id>=owned
+#   - Kubelet started with --cloud-provider=external
+#   - Control-plane instance role has ec2:Describe* permissions
+#
+# Sync Wave: 2 (after core system components, before workloads)
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-cloud-controller-manager
+  annotations:
+    kubernetes.io/description: >-
+      AWS Cloud Controller Manager — Node Lifecycle Controller for automatic
+      stale node cleanup when EC2 instances are terminated.
+    argocd.argoproj.io/sync-wave: "2"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://kubernetes.github.io/cloud-provider-aws
+    chart: aws-cloud-controller-manager
+    targetRevision: "0.*"
+    helm:
+      values: |
+        args:
+          - --v=2
+          - --cloud-provider=aws
+          - --configure-cloud-routes=false
+        nodeSelector:
+          node-role.kubernetes.io/control-plane: ""
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            effect: NoSchedule
+          - key: node.cloudprovider.kubernetes.io/uninitialized
+            value: "true"
+            effect: NoSchedule
+        hostNetworking: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
