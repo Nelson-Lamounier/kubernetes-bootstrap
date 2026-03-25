@@ -29,8 +29,14 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
+from botocore.exceptions import ClientError
+
+if TYPE_CHECKING:
+    from mypy_boto3_ssm import SSMClient
 
 # ---------------------------------------------------------------------------
 # Config
@@ -45,10 +51,10 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def get_ssm_client():
+def get_ssm_client() -> SSMClient:
     """Create a boto3 SSM client."""
-    import boto3
-    return boto3.client("ssm", region_name=AWS_REGION)
+    import boto3  # noqa: runtime-only import
+    return boto3.client("ssm", region_name=AWS_REGION)  # type: ignore[return-value]
 
 
 def ssm_param_path(secret_name: str) -> str:
@@ -134,8 +140,8 @@ def backup_cert(secret_name: str, namespace: str, dry_run: bool = False) -> bool
         )
         log(f"  ✓ Stored in SSM: {param_path}")
         return True
-    except Exception as e:
-        log(f"  ⚠ Failed to store in SSM: {e}")
+    except ClientError as e:
+        log(f"  ⚠ Failed to store in SSM: {e.response['Error']['Message']}")
         return False
 
 
@@ -185,12 +191,13 @@ def restore_cert(secret_name: str, namespace: str, dry_run: bool = False) -> boo
         ssm = get_ssm_client()
         resp = ssm.get_parameter(Name=param_path, WithDecryption=True)
         payload = json.loads(resp["Parameter"]["Value"])
-    except Exception as e:
-        if "ParameterNotFound" in str(type(e).__name__) or "ParameterNotFound" in str(e):
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        if error_code == "ParameterNotFound":
             log(f"  ⚠ SSM parameter {param_path} not found — no backup available")
             log("    cert-manager will request a new certificate")
         else:
-            log(f"  ⚠ Failed to read SSM: {e}")
+            log(f"  ⚠ Failed to read SSM: {e.response['Error']['Message']}")
         return False
 
     # Handle both old format ({"tls.crt": ..., "tls.key": ...}) and
@@ -205,12 +212,19 @@ def restore_cert(secret_name: str, namespace: str, dry_run: bool = False) -> boo
 
     log(f"  ✓ SSM parameter read (type={secret_type}, fields={list(secret_data.keys())})")
 
-    # 3. Ensure namespace exists
-    subprocess.run(
+    # 3. Ensure namespace exists (create if missing, no-op if present)
+    ns_yaml = subprocess.run(
         ["kubectl", "create", "namespace", namespace, "--dry-run=client", "-o", "yaml"],
         env={**os.environ, "KUBECONFIG": KUBECONFIG},
         capture_output=True, text=True,
     )
+    if ns_yaml.returncode == 0:
+        subprocess.run(
+            ["kubectl", "apply", "-f", "-"],
+            input=ns_yaml.stdout,
+            env={**os.environ, "KUBECONFIG": KUBECONFIG},
+            capture_output=True, text=True,
+        )
 
     # 4. Create the K8s Secret
     if secret_type == "kubernetes.io/tls":
@@ -237,19 +251,30 @@ def _restore_tls_secret(
         log(f"  ⚠ Failed to decode base64 cert data: {e}")
         return False
 
+    return _create_tls_secret_from_pem(secret_name, namespace, cert_pem, key_pem)
+
+
+def _create_tls_secret_from_pem(
+    secret_name: str, namespace: str, cert_pem: str, key_pem: str,
+) -> bool:
+    """Write PEM data to temp files and create a TLS Secret via kubectl."""
     # Write temp files for kubectl create secret tls
-    cert_file = Path("/tmp/tls-restore-cert.pem")
-    key_file = Path("/tmp/tls-restore-key.pem")
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".pem", prefix="tls-cert-", delete=False,
+    ) as cf, tempfile.NamedTemporaryFile(
+        mode="w", suffix=".pem", prefix="tls-key-", delete=False,
+    ) as kf:
+        cert_path = Path(cf.name)
+        key_path = Path(kf.name)
+        cf.write(cert_pem)
+        kf.write(key_pem)
 
     try:
-        cert_file.write_text(cert_pem)
-        key_file.write_text(key_pem)
-
         result = subprocess.run(
             ["kubectl", "create", "secret", "tls", secret_name,
              "-n", namespace,
-             f"--cert={cert_file}",
-             f"--key={key_file}"],
+             f"--cert={cert_path}",
+             f"--key={key_path}"],
             env={**os.environ, "KUBECONFIG": KUBECONFIG},
             capture_output=True, text=True,
         )
@@ -261,8 +286,8 @@ def _restore_tls_secret(
             log(f"  ⚠ Failed to create TLS Secret: {result.stderr.strip()}")
             return False
     finally:
-        cert_file.unlink(missing_ok=True)
-        key_file.unlink(missing_ok=True)
+        cert_path.unlink(missing_ok=True)
+        key_path.unlink(missing_ok=True)
 
 
 def _restore_opaque_secret(
@@ -279,10 +304,14 @@ def _restore_opaque_secret(
     temp_files: list[Path] = []
     try:
         for key, b64_value in secret_data.items():
-            decoded = base64.b64decode(b64_value)
+            decoded: bytes = base64.b64decode(b64_value)
             # Write to a temp file (values may contain binary data)
-            tmp = Path(f"/tmp/secret-restore-{key.replace('.', '-')}")
-            tmp.write_bytes(decoded)
+            tmp_fd = tempfile.NamedTemporaryFile(
+                prefix=f"secret-{key.replace('.', '-')}-", delete=False,
+            )
+            tmp = Path(tmp_fd.name)
+            tmp_fd.write(decoded)
+            tmp_fd.close()
             temp_files.append(tmp)
             cmd.append(f"--from-file={key}={tmp}")
 
