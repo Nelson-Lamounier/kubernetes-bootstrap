@@ -173,3 +173,80 @@ class TestResolveNextjsSecrets:
         assert secrets["DYNAMODB_TABLE_NAME"] == "original-table"
         # When bedrock fallback fails, original value preserved
         assert secrets["ASSETS_BUCKET_NAME"] == "original-bucket"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Bedrock Agent resolution
+# ---------------------------------------------------------------------------
+
+
+class TestBedrockAgentResolution:
+    """Verify Bedrock Agent API URL and API key SSM resolution."""
+
+    def test_bedrock_agent_api_url_and_key_resolved(self) -> None:
+        """Both agent params resolve from /bedrock-dev/ prefix."""
+        from deploy import NextjsConfig, resolve_nextjs_secrets
+
+        cfg = NextjsConfig(ssm_prefix="/k8s/development")
+        mock_ssm = MagicMock()
+
+        def get_parameter_side_effect(**kwargs: str) -> dict:
+            name = kwargs["Name"]
+            if name == "/bedrock-dev/api-url":
+                return {"Parameter": {"Value": "https://api.example.com/v1/"}}
+            if name == "/bedrock-dev/agent-api-key":
+                return {"Parameter": {"Value": "sk-secret-key-123"}}
+            if name == "/bedrock-dev/content-table-name":
+                return {"Parameter": {"Value": "content-table"}}
+            if name == "/bedrock-dev/assets-bucket-name":
+                return {"Parameter": {"Value": "assets-bucket"}}
+            raise MockClientError("ParameterNotFound")
+
+        mock_ssm.get_parameter.side_effect = get_parameter_side_effect
+
+        secrets = resolve_nextjs_secrets(cfg, mock_ssm, MockClientError)
+
+        assert secrets["BEDROCK_AGENT_API_URL"] == "https://api.example.com/v1/"
+        assert secrets["BEDROCK_AGENT_API_KEY"] == "sk-secret-key-123"
+
+    def test_bedrock_agent_params_missing_gracefully(self) -> None:
+        """Missing agent params do not crash — keys simply omitted."""
+        from deploy import NextjsConfig, resolve_nextjs_secrets
+
+        cfg = NextjsConfig(ssm_prefix="/k8s/development")
+        mock_ssm = MagicMock()
+
+        # All calls raise ParameterNotFound
+        mock_ssm.get_parameter.side_effect = MockClientError("ParameterNotFound")
+
+        secrets = resolve_nextjs_secrets(cfg, mock_ssm, MockClientError)
+
+        assert "BEDROCK_AGENT_API_URL" not in secrets
+        assert "BEDROCK_AGENT_API_KEY" not in secrets
+
+    def test_bedrock_agent_production_prefix(self) -> None:
+        """Production environment uses /bedrock-prd/ prefix."""
+        from deploy import NextjsConfig, resolve_nextjs_secrets
+
+        cfg = NextjsConfig(ssm_prefix="/k8s/production")
+        mock_ssm = MagicMock()
+
+        def get_parameter_side_effect(**kwargs: str) -> dict:
+            name = kwargs["Name"]
+            if name == "/bedrock-prd/api-url":
+                return {"Parameter": {"Value": "https://prod-api.example.com/"}}
+            if name == "/bedrock-prd/agent-api-key":
+                return {"Parameter": {"Value": "sk-prod-key"}}
+            if name == "/bedrock-prd/content-table-name":
+                return {"Parameter": {"Value": "prod-table"}}
+            if name == "/bedrock-prd/assets-bucket-name":
+                return {"Parameter": {"Value": "prod-bucket"}}
+            raise MockClientError("ParameterNotFound")
+
+        mock_ssm.get_parameter.side_effect = get_parameter_side_effect
+
+        secrets = resolve_nextjs_secrets(cfg, mock_ssm, MockClientError)
+
+        assert secrets["BEDROCK_AGENT_API_URL"] == "https://prod-api.example.com/"
+        assert secrets["BEDROCK_AGENT_API_KEY"] == "sk-prod-key"
+
