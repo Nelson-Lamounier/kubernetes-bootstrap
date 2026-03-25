@@ -50,6 +50,20 @@ addopts = "-v --tb=short"
 # ---------------------------------------------------------------------------
 # Ruff — linting + formatting (replaces flake8, isort, black)
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Pyright — IDE type checking (Pylance)
+# ---------------------------------------------------------------------------
+[tool.pyright]
+pythonVersion = "3.9"
+extraPaths = [
+    ".",
+    "system/argocd",
+    "system/cert-manager",
+    "boot",
+    "boot/steps",
+]
+typeCheckingMode = "basic"
+
 [tool.ruff]
 target-version = "py39"
 line-length = 100
