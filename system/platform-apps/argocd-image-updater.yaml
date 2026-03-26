@@ -48,7 +48,10 @@ spec:
               prefix: 771826808455.dkr.ecr.eu-west-1.amazonaws.com
               default: true
               credentials: pullsecret:argocd/ecr-credentials
-              credsexpire: 10h
+              # ECR tokens last 12h, CronJob refreshes every 6h.
+              # Cache must expire BEFORE the next CronJob run so the
+              # Image Updater always picks up a fresh token.
+              credsexpire: 4h
 
         # --- Image Updater log level ---
         log:
