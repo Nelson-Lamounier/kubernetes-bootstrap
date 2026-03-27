@@ -104,6 +104,18 @@ def step_configure_kubectl(cfg: BootConfig) -> None:
                     f.write(BASHRC_KUBECONFIG)
         log_info("  ✓ Global KUBECONFIG configured (profile.d + bashrc)")
 
+        # Install Argo Rollouts CLI plugin
+        argo_cli_path = Path("/usr/local/bin/kubectl-argo-rollouts")
+        if not argo_cli_path.exists():
+            log_info("Installing kubectl argo rollouts CLI plugin...")
+            run_cmd([
+                "curl", "-sLO",
+                "https://github.com/argoproj/argo-rollouts/releases/latest/download/kubectl-argo-rollouts-linux-amd64"
+            ])
+            run_cmd(["mv", "kubectl-argo-rollouts-linux-amd64", str(argo_cli_path)])
+            run_cmd(["chmod", "+x", str(argo_cli_path)])
+            log_info("  ✓ kubectl argo rollouts installed")
+
         os.environ["KUBECONFIG"] = ADMIN_CONF
         run_cmd(["kubectl", "cluster-info"], check=False)
         run_cmd(["kubectl", "get", "namespaces"], check=False)
