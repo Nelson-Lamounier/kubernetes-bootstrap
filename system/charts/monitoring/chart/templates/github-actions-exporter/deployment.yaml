@@ -16,6 +16,10 @@ spec:
         {{- include "monitoring.fullLabels" "github-actions-exporter" | nindent 8 }}
     spec:
       nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: github-actions-exporter
           image: {{ .Values.githubActionsExporter.image }}

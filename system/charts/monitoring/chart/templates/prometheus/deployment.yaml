@@ -24,6 +24,10 @@ spec:
         runAsUser: 65534
         runAsNonRoot: true
       nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8}}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: prometheus
           image: {{.Values.prometheus.image}}

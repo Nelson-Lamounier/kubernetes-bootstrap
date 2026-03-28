@@ -23,6 +23,10 @@ spec:
         runAsUser: 10001
         runAsNonRoot: true
       nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8}}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: loki
           image: {{.Values.loki.image}}

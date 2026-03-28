@@ -23,6 +23,10 @@ spec:
         runAsUser: 472
         runAsNonRoot: true
       nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8}}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: grafana
           image: {{.Values.grafana.image}}
