@@ -18,11 +18,11 @@ prometheus:
 grafana:
   resources:
     requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 128m
+      cpu: 100m
       memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 384Mi
   pvc:
     size: 2Gi
   ingress:
@@ -31,11 +31,11 @@ grafana:
 loki:
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
       cpu: 128m
       memory: 256Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
   pvc:
     size: 5Gi
 
@@ -52,10 +52,10 @@ tempo:
 
 resourceQuota:
   hard:
-    requests.cpu: "1500m"
+    requests.cpu: "2000m"
     requests.memory: 2Gi
     limits.cpu: "3"
-    limits.memory: 4Gi
+    limits.memory: 5Gi
     persistentvolumeclaims: "6"
 
 # Node Exporter — use port 9101 to avoid conflict with Traefik metrics (9100)
