@@ -986,7 +986,8 @@
           },
           "expr": "sum by (kind) (count_over_time({job=\"faro\"} | json | page_url=~\"$page\" [1h]))",
           "legendFormat": "{{kind}}",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "instant"
         }
       ],
       "title": "Telemetry Type Distribution (1h)",

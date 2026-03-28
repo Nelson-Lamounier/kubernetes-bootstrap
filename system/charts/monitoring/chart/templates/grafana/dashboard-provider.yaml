@@ -15,6 +15,7 @@ data:
         disableDeletion: false
         editable: true
         updateIntervalSeconds: 60
+        allowUiUpdates: true
         options:
           path: /var/lib/grafana/dashboards
           foldersFromFilesStructure: false
