@@ -24,8 +24,20 @@ data:
       }
 
       output {
-        logs   = [loki.write.default.receiver]
+        logs   = [loki.process.faro.receiver]
         traces = [otelcol.exporter.otlp.tempo.input]
+      }
+    }
+
+    // --- Relabel Faro Logs ---
+    // Inject the job="faro" static label required by the RUM dashboard queries
+    loki.process "faro" {
+      forward_to = [loki.write.default.receiver]
+      
+      stage.static_labels {
+        values = {
+          job = "faro",
+        }
       }
     }
 
