@@ -75,7 +75,7 @@
       "options": {
         "legend": {
           "calcs": [
-            "rate"
+            "mean"
           ],
           "displayMode": "table",
           "placement": "bottom"
@@ -736,7 +736,7 @@
       "options": {
         "legend": {
           "calcs": [
-            "rate"
+            "mean"
           ],
           "displayMode": "table",
           "placement": "bottom"
