@@ -200,6 +200,8 @@ class TestBedrockAgentResolution:
                 return {"Parameter": {"Value": "content-table"}}
             if name == "/bedrock-dev/assets-bucket-name":
                 return {"Parameter": {"Value": "assets-bucket"}}
+            if name == "/bedrock-dev/pipeline-publish-function-arn":
+                return {"Parameter": {"Value": "arn:aws:lambda:eu-west-1:123456789:function:publish"}}
             raise MockClientError("ParameterNotFound")
 
         mock_ssm.get_parameter.side_effect = get_parameter_side_effect
@@ -208,6 +210,7 @@ class TestBedrockAgentResolution:
 
         assert secrets["BEDROCK_AGENT_API_URL"] == "https://api.example.com/v1/"
         assert secrets["BEDROCK_AGENT_API_KEY"] == "sk-secret-key-123"
+        assert secrets["PUBLISH_LAMBDA_ARN"] == "arn:aws:lambda:eu-west-1:123456789:function:publish"
 
     def test_bedrock_agent_params_missing_gracefully(self) -> None:
         """Missing agent params do not crash — keys simply omitted."""
@@ -223,6 +226,7 @@ class TestBedrockAgentResolution:
 
         assert "BEDROCK_AGENT_API_URL" not in secrets
         assert "BEDROCK_AGENT_API_KEY" not in secrets
+        assert "PUBLISH_LAMBDA_ARN" not in secrets
 
     def test_bedrock_agent_production_prefix(self) -> None:
         """Production environment uses /bedrock-prd/ prefix."""
@@ -241,6 +245,8 @@ class TestBedrockAgentResolution:
                 return {"Parameter": {"Value": "prod-table"}}
             if name == "/bedrock-prd/assets-bucket-name":
                 return {"Parameter": {"Value": "prod-bucket"}}
+            if name == "/bedrock-prd/pipeline-publish-function-arn":
+                return {"Parameter": {"Value": "arn:aws:lambda:eu-west-1:123456789:function:prd-publish"}}
             raise MockClientError("ParameterNotFound")
 
         mock_ssm.get_parameter.side_effect = get_parameter_side_effect
@@ -249,4 +255,5 @@ class TestBedrockAgentResolution:
 
         assert secrets["BEDROCK_AGENT_API_URL"] == "https://prod-api.example.com/"
         assert secrets["BEDROCK_AGENT_API_KEY"] == "sk-prod-key"
+        assert secrets["PUBLISH_LAMBDA_ARN"] == "arn:aws:lambda:eu-west-1:123456789:function:prd-publish"
 
