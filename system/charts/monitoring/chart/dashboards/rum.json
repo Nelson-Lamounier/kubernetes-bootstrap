@@ -68,14 +68,14 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 8,
         "w": 6,
         "x": 0,
         "y": 1
       },
       "id": 1,
       "options": {
-        "minVizHeight": 75,
+        "minVizHeight": 150,
         "minVizWidth": 75,
         "orientation": "auto",
         "reduceOptions": {
@@ -85,9 +85,13 @@
           "fields": "",
           "values": false
         },
-        "showThresholdLabels": true,
+        "showThresholdLabels": false,
         "showThresholdMarkers": true,
-        "sizing": "auto"
+        "sizing": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 36
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
@@ -140,14 +144,14 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 8,
         "w": 6,
         "x": 6,
         "y": 1
       },
       "id": 2,
       "options": {
-        "minVizHeight": 75,
+        "minVizHeight": 150,
         "minVizWidth": 75,
         "orientation": "auto",
         "reduceOptions": {
@@ -157,9 +161,13 @@
           "fields": "",
           "values": false
         },
-        "showThresholdLabels": true,
+        "showThresholdLabels": false,
         "showThresholdMarkers": true,
-        "sizing": "auto"
+        "sizing": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 36
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
@@ -213,14 +221,14 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 8,
         "w": 6,
         "x": 12,
         "y": 1
       },
       "id": 3,
       "options": {
-        "minVizHeight": 75,
+        "minVizHeight": 150,
         "minVizWidth": 75,
         "orientation": "auto",
         "reduceOptions": {
@@ -230,9 +238,13 @@
           "fields": "",
           "values": false
         },
-        "showThresholdLabels": true,
+        "showThresholdLabels": false,
         "showThresholdMarkers": true,
-        "sizing": "auto"
+        "sizing": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 36
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
@@ -285,14 +297,14 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 8,
         "w": 6,
         "x": 18,
         "y": 1
       },
       "id": 4,
       "options": {
-        "minVizHeight": 75,
+        "minVizHeight": 150,
         "minVizWidth": 75,
         "orientation": "auto",
         "reduceOptions": {
@@ -302,9 +314,13 @@
           "fields": "",
           "values": false
         },
-        "showThresholdLabels": true,
+        "showThresholdLabels": false,
         "showThresholdMarkers": true,
-        "sizing": "auto"
+        "sizing": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 36
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
@@ -357,14 +373,14 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
+        "h": 8,
         "w": 6,
         "x": 0,
-        "y": 7
+        "y": 9
       },
       "id": 13,
       "options": {
-        "minVizHeight": 75,
+        "minVizHeight": 150,
         "minVizWidth": 75,
         "orientation": "auto",
         "reduceOptions": {
@@ -374,9 +390,13 @@
           "fields": "",
           "values": false
         },
-        "showThresholdLabels": true,
+        "showThresholdLabels": false,
         "showThresholdMarkers": true,
-        "sizing": "auto"
+        "sizing": "auto",
+        "text": {
+          "titleSize": 14,
+          "valueSize": 36
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
@@ -400,7 +420,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 17
       },
       "id": 200,
       "title": "JavaScript Errors",
@@ -442,7 +462,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 8
+        "y": 18
       },
       "id": 5,
       "options": {
@@ -512,7 +532,7 @@
         "h": 5,
         "w": 18,
         "x": 6,
-        "y": 8
+        "y": 18
       },
       "id": 6,
       "options": {
@@ -556,7 +576,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 23
       },
       "id": 7,
       "options": {
@@ -586,7 +606,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 31
       },
       "id": 300,
       "title": "Faro Collector Health",
@@ -637,7 +657,7 @@
         "h": 5,
         "w": 4,
         "x": 0,
-        "y": 22
+        "y": 32
       },
       "id": 8,
       "options": {
@@ -699,7 +719,7 @@
         "h": 5,
         "w": 4,
         "x": 4,
-        "y": 22
+        "y": 32
       },
       "id": 9,
       "options": {
@@ -770,7 +790,7 @@
         "h": 5,
         "w": 16,
         "x": 8,
-        "y": 22
+        "y": 32
       },
       "id": 10,
       "options": {
@@ -847,7 +867,7 @@
         "h": 7,
         "w": 12,
         "x": 0,
-        "y": 27
+        "y": 37
       },
       "id": 11,
       "options": {
@@ -948,7 +968,7 @@
         "h": 7,
         "w": 12,
         "x": 12,
-        "y": 27
+        "y": 37
       },
       "id": 12,
       "options": {
