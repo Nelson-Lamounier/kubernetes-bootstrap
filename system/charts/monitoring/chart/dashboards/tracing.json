@@ -632,7 +632,7 @@
       "targets": [
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": {},
+          "dimensions": { "TableName": ["$dynamodb_table"] },
           "expression": "",
           "matchExact": false,
           "metricEditorMode": 0,
@@ -645,7 +645,7 @@
         },
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": {},
+          "dimensions": { "TableName": ["$dynamodb_table"] },
           "expression": "",
           "matchExact": false,
           "metricEditorMode": 0,
@@ -697,7 +697,7 @@
       "targets": [
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": {},
+          "dimensions": { "TableName": ["$dynamodb_table"] },
           "expression": "",
           "matchExact": false,
           "metricEditorMode": 0,
@@ -729,6 +729,31 @@
         "name": "service",
         "options": [],
         "query": { "qryType": 1, "query": "label_values(traces_spanmetrics_calls_total, service_name)" },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": { "selected": false, "text": "All", "value": "$__all" },
+        "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+        "definition": "",
+        "hide": 0,
+        "includeAll": true,
+        "label": "DynamoDB Table",
+        "multi": true,
+        "name": "dynamodb_table",
+        "options": [],
+        "query": {
+          "dimensionFilters": {},
+          "dimensionKey": "TableName",
+          "metricName": "ConsumedReadCapacityUnits",
+          "namespace": "AWS/DynamoDB",
+          "queryType": "dimensionValues",
+          "refId": "DynamoDBTableVariable",
+          "region": "default"
+        },
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
