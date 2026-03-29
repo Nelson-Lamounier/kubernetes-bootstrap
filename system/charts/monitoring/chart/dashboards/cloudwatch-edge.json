@@ -12,6 +12,7 @@
       }
     ]
   },
+  "description": "CloudWatch Logs from us-east-1 edge Lambda functions (ACM certificates, DNS aliases, monitoring DNS).",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -22,11 +23,12 @@
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
       "id": 100,
-      "title": "ACM & DNS Lambda Logs (us-east-1)",
+      "title": "NextJS Edge Lambda Logs (us-east-1)",
       "type": "row"
     },
     {
       "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "description": "ACM certificate DNS validation Lambda — fires during certificate creation and renewal to create Route 53 validation records.",
       "fieldConfig": {
         "defaults": {},
         "overrides": []
@@ -63,6 +65,7 @@
     },
     {
       "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "description": "DNS alias provider Lambda — manages Route 53 alias records pointing to CloudFront distributions.",
       "fieldConfig": {
         "defaults": {},
         "overrides": []
@@ -99,6 +102,7 @@
     },
     {
       "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "description": "Certificate provider Lambda — manages the ACM certificate lifecycle for the NextJS CloudFront distribution.",
       "fieldConfig": {
         "defaults": {},
         "overrides": []
@@ -137,11 +141,12 @@
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
       "id": 200,
-      "title": "Monitoring Edge Lambda Logs (us-east-1)",
+      "title": "K8s Monitoring Edge Lambda Logs (us-east-1)",
       "type": "row"
     },
     {
       "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "description": "K8s certificate provider Lambda — manages ACM certificates for the Kubernetes monitoring stack's CloudFront distribution (Grafana/Prometheus external access).",
       "fieldConfig": {
         "defaults": {},
         "overrides": []
@@ -178,6 +183,7 @@
     },
     {
       "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "description": "Monitoring DNS alias Lambda — manages Route 53 alias records for the Kubernetes monitoring stack's CloudFront distribution.",
       "fieldConfig": {
         "defaults": {},
         "overrides": []
@@ -211,6 +217,63 @@
       ],
       "title": "Monitoring DNS Alias Lambda",
       "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 },
+      "id": 300,
+      "title": "Error Summary",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "description": "Aggregated error count across all edge Lambda functions over time — useful for spotting certificate renewal failures or DNS propagation issues.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "scheme",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 27 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+          "expression": "filter @message like /(?i)error|fail|exception/\n| stats count(*) as errorCount by bin(1h)",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/nextjs-acm-dns-validation-development", "name": "/aws/lambda/nextjs-acm-dns-validation-development", "accountId": "771826808455" },
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/nextjs-dns-alias-provider-development", "name": "/aws/lambda/nextjs-dns-alias-provider-development", "accountId": "771826808455" },
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/nextjs-cert-provider-development", "name": "/aws/lambda/nextjs-cert-provider-development", "accountId": "771826808455" },
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/k8s-development-cert-provider-development", "name": "/aws/lambda/k8s-development-cert-provider-development", "accountId": "771826808455" },
+            { "arn": "arn:aws:logs:us-east-1:771826808455:log-group:/aws/lambda/k8s-development-monitoring-dns-alias-development", "name": "/aws/lambda/k8s-development-monitoring-dns-alias-development", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "us-east-1",
+          "statsGroups": ["bin(1h)"]
+        }
+      ],
+      "title": "Edge Lambda Errors Over Time",
+      "type": "timeseries"
     }
   ],
   "refresh": "",
@@ -222,5 +285,5 @@
   "timezone": "browser",
   "title": "AWS Logs — Edge (us-east-1)",
   "uid": "aws-logs-edge",
-  "version": 1
+  "version": 2
 }
