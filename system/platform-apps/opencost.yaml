@@ -49,7 +49,10 @@ spec:
             extraEnv:
               # Self-hosted K8s: use custom pricing via AWS Price List
               CLOUD_PROVIDER_API_KEY: ""
-              CLUSTER_ID: "k8s-dev"
+              # CLUSTER_ID is intentionally omitted here — it is auto-injected
+              # by the Helm chart from opencost.exporter.defaultClusterId above.
+              # Defining it in both places causes a duplicate env key error
+              # that Server-Side Apply rejects (see: ArgoCD sync failure 2026-03-25).
               EMIT_KSM_V1_METRICS: "false"
               EMIT_KSM_V1_METRICS_ONLY: "false"
 
