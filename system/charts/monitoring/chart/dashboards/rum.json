@@ -90,7 +90,7 @@
         "sizing": "auto",
         "text": {
           "titleSize": 14,
-          "valueSize": 36
+          "valueSize": 24
         }
       },
       "pluginVersion": "11.6.0",
@@ -166,7 +166,7 @@
         "sizing": "auto",
         "text": {
           "titleSize": 14,
-          "valueSize": 36
+          "valueSize": 24
         }
       },
       "pluginVersion": "11.6.0",
@@ -243,7 +243,7 @@
         "sizing": "auto",
         "text": {
           "titleSize": 14,
-          "valueSize": 36
+          "valueSize": 24
         }
       },
       "pluginVersion": "11.6.0",
@@ -319,7 +319,7 @@
         "sizing": "auto",
         "text": {
           "titleSize": 14,
-          "valueSize": 36
+          "valueSize": 24
         }
       },
       "pluginVersion": "11.6.0",
@@ -395,7 +395,7 @@
         "sizing": "auto",
         "text": {
           "titleSize": 14,
-          "valueSize": 36
+          "valueSize": 24
         }
       },
       "pluginVersion": "11.6.0",
