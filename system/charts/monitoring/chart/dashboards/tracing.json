@@ -754,8 +754,8 @@
             "uid": "prometheus"
           },
           "exemplar": true,
-          "expr": "sum by (http_route) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\"}[5m]))",
-          "legendFormat": "{{http_route}}",
+          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\", span_name=~\"GET.*|POST.*|PUT.*|DELETE.*|PATCH.*\"}[5m]))",
+          "legendFormat": "{{span_name}}",
           "refId": "A"
         }
       ],
@@ -823,8 +823,8 @@
             "uid": "prometheus"
           },
           "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\"}[5m])))",
-          "legendFormat": "p95 {{http_route}}",
+          "expr": "histogram_quantile(0.95, sum by (le, span_name) (rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\", span_name=~\"GET.*|POST.*|PUT.*|DELETE.*|PATCH.*\"}[5m])))",
+          "legendFormat": "p95 {{span_name}}",
           "refId": "A"
         }
       ],
@@ -888,7 +888,7 @@
             "uid": "prometheus"
           },
           "exemplar": true,
-          "expr": "sum by (http_status_code) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\"}[5m]))",
+          "expr": "sum by (http_status_code) (rate(traces_spanmetrics_calls_total{service_name=~\"$service\", http_status_code!=\"\"}[5m]))",
           "legendFormat": "{{http_status_code}}",
           "refId": "A"
         }
