@@ -96,7 +96,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "avg_over_time({job=\"faro\"} | json | kind=\"measurement\" | measurement_type=\"web-vitals\" | measurement_name=\"LCP\" | page_url=~\"$page\" | unwrap measurement_value [5m])",
+          "expr": "avg_over_time({job=\"faro\"} | logfmt | kind=\"measurement\" | type=\"web-vitals\" | page_url=~\"$page\" | lcp!=\"\" | unwrap lcp [5m])",
           "legendFormat": "LCP",
           "refId": "A"
         }
@@ -168,7 +168,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "avg_over_time({job=\"faro\"} | json | kind=\"measurement\" | measurement_type=\"web-vitals\" | measurement_name=\"INP\" | page_url=~\"$page\" | unwrap measurement_value [5m])",
+          "expr": "avg_over_time({job=\"faro\"} | logfmt | kind=\"measurement\" | type=\"web-vitals\" | page_url=~\"$page\" | inp!=\"\" | unwrap inp [5m])",
           "legendFormat": "INP",
           "refId": "A"
         }
@@ -241,7 +241,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "avg_over_time({job=\"faro\"} | json | kind=\"measurement\" | measurement_type=\"web-vitals\" | measurement_name=\"CLS\" | page_url=~\"$page\" | unwrap measurement_value [5m])",
+          "expr": "avg_over_time({job=\"faro\"} | logfmt | kind=\"measurement\" | type=\"web-vitals\" | page_url=~\"$page\" | cls!=\"\" | unwrap cls [5m])",
           "legendFormat": "CLS",
           "refId": "A"
         }
@@ -313,7 +313,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "avg_over_time({job=\"faro\"} | json | kind=\"measurement\" | measurement_type=\"web-vitals\" | measurement_name=\"TTFB\" | page_url=~\"$page\" | unwrap measurement_value [5m])",
+          "expr": "avg_over_time({job=\"faro\"} | logfmt | kind=\"measurement\" | type=\"web-vitals\" | page_url=~\"$page\" | time_to_first_byte!=\"\" | unwrap time_to_first_byte [5m])",
           "legendFormat": "TTFB",
           "refId": "A"
         }
@@ -385,7 +385,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "avg_over_time({job=\"faro\"} | json | kind=\"measurement\" | measurement_type=\"web-vitals\" | measurement_name=\"FCP\" | page_url=~\"$page\" | unwrap measurement_value [5m])",
+          "expr": "avg_over_time({job=\"faro\"} | logfmt | kind=\"measurement\" | type=\"web-vitals\" | page_url=~\"$page\" | fcp!=\"\" | unwrap fcp [5m])",
           "legendFormat": "FCP",
           "refId": "A"
         }
@@ -468,7 +468,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "count_over_time({job=\"faro\"} | json | kind=\"exception\" | page_url=~\"$page\" [1h])",
+          "expr": "count_over_time({job=\"faro\"} | logfmt | kind=\"exception\" | page_url=~\"$page\" [1h])",
           "legendFormat": "Errors",
           "refId": "A"
         }
@@ -535,7 +535,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "count_over_time({job=\"faro\"} | json | kind=\"exception\" | page_url=~\"$page\" [5m])",
+          "expr": "count_over_time({job=\"faro\"} | logfmt | kind=\"exception\" | page_url=~\"$page\" [5m])",
           "legendFormat": "Errors",
           "refId": "A"
         }
@@ -572,7 +572,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{job=\"faro\"} | json | kind=\"exception\" | page_url=~\"$page\"",
+          "expr": "{job=\"faro\"} | logfmt | kind=\"exception\" | page_url=~\"$page\"",
           "refId": "A"
         }
       ],
@@ -794,8 +794,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(faro_receiver_accepted_total{job=\"alloy\"}[5m])",
-          "legendFormat": "Accepted /s",
+          "expr": "rate(faro_receiver_events_total{job=\"alloy\"}[5m])",
+          "legendFormat": "Events /s",
           "refId": "A"
         },
         {
@@ -803,8 +803,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(faro_receiver_dropped_total{job=\"alloy\"}[5m])",
-          "legendFormat": "Dropped /s",
+          "expr": "rate(faro_receiver_measurements_total{job=\"alloy\"}[5m])",
+          "legendFormat": "Measurements /s",
           "refId": "B"
         }
       ],
@@ -875,7 +875,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (exception_type) (count_over_time({job=\"faro\"} | json | kind=\"exception\" | page_url=~\"$page\" [1h]))",
+          "expr": "sum by (exception_type) (count_over_time({job=\"faro\"} | logfmt | kind=\"exception\" | page_url=~\"$page\" [1h]))",
           "legendFormat": "{{exception_type}}",
           "refId": "A"
         }
@@ -984,7 +984,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (kind) (count_over_time({job=\"faro\"} | json | page_url=~\"$page\" [1h]))",
+          "expr": "sum by (kind) (count_over_time({job=\"faro\"} | logfmt | page_url=~\"$page\" [1h]))",
           "legendFormat": "{{kind}}",
           "refId": "A",
           "queryType": "instant"
