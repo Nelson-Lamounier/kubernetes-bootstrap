@@ -125,3 +125,10 @@ data:
         metrics_path: /metrics
         static_configs:
           - targets: ["alloy.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.alloy.service.httpPort }}"]
+
+      - job_name: opencost
+        honor_labels: true
+        scrape_interval: 30s
+        metrics_path: /metrics
+        static_configs:
+          - targets: ["opencost.{{ .Values.namespace }}.svc.cluster.local:9003"]
