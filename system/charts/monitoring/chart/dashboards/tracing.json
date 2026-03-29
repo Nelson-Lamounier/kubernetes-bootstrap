@@ -654,27 +654,9 @@
             "type": "tempo",
             "uid": "tempo"
           },
-          "queryType": "traceqlSearch",
-          "filters": [
-            {
-              "id": "service-name",
-              "tag": "service.name",
-              "operator": "=",
-              "value": [
-                "$service"
-              ],
-              "scope": "resource"
-            },
-            {
-              "id": "span-name",
-              "tag": "name",
-              "operator": "=",
-              "value": [
-                "ArticleService.getAllArticles"
-              ],
-              "scope": "span"
-            }
-          ],
+          "queryType": "traceql",
+          "query": "{ resource.service.name =~ \"$service\" && name = \"ArticleService.getAllArticles\" }",
+          "tableType": "traces",
           "limit": 20,
           "refId": "A"
         }
