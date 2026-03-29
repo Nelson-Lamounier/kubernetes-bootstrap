@@ -146,7 +146,7 @@
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
       "id": 3,
       "options": {
         "dedupStrategy": "none",
@@ -182,7 +182,7 @@
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
       "id": 4,
       "options": {
         "dedupStrategy": "none",
@@ -214,7 +214,7 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 26 },
       "id": 300,
       "title": "EC2 Instance Logs",
       "type": "row"
@@ -225,7 +225,7 @@
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
       "id": 5,
       "options": {
         "dedupStrategy": "none",
@@ -244,7 +244,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-development/instances", "name": "/ec2/k8s-development/instances", "accountId": "771826808455" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-dev/instances", "name": "/ec2/k8s-dev/instances", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -261,7 +261,7 @@
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
       "id": 6,
       "options": {
         "dedupStrategy": "none",
@@ -280,7 +280,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-development-worker/instances", "name": "/ec2/k8s-development-worker/instances", "accountId": "771826808455" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-dev-worker/instances", "name": "/ec2/k8s-dev-worker/instances", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -297,7 +297,7 @@
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 35 },
       "id": 7,
       "options": {
         "dedupStrategy": "none",
@@ -316,7 +316,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-development-mon-worker/instances", "name": "/ec2/k8s-development-mon-worker/instances", "accountId": "771826808455" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-dev-mon-worker/instances", "name": "/ec2/k8s-dev-mon-worker/instances", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -328,8 +328,44 @@
       "type": "logs"
     },
     {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 35 },
+      "id": 12,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/ec2/k8s-dev-argocd-worker/instances", "name": "/ec2/k8s-dev-argocd-worker/instances", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "ArgoCD Worker (cloud-init)",
+      "type": "logs"
+    },
+    {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 },
       "id": 400,
       "title": "VPC Flow Logs",
       "type": "row"
@@ -340,7 +376,7 @@
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 44 },
       "id": 8,
       "options": {
         "dedupStrategy": "none",
@@ -391,7 +427,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 36 },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 52 },
       "id": 9,
       "options": {
         "legend": { "calcs": [], "displayMode": "list", "placement": "bottom" },
@@ -401,7 +437,7 @@
       "targets": [
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "expression": "stats count(*) as rejectedCount by bin(5m)\n| filter action = 'REJECT'",
+          "expression": "filter action = 'REJECT'\n| stats count(*) as rejectedCount by bin(5m)",
           "id": "",
           "logGroups": [
             { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/vpc/shared/development/flow-logs", "name": "/vpc/shared/development/flow-logs", "accountId": "771826808455" }
@@ -414,6 +450,272 @@
       ],
       "title": "Rejected Traffic Over Time",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 59 },
+      "id": 500,
+      "title": "K8s Automation",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 60 },
+      "id": 13,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/k8s-dev-auto-bootstrap", "name": "/aws/lambda/k8s-dev-auto-bootstrap", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Auto Bootstrap Lambda",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 60 },
+      "id": 14,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/k8s-dev-bootstrap-router", "name": "/aws/lambda/k8s-dev-bootstrap-router", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Bootstrap Router Lambda",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 68 },
+      "id": 15,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/k8s-dev-ebs-detach-lifecycle", "name": "/aws/lambda/k8s-dev-ebs-detach-lifecycle", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "EBS Detach Lifecycle Lambda",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 68 },
+      "id": 16,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/vendedlogs/states/k8s-dev-bootstrap-orchestrator", "name": "/aws/vendedlogs/states/k8s-dev-bootstrap-orchestrator", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Bootstrap Orchestrator (Step Functions)",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 76 },
+      "id": 600,
+      "title": "Self-Healing",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 77 },
+      "id": 17,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-agent", "name": "/aws/lambda/self-healing-dev-agent", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Self-Healing Agent Lambda",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 85 },
+      "id": 18,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-tool-diagnose-alarm", "name": "/aws/lambda/self-healing-dev-tool-diagnose-alarm", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Self-Healing Tool — Diagnose Alarm",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 85 },
+      "id": 19,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-tool-ebs-detach", "name": "/aws/lambda/self-healing-dev-tool-ebs-detach", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Self-Healing Tool — EBS Detach",
+      "type": "logs"
     }
   ],
   "refresh": "",
