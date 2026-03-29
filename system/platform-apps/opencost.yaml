@@ -70,7 +70,9 @@ spec:
               enabled: false
             external:
               enabled: true
-              url: "http://prometheus.monitoring.svc.cluster.local:9090"
+              # Prometheus is configured with --web.external-url=/prometheus
+              # so its API lives at /prometheus/api/v1/..., not /api/v1/...
+              url: "http://prometheus.monitoring.svc.cluster.local:9090/prometheus"
 
           ui:
             enabled: false  # Use Grafana dashboards instead
