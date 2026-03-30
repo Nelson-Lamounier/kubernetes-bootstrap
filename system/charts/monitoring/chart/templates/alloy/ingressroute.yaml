@@ -17,6 +17,7 @@ spec:
           port: {{ .Values.alloy.service.faroPort }}
       middlewares:
         - name: faro-stripprefix
+        - name: faro-cors
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
@@ -28,4 +29,29 @@ spec:
   stripPrefix:
     prefixes:
       - /faro
+---
+# CORS middleware — required because Traefik handles browser preflight
+# OPTIONS requests before they reach Alloy's own cors_allowed_origins.
+# Without this, cross-origin Faro SDK requests from the main domain to
+# ops.{domain} are blocked by the browser.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: faro-cors
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+spec:
+  headers:
+    accessControlAllowOriginList:
+      {{- range .Values.alloy.ingress.corsAllowedOrigins }}
+      - {{ . | quote }}
+      {{- end }}
+    accessControlAllowMethods:
+      - "GET"
+      - "POST"
+      - "OPTIONS"
+    accessControlAllowHeaders:
+      - "Content-Type"
+      - "X-Faro-Session-Id"
+    accessControlMaxAge: 3600
 {{- end }}

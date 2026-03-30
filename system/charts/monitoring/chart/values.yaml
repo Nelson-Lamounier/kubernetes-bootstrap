@@ -201,6 +201,10 @@ alloy:
   ingress:
     enabled: true
     matchRule: "PathPrefix(`/faro`)"
+    corsAllowedOrigins:
+      - "https://nelsonlamounier.com"
+      - "https://www.nelsonlamounier.com"
+      - "http://localhost:3000"
 
 # ---------------------------------------------------------------------------
 # Resource Quota (namespace-level limits)

@@ -20,7 +20,7 @@ data:
         listen_address = "0.0.0.0"
         listen_port    = {{ .Values.alloy.service.faroPort }}
 
-        cors_allowed_origins = ["*"]
+        cors_allowed_origins = [{{ range $i, $origin := .Values.alloy.ingress.corsAllowedOrigins }}{{ if $i }}, {{ end }}{{ $origin | quote }}{{ end }}]
       }
 
       output {
