@@ -207,7 +207,7 @@
       "targets": [
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "FunctionName": ["bedrock-development-ai-publisher"] },
+          "dimensions": { "FunctionName": ["bedrock-dev-pipeline-publish"] },
           "metricName": "Duration",
           "namespace": "AWS/Lambda",
           "period": "300",
@@ -447,7 +447,7 @@
       "targets": [
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "FunctionName": ["bedrock-development-ai-publisher"] },
+          "dimensions": { "FunctionName": ["bedrock-dev-pipeline-publish"] },
           "metricName": "Invocations",
           "namespace": "AWS/Lambda",
           "period": "300",
@@ -457,7 +457,7 @@
         },
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "FunctionName": ["bedrock-development-ai-publisher"] },
+          "dimensions": { "FunctionName": ["bedrock-dev-pipeline-publish"] },
           "metricName": "Errors",
           "namespace": "AWS/Lambda",
           "period": "300",
@@ -496,7 +496,7 @@
       "targets": [
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "FunctionName": ["bedrock-development-ai-publisher"] },
+          "dimensions": { "FunctionName": ["bedrock-dev-pipeline-publish"] },
           "metricName": "Duration",
           "namespace": "AWS/Lambda",
           "period": "300",
@@ -506,7 +506,7 @@
         },
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "FunctionName": ["bedrock-development-ai-publisher"] },
+          "dimensions": { "FunctionName": ["bedrock-dev-pipeline-publish"] },
           "metricName": "Duration",
           "namespace": "AWS/Lambda",
           "period": "300",
@@ -516,7 +516,7 @@
         },
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "FunctionName": ["bedrock-development-ai-publisher"] },
+          "dimensions": { "FunctionName": ["bedrock-dev-pipeline-publish"] },
           "metricName": "Duration",
           "namespace": "AWS/Lambda",
           "period": "300",
@@ -687,7 +687,7 @@
       "targets": [
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "TableName": ["bedrock-development-ai-content"] },
+          "dimensions": { "TableName": ["bedrock-dev-ai-content"] },
           "metricName": "ConsumedReadCapacityUnits",
           "namespace": "AWS/DynamoDB",
           "period": "300",
@@ -697,7 +697,7 @@
         },
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "TableName": ["bedrock-development-ai-content"] },
+          "dimensions": { "TableName": ["bedrock-dev-ai-content"] },
           "metricName": "ConsumedWriteCapacityUnits",
           "namespace": "AWS/DynamoDB",
           "period": "300",
@@ -736,7 +736,7 @@
       "targets": [
         {
           "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "TableName": ["bedrock-development-ai-content"] },
+          "dimensions": { "TableName": ["bedrock-dev-ai-content"] },
           "metricName": "ThrottledRequests",
           "namespace": "AWS/DynamoDB",
           "period": "300",
@@ -780,7 +780,7 @@
           "expression": "fields @timestamp, @message\n| filter @message like /ArticlesPublished/\n| parse @message '\"Slug\":\"*\"' as slug\n| parse @message '\"InputTokens\":*,' as inputTokens\n| parse @message '\"OutputTokens\":*,' as outputTokens\n| parse @message '\"EstimatedCostUSD\":*,' as cost\n| parse @message '\"TechnicalConfidence\":*,' as confidence\n| sort @timestamp desc\n| limit 20",
           "id": "",
           "logGroups": [
-            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/bedrock-development-ai-publisher", "name": "/aws/lambda/bedrock-development-ai-publisher", "accountId": "771826808455" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/bedrock-dev-pipeline-publish", "name": "/aws/lambda/bedrock-dev-pipeline-publish", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -816,7 +816,7 @@
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/bedrock-development-ai-publisher", "name": "/aws/lambda/bedrock-development-ai-publisher", "accountId": "771826808455" }
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/bedrock-dev-pipeline-publish", "name": "/aws/lambda/bedrock-dev-pipeline-publish", "accountId": "771826808455" }
           ],
           "queryMode": "Logs",
           "refId": "A",
