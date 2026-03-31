@@ -51,6 +51,7 @@ from common import (
     ssm_get,
     step_install_cloudwatch_agent,
     step_validate_ami,
+    validate_kubeadm_token,
 )
 from common import (
     SSM_PREFIX as DEFAULT_SSM_PREFIX,
@@ -218,13 +219,18 @@ def _join_cluster(endpoint: str) -> None:
     for attempt in range(1, JOIN_MAX_RETRIES + 1):
         log_info(f"=== kubeadm join attempt {attempt}/{JOIN_MAX_RETRIES} ===")
 
-        join_token = ssm_get(token_ssm, decrypt=True)
-        if not join_token:
+        raw_token = ssm_get(token_ssm, decrypt=True)
+        if not raw_token:
             log_warn(f"Join token not available (attempt {attempt}/{JOIN_MAX_RETRIES})")
             if attempt < JOIN_MAX_RETRIES:
                 time.sleep(JOIN_RETRY_INTERVAL)
                 continue
             raise RuntimeError(f"Join token never became available after {JOIN_MAX_RETRIES} attempts")
+
+        # Validate and sanitise the token — guards against backslash
+        # injection from SSM SecureString shell encoding
+        join_token = validate_kubeadm_token(raw_token, source="SSM")
+        log_info(f"Join token validated (length={len(join_token)})")
 
         ca_hash = ssm_get(ca_hash_ssm)
         if not ca_hash:

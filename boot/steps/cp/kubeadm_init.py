@@ -23,6 +23,7 @@ from common import (
     patch_provider_id,
     run_cmd,
     ssm_put,
+    validate_kubeadm_token,
 )
 from boot_helpers.config import BootConfig
 
@@ -114,7 +115,11 @@ def publish_ssm_params(
         ["kubeadm", "token", "create", "--ttl", "24h"],
         env=KUBECONFIG_ENV,
     )
-    join_token = token_result.stdout.strip()
+    # Validate token format before writing to SSM — catches corruption at source
+    join_token = validate_kubeadm_token(
+        token_result.stdout.strip(), source="kubeadm token create"
+    )
+    log_info(f"Join token created and validated (length={len(join_token)})")
 
     ca_hash_cmd = (
         "openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | "

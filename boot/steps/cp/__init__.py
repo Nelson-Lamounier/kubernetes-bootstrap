@@ -22,6 +22,7 @@ from cp.s3_sync import step_sync_manifests
 from cp.argocd import step_bootstrap_argocd
 from cp.verify import step_verify_cluster
 from cp.etcd_backup import step_install_etcd_backup
+from cp.token_rotator import step_install_token_rotator
 
 __all__ = [
     "main",
@@ -35,6 +36,7 @@ __all__ = [
     "step_bootstrap_argocd",
     "step_verify_cluster",
     "step_install_etcd_backup",
+    "step_install_token_rotator",
 ]
 
 
@@ -56,3 +58,4 @@ def main() -> None:
     step_bootstrap_argocd(cfg)      # Step 7
     step_verify_cluster(cfg)        # Step 8
     step_install_etcd_backup(cfg)   # Step 10
+    step_install_token_rotator(cfg) # Step 11

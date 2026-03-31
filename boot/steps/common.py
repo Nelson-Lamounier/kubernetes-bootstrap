@@ -19,6 +19,7 @@ Usage from a step script:
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -215,6 +216,56 @@ def ssm_put(
     if tier:
         cmd.extend(["--tier", tier])
     run_cmd(cmd)
+
+
+# =============================================================================
+# kubeadm Token Validation
+# =============================================================================
+
+KUBEADM_TOKEN_REGEX = re.compile(r"^[a-z0-9]{6}\.[a-z0-9]{16}$")
+
+
+def validate_kubeadm_token(token: str, source: str = "SSM") -> str:
+    """Validate and sanitise a kubeadm join token.
+
+    Strips whitespace and leading escape characters that can be
+    introduced by shell encoding during SSM SecureString retrieval,
+    then validates the token matches kubeadm's expected format.
+
+    A valid kubeadm bootstrap token has the format::
+
+        [a-z0-9]{6}.[a-z0-9]{16}
+
+    Args:
+        token: Raw token string from SSM or kubeadm.
+        source: Description of where the token came from (for error messages).
+
+    Returns:
+        The sanitised token string.
+
+    Raises:
+        ValueError: If the token is empty or doesn't match the expected format.
+    """
+    if not token:
+        raise ValueError(
+            f"Empty kubeadm join token received from {source}"
+        )
+
+    # Strip whitespace, then any leading backslash characters injected
+    # by shell escaping during SSM SecureString retrieval
+    sanitised = token.strip().lstrip("\\").strip()
+
+    if not KUBEADM_TOKEN_REGEX.match(sanitised):
+        # Truncate for safe logging — never log a full token
+        preview = token[:30] if len(token) > 30 else token
+        raise ValueError(
+            f"Invalid kubeadm join token from {source}: "
+            f"'{sanitised}' does not match expected format "
+            f"[a-z0-9]{{6}}.[a-z0-9]{{16}}. "
+            f"Raw value (truncated): '{preview}'"
+        )
+
+    return sanitised
 
 
 # =============================================================================

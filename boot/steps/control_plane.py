@@ -68,6 +68,7 @@ from common import (
     ssm_put,
     step_install_cloudwatch_agent,
     step_validate_ami,
+    validate_kubeadm_token,
 )
 from common import (
     SSM_PREFIX as DEFAULT_SSM_PREFIX,
@@ -602,7 +603,11 @@ def _publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> No
         ["kubeadm", "token", "create", "--ttl", "24h"],
         env=KUBECONFIG_ENV,
     )
-    join_token = token_result.stdout.strip()
+    # Validate token format before writing to SSM — catches corruption at source
+    join_token = validate_kubeadm_token(
+        token_result.stdout.strip(), source="kubeadm token create"
+    )
+    log_info(f"Join token created and validated (length={len(join_token)})")
 
     ca_hash_cmd = (
         "openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | "
@@ -1408,6 +1413,12 @@ set -euo pipefail
 # Generate a new token valid for 24 hours
 export KUBECONFIG=/etc/kubernetes/admin.conf
 TOKEN=$(kubeadm token create --ttl 24h)
+
+# Validate token format before writing to SSM
+if ! echo "$TOKEN" | grep -qE '^[a-z0-9]{{6}}\.[a-z0-9]{{16}}$'; then
+    echo "ERROR: kubeadm token create returned invalid token: $TOKEN" >&2
+    exit 1
+fi
 
 # Push the token to SSM
 aws ssm put-parameter \\

@@ -22,6 +22,7 @@ from common import (
     patch_provider_id,
     run_cmd,
     ssm_get,
+    validate_kubeadm_token,
 )
 from boot_helpers.config import BootConfig
 
@@ -177,8 +178,8 @@ def join_cluster(endpoint: str, cfg: BootConfig) -> None:
     for attempt in range(1, cfg.join_max_retries + 1):
         log_info(f"=== kubeadm join attempt {attempt}/{cfg.join_max_retries} ===")
 
-        join_token = ssm_get(token_ssm, decrypt=True)
-        if not join_token:
+        raw_token = ssm_get(token_ssm, decrypt=True)
+        if not raw_token:
             log_warn(f"Join token not available (attempt {attempt}/{cfg.join_max_retries})")
             if attempt < cfg.join_max_retries:
                 time.sleep(cfg.join_retry_interval)
@@ -186,6 +187,11 @@ def join_cluster(endpoint: str, cfg: BootConfig) -> None:
             raise RuntimeError(
                 f"Join token never became available after {cfg.join_max_retries} attempts"
             )
+
+        # Validate and sanitise the token — guards against backslash
+        # injection from SSM SecureString shell encoding
+        join_token = validate_kubeadm_token(raw_token, source="SSM")
+        log_info(f"Join token validated (length={len(join_token)})")
 
         ca_hash = ssm_get(ca_hash_ssm)
         if not ca_hash:
