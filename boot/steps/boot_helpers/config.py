@@ -37,8 +37,7 @@ class BootConfig:
         hosted_zone_id: Route 53 hosted zone for API DNS.
         api_dns_name: DNS name for the K8s API server.
         s3_bucket: S3 bucket containing bootstrap content.
-        mount_point: Local mount point for the EBS data volume.
-        volume_id: EBS volume ID to attach.
+        mount_point: Local mount point for the data volume.
         calico_version: Calico CNI version.
         environment: Deployment environment name.
         node_label: Kubernetes node label (worker nodes only).
@@ -76,9 +75,6 @@ class BootConfig:
     )
     mount_point: str = field(
         default_factory=lambda: os.environ.get("MOUNT_POINT", "/data"),
-    )
-    volume_id: str = field(
-        default_factory=lambda: os.environ.get("VOLUME_ID", ""),
     )
     calico_version: str = field(
         default_factory=lambda: os.environ.get("CALICO_VERSION", "v3.29.3"),

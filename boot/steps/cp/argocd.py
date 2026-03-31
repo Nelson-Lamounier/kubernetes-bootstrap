@@ -55,6 +55,6 @@ def step_bootstrap_argocd(cfg: BootConfig) -> None:
         log_info(
             "ArgoCD bootstrap complete. "
             "ArgoCD now manages: traefik, metrics-server, "
-            "local-path-provisioner, monitoring, nextjs"
+            "aws-ebs-csi-driver, monitoring, nextjs"
         )
         step.details["argocd_dir"] = str(argocd_dir)

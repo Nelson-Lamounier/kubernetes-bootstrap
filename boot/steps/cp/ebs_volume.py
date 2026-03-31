@@ -1,22 +1,25 @@
-"""Step 0 — Attach, format, and mount the EBS data volume.
+"""Step 0 — Format and mount the launch-template-attached data volume.
 
-Handles:
-- Idempotent re-runs (marker file + mountpoint check)
-- ASG replacement (waits for volume to detach from old instance)
-- NVMe device naming on Nitro instances
-- First-boot formatting (only if volume has no filesystem)
-- fstab entry for reboot persistence
+The data volume (/dev/xvdf) is provisioned by the EC2 launch template's
+block device mapping.  AWS attaches it automatically at instance launch,
+so this step only needs to:
+
+1. Detect the block device (handles NVMe renaming on Nitro instances).
+2. Format with ext4 if it has no filesystem (first boot only).
+3. Mount at the configured mount point and add an fstab entry.
+4. Create the required subdirectory structure.
+
+This replaces the legacy ``step_attach_ebs_volume`` which called the
+``ec2:AttachVolume`` API to attach a CDK-managed ``ec2.Volume``.
 """
 from __future__ import annotations
 
 import glob
-import json
 import time
 from pathlib import Path
 
 from common import (
     StepRunner,
-    get_imds_value,
     log_info,
     log_warn,
     run_cmd,
@@ -25,27 +28,29 @@ from boot_helpers.config import BootConfig
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
-EBS_DEVICE_NAME = "/dev/xvdf"
-EBS_FILESYSTEM = "ext4"
-EBS_MAX_ATTACH_RETRIES = 30
-EBS_RETRY_INTERVAL_SECONDS = 10
-EBS_ATTACH_MARKER = "/etc/kubernetes/.ebs-attached"
+DATA_DEVICE_NAME = "/dev/xvdf"
+DATA_FILESYSTEM = "ext4"
+DATA_MOUNT_MARKER = "/etc/kubernetes/.data-mounted"
+
+# Maximum seconds to wait for the block device to appear after boot.
+# On Nitro instances the NVMe device is typically visible within 5–10s.
+DEVICE_WAIT_TIMEOUT_SECONDS = 60
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def resolve_nvme_device() -> str:
-    """Resolve the NVMe device path for the attached EBS volume.
+    """Resolve the NVMe device path for the data volume.
 
     On Nitro-based instances (t3, m5, c5, etc.), EBS volumes attached as
-    /dev/xvdf appear as /dev/nvme<N>n1 in the kernel. This function finds
+    /dev/xvdf appear as /dev/nvme<N>n1 in the kernel.  This function finds
     the correct NVMe device by checking for any non-root NVMe block device.
 
     Returns:
         The device path (e.g. ``/dev/nvme1n1``) or empty string if not found.
     """
-    if Path(EBS_DEVICE_NAME).exists():
-        return EBS_DEVICE_NAME
+    if Path(DATA_DEVICE_NAME).exists():
+        return DATA_DEVICE_NAME
 
     nvme_devices = sorted(glob.glob("/dev/nvme[1-9]n1"))
     if nvme_devices:
@@ -60,115 +65,20 @@ def is_already_mounted(mount_point: str) -> bool:
     return result.returncode == 0
 
 
-def describe_volume(volume_id: str, aws_region: str) -> dict:
-    """Describe an EBS volume and return its state and attachment info.
-
-    Returns:
-        Dict with keys: ``state``, ``attached_instance``, ``device``.
-    """
-    result = run_cmd(
-        ["aws", "ec2", "describe-volumes",
-         "--volume-ids", volume_id,
-         "--query", "Volumes[0].{State:State,Attachments:Attachments}",
-         "--output", "json",
-         "--region", aws_region],
-        check=True,
-    )
-    data = json.loads(result.stdout)
-    attachments = data.get("Attachments", []) or []
-    attached_instance = attachments[0]["InstanceId"] if attachments else ""
-    device = attachments[0]["Device"] if attachments else ""
-
-    return {
-        "state": data.get("State", "unknown"),
-        "attached_instance": attached_instance,
-        "device": device,
-    }
-
-
-def wait_for_volume_available(
-    volume_id: str,
-    instance_id: str,
-    aws_region: str,
-) -> str:
-    """Wait for the EBS volume to become available for attachment.
-
-    Handles ASG replacement: if the volume is still attached to the old
-    (terminating) instance, this retries until it transitions to ``available``.
-
-    Returns:
-        ``available`` or ``already-attached``.
-
-    Raises:
-        RuntimeError: If the volume does not become available within the retry window.
-    """
-    for attempt in range(1, EBS_MAX_ATTACH_RETRIES + 1):
-        info = describe_volume(volume_id, aws_region)
-        state = info["state"]
-        attached_to = info["attached_instance"]
-
-        if state == "available":
-            log_info(f"Volume {volume_id} is available (attempt {attempt})")
-            return "available"
-
-        if state == "in-use" and attached_to == instance_id:
-            log_info(
-                f"Volume {volume_id} already attached to this instance — "
-                f"skipping attach"
-            )
-            return "already-attached"
-
-        if state == "in-use":
-            log_warn(
-                f"Volume {volume_id} still attached to {attached_to} "
-                f"(ASG replacement in progress). "
-                f"Waiting {EBS_RETRY_INTERVAL_SECONDS}s... "
-                f"(attempt {attempt}/{EBS_MAX_ATTACH_RETRIES})"
-            )
-        else:
-            log_warn(
-                f"Volume {volume_id} in unexpected state '{state}'. "
-                f"Waiting {EBS_RETRY_INTERVAL_SECONDS}s... "
-                f"(attempt {attempt}/{EBS_MAX_ATTACH_RETRIES})"
-            )
-
-        time.sleep(EBS_RETRY_INTERVAL_SECONDS)
-
-    raise RuntimeError(
-        f"EBS volume {volume_id} did not become available after "
-        f"{EBS_MAX_ATTACH_RETRIES * EBS_RETRY_INTERVAL_SECONDS}s. "
-        f"Check if the old EC2 instance has fully terminated."
-    )
-
-
-def attach_volume(volume_id: str, instance_id: str, aws_region: str) -> None:
-    """Attach the EBS volume to this instance."""
-    log_info(
-        f"Attaching volume {volume_id} to {instance_id} "
-        f"as {EBS_DEVICE_NAME}..."
-    )
-    run_cmd(
-        ["aws", "ec2", "attach-volume",
-         "--volume-id", volume_id,
-         "--instance-id", instance_id,
-         "--device", EBS_DEVICE_NAME,
-         "--region", aws_region],
-        check=True,
-    )
-    log_info(f"Attach command sent for {volume_id}")
-
-
 def wait_for_device() -> str:
-    """Wait for the block device to appear in the OS after attachment.
+    """Wait for the data block device to appear in the OS.
+
+    The launch template attaches the volume at instance creation, but the
+    kernel may take a few seconds to expose the NVMe device.
 
     Returns:
         The resolved device path (e.g. ``/dev/nvme1n1`` or ``/dev/xvdf``).
 
     Raises:
-        RuntimeError: If the device does not appear within 60 seconds.
+        RuntimeError: If the device does not appear within the timeout.
     """
-    log_info("Waiting for block device to appear...")
-    for i in range(1, 61):
+    log_info("Waiting for data volume block device to appear...")
+    for i in range(1, DEVICE_WAIT_TIMEOUT_SECONDS + 1):
         device = resolve_nvme_device()
         if device:
             log_info(f"Block device appeared: {device} (waited {i}s)")
@@ -176,14 +86,16 @@ def wait_for_device() -> str:
         time.sleep(1)
 
     raise RuntimeError(
-        f"Block device did not appear within 60s after attachment. "
-        f"Expected {EBS_DEVICE_NAME} or /dev/nvme<N>n1. "
+        f"Data volume block device did not appear within "
+        f"{DEVICE_WAIT_TIMEOUT_SECONDS}s. "
+        f"Expected {DATA_DEVICE_NAME} or /dev/nvme<N>n1. "
+        f"Verify the launch template has a /dev/xvdf block device mapping. "
         f"Run 'lsblk' to inspect available devices."
     )
 
 
 def format_if_needed(device: str) -> bool:
-    """Format the EBS volume with ext4 if it has no filesystem.
+    """Format the volume with ext4 if it has no filesystem.
 
     Returns:
         ``True`` if formatting was performed, ``False`` if already formatted.
@@ -198,9 +110,9 @@ def format_if_needed(device: str) -> bool:
         log_info(f"Device {device} already has filesystem: {existing_fs}")
         return False
 
-    log_info(f"No filesystem on {device} — formatting as {EBS_FILESYSTEM}")
-    run_cmd(["mkfs", "-t", EBS_FILESYSTEM, device], check=True)
-    log_info(f"Formatted {device} as {EBS_FILESYSTEM}")
+    log_info(f"No filesystem on {device} — formatting as {DATA_FILESYSTEM}")
+    run_cmd(["mkfs", "-t", DATA_FILESYSTEM, device], check=True)
+    log_info(f"Formatted {device} as {DATA_FILESYSTEM}")
     return True
 
 
@@ -214,7 +126,7 @@ def mount_volume(device: str, mount_point: str) -> None:
     fstab = Path("/etc/fstab")
     fstab_content = fstab.read_text() if fstab.exists() else ""
     if mount_point not in fstab_content:
-        entry = f"{device}  {mount_point}  {EBS_FILESYSTEM}  defaults,nofail  0  2\n"
+        entry = f"{device}  {mount_point}  {DATA_FILESYSTEM}  defaults,nofail  0  2\n"
         with fstab.open("a") as f:
             f.write(entry)
         log_info(f"fstab entry added: {entry.strip()}")
@@ -236,67 +148,44 @@ def ensure_data_directories(mount_point: str) -> None:
 
 # ── Step ───────────────────────────────────────────────────────────────────
 
-def step_attach_ebs_volume(cfg: BootConfig) -> None:
-    """Step 0: Attach, format (if needed), and mount the EBS data volume.
+def step_mount_data_volume(cfg: BootConfig) -> None:
+    """Step 0: Format (if needed) and mount the launch-template data volume.
+
+    The data volume is auto-attached by AWS via the launch template block
+    device mapping.  This step only formats + mounts — no EC2 API calls.
 
     Args:
         cfg: Bootstrap configuration.
     """
-    with StepRunner("attach-ebs-volume", skip_if=EBS_ATTACH_MARKER) as step:
+    with StepRunner("mount-data-volume", skip_if=DATA_MOUNT_MARKER) as step:
         if step.skipped:
             return
 
-        if not cfg.volume_id:
-            log_warn(
-                "VOLUME_ID not set — skipping EBS attachment. "
-                "Kubernetes data will use the root volume (not persistent)."
-            )
-            step.details["action"] = "skipped_no_volume_id"
-            return
-
+        # Already mounted (e.g. manual recovery or previous partial run)
         if is_already_mounted(cfg.mount_point):
             log_info(
                 f"{cfg.mount_point} is already a mount point — "
-                f"skipping attachment"
+                f"skipping mount"
             )
             step.details["action"] = "skipped_already_mounted"
             ensure_data_directories(cfg.mount_point)
             return
 
-        instance_id = get_imds_value("instance-id")
-        if not instance_id:
-            raise RuntimeError(
-                "Failed to retrieve instance ID from IMDS. "
-                "Cannot attach EBS volume without knowing the instance ID."
-            )
-
-        step.details["volume_id"] = cfg.volume_id
-        step.details["instance_id"] = instance_id
+        # Wait for the block device to appear (NVMe renaming on Nitro)
+        device = wait_for_device()
+        step.details["device"] = device
         step.details["mount_point"] = cfg.mount_point
 
-        availability = wait_for_volume_available(
-            cfg.volume_id, instance_id, cfg.aws_region,
-        )
-
-        if availability == "available":
-            attach_volume(cfg.volume_id, instance_id, cfg.aws_region)
-            device = wait_for_device()
-            step.details["action"] = "attached"
-        else:
-            device = resolve_nvme_device()
-            if not device:
-                device = wait_for_device()
-            step.details["action"] = "already_attached"
-
-        step.details["device"] = device
-
+        # Format if this is a brand-new volume (first launch)
         formatted = format_if_needed(device)
         step.details["formatted"] = formatted
 
+        # Mount and add fstab entry
         mount_volume(device, cfg.mount_point)
+
+        # Ensure directory structure exists on the volume
         ensure_data_directories(cfg.mount_point)
 
         log_info(
-            f"✓ EBS volume {cfg.volume_id} attached as {device}, "
-            f"mounted at {cfg.mount_point}"
+            f"✓ Data volume mounted: {device} → {cfg.mount_point}"
         )

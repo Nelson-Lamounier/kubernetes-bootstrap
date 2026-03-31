@@ -1,7 +1,7 @@
 """Step 5 — Clean stale PVs/PVCs pinned to dead nodes (monitoring worker only).
 
-When a monitoring worker is replaced by ASG, the old node's local-path
-PersistentVolumes remain in the cluster, pinned via ``nodeAffinity`` to
+When a monitoring worker is replaced by ASG, the old node's EBS CSI
+PersistentVolumes may remain in the cluster, pinned via ``nodeAffinity`` to
 the dead hostname. Pods cannot schedule because the PVs reference a node
 that no longer exists.
 
@@ -11,7 +11,7 @@ This step:
   3. Deletes the Released/Failed PVs
 
 ArgoCD or Helm will recreate the PVCs on the next sync, and
-``local-path-provisioner`` will provision fresh PVs on the new node.
+the ``aws-ebs-csi-driver`` will provision fresh EBS volumes on the new node.
 
 Gated to monitoring workers only via ``NODE_LABEL`` check.
 Idempotent: if no stale PVs exist, this step is a no-op.

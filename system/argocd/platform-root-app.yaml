@@ -5,7 +5,7 @@
 #   - TLS (cert-manager, cert-manager-config)
 #   - Ingress (traefik)
 #   - Observability (monitoring, metrics-server, argo-rollouts)
-#   - Utilities (ecr-token-refresh, argocd-image-updater, argocd-notifications, local-path-provisioner)
+#   - Utilities (ecr-token-refresh, argocd-image-updater, argocd-notifications, aws-ebs-csi-driver)
 #
 # Must be 100% healthy before the workloads root app deploys business apps.
 

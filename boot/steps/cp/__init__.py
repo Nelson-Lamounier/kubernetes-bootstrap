@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from boot_helpers.config import BootConfig
 
-from cp.ebs_volume import step_attach_ebs_volume
+from cp.ebs_volume import step_mount_data_volume
 from cp.dr_restore import step_restore_from_backup
 from cp.kubeadm_init import step_init_kubeadm
 from cp.calico import step_install_calico
@@ -26,7 +26,7 @@ from cp.token_rotator import step_install_token_rotator
 
 __all__ = [
     "main",
-    "step_attach_ebs_volume",
+    "step_mount_data_volume",
     "step_restore_from_backup",
     "step_init_kubeadm",
     "step_install_calico",
@@ -48,7 +48,7 @@ def main() -> None:
     """
     cfg = BootConfig.from_env()
 
-    step_attach_ebs_volume(cfg)     # Step 0
+    step_mount_data_volume(cfg)     # Step 0
     step_restore_from_backup(cfg)   # Step 2 (DR restore)
     step_init_kubeadm(cfg)          # Step 3
     step_install_calico(cfg)        # Step 4
