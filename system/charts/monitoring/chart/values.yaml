@@ -34,7 +34,7 @@ prometheus:
       memory: 1Gi
   pvc:
     size: 10Gi
-    storageClass: "local-path"
+    storageClass: "ebs-sc"
   retention: 15d
   scrapeInterval: 30s
   ingress:
@@ -55,7 +55,7 @@ grafana:
       memory: 256Mi
   pvc:
     size: 5Gi
-    storageClass: "local-path"
+    storageClass: "ebs-sc"
   service:
     port: 3000
   ingress:
@@ -80,7 +80,7 @@ loki:
       memory: 512Mi
   pvc:
     size: 10Gi
-    storageClass: "local-path"
+    storageClass: "ebs-sc"
   service:
     port: 3100
 
@@ -99,7 +99,7 @@ tempo:
       memory: 768Mi
   pvc:
     size: 10Gi
-    storageClass: "local-path"
+    storageClass: "ebs-sc"
   service:
     httpPort: 3200
     otlpGrpcPort: 4317
@@ -222,3 +222,5 @@ resourceQuota:
 # ---------------------------------------------------------------------------
 networkPolicy:
   enabled: true
+
+
