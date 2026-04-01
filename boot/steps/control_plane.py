@@ -93,7 +93,20 @@ CALICO_VERSION = os.environ.get("CALICO_VERSION", "v3.29.3")
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "development")
 
 ADMIN_CONF = "/etc/kubernetes/admin.conf"
-KUBECONFIG_ENV = {"KUBECONFIG": ADMIN_CONF}
+SUPER_ADMIN_CONF = "/etc/kubernetes/super-admin.conf"
+
+
+def _bootstrap_kubeconfig_env() -> dict[str, str]:
+    """Return the best kubeconfig env for bootstrap operations.
+
+    Prefers super-admin.conf (kubeadm 1.30+) which bypasses RBAC,
+    making bootstrap operations resilient to missing ClusterRoleBindings.
+    Falls back to admin.conf for first-boot (before kubeadm init creates it).
+    """
+    if Path(SUPER_ADMIN_CONF).exists():
+        return {"KUBECONFIG": SUPER_ADMIN_CONF}
+    return {"KUBECONFIG": ADMIN_CONF}
+
 CALICO_MARKER = "/etc/kubernetes/.calico-installed"
 CCM_MARKER = "/etc/kubernetes/.ccm-installed"
 EBS_ATTACH_MARKER = "/etc/kubernetes/.ebs-attached"
@@ -425,7 +438,7 @@ def _label_control_plane_node() -> None:
         ["kubectl", "get", "nodes",
          "-l", "node-role.kubernetes.io/control-plane=",
          "-o", "jsonpath={.items[0].metadata.name}"],
-        check=False, env=KUBECONFIG_ENV,
+        check=False, env=_bootstrap_kubeconfig_env(),
     )
     node_name = hostname.stdout.strip()
     if not node_name:
@@ -440,7 +453,7 @@ def _label_control_plane_node() -> None:
 
     result = run_cmd(
         ["kubectl", "label", "node", node_name, "--overwrite", *label_args],
-        check=False, env=KUBECONFIG_ENV,
+        check=False, env=_bootstrap_kubeconfig_env(),
     )
     if result.returncode == 0:
         log_info(f"Control plane node labelled: {', '.join(label_args)}")
@@ -485,6 +498,7 @@ def _update_dns_record(private_ip: str) -> None:
 def _handle_second_run() -> None:
     """Handle second-run: update DNS and refresh kubeconfig."""
     log_info("Cluster already initialized — running second-run maintenance")
+    log_info("Using super-admin.conf for bootstrap operations")
 
     private_ip = get_imds_value("local-ipv4")
     if private_ip:
@@ -503,15 +517,55 @@ def _handle_second_run() -> None:
 
     _publish_kubeconfig_to_ssm()
 
+    # Verify API server is healthy using super-admin
     result = run_cmd(
         ["kubectl", "get", "nodes"],
-        check=False, env=KUBECONFIG_ENV,
+        check=False, env=_bootstrap_kubeconfig_env(),
     )
     if result.returncode != 0:
-        log_warn("API server not responding — certs may need renewal + restart")
-    else:
-        log_info("API server healthy — second-run maintenance complete")
-        _label_control_plane_node()
+        log_warn("API server not responding via super-admin — certs may need renewal + restart")
+        return
+
+    # Check if standard admin.conf works (verifies RBAC is intact)
+    admin_result = run_cmd(
+        ["kubectl", "get", "nodes"],
+        check=False, env={"KUBECONFIG": ADMIN_CONF},
+    )
+    
+    if admin_result.returncode != 0:
+        output = (admin_result.stderr + admin_result.stdout).strip()
+        if "Forbidden" in output:
+            log_warn("admin.conf got 403 Forbidden. RBAC binding 'kubeadm:cluster-admins' is missing. Attempting repair...")
+            
+            # Recreate the missing kubeadm:cluster-admins binding
+            rbac_manifest = """
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubeadm:cluster-admins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: kubernetes-admin
+"""
+            repair_result = run_cmd(
+                ["kubectl", "apply", "-f", "-"],
+                input=rbac_manifest.encode(),
+                check=False, env=_bootstrap_kubeconfig_env(),
+            )
+            if repair_result.returncode != 0:
+                raise RuntimeError(f"Failed to repair RBAC binding: {repair_result.stderr}")
+            
+            log_info("✓ RBAC binding kubeadm:cluster-admins repaired successfully")
+        else:
+            log_warn(f"admin.conf failed for a non-RBAC reason: {output}")
+
+    log_info("API server healthy — second-run maintenance complete")
+    _label_control_plane_node()
 
 
 def _init_cluster() -> None:
@@ -560,6 +614,9 @@ def _init_cluster() -> None:
     Path("/root/.kube").mkdir(parents=True, exist_ok=True)
     run_cmd(["cp", "-f", ADMIN_CONF, "/root/.kube/config"])
     run_cmd(["chmod", "600", "/root/.kube/config"])
+    if Path(SUPER_ADMIN_CONF).exists():
+        run_cmd(["cp", "-f", SUPER_ADMIN_CONF, "/root/.kube/super-admin.conf"])
+        run_cmd(["chmod", "600", "/root/.kube/super-admin.conf"])
 
     result = run_cmd(["id", "ssm-user"], check=False)
     if result.returncode == 0:
@@ -573,7 +630,7 @@ def _init_cluster() -> None:
     for i in range(1, 91):
         result = run_cmd(
             ["kubectl", "get", "nodes"],
-            check=False, env=KUBECONFIG_ENV,
+            check=False, env=_bootstrap_kubeconfig_env(),
         )
         if result.returncode == 0:
             log_info(f"Control plane is ready (waited {i} seconds)")
@@ -601,7 +658,7 @@ def _publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> No
 
     token_result = run_cmd(
         ["kubeadm", "token", "create", "--ttl", "24h"],
-        env=KUBECONFIG_ENV,
+        env=_bootstrap_kubeconfig_env(),
     )
     # Validate token format before writing to SSM — catches corruption at source
     join_token = validate_kubeadm_token(
@@ -624,7 +681,7 @@ def _publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> No
     ssm_put(f"{SSM_PREFIX}/instance-id", instance_id)
 
     log_info("Cluster credentials published to SSM successfully")
-    run_cmd(["kubectl", "get", "nodes", "-o", "wide"], check=False, env=KUBECONFIG_ENV)
+    run_cmd(["kubectl", "get", "nodes", "-o", "wide"], check=False, env=_bootstrap_kubeconfig_env())
 
 
 def _publish_kubeconfig_to_ssm() -> None:
@@ -903,7 +960,7 @@ def step_install_calico() -> None:
 
         run_cmd(
             ["kubectl", "apply", "--server-side", "--force-conflicts", "-f", source],
-            env=KUBECONFIG_ENV,
+            env=_bootstrap_kubeconfig_env(),
         )
 
         log_info("Waiting for Calico operator deployment...")
@@ -911,14 +968,14 @@ def step_install_calico() -> None:
             ["kubectl", "wait", "--for=condition=Available",
              "deployment/tigera-operator", "-n", "tigera-operator",
              "--timeout=120s"],
-            check=False, env=KUBECONFIG_ENV,
+            check=False, env=_bootstrap_kubeconfig_env(),
         )
 
         # Apply Installation CR
         log_info("Applying Calico Installation resource...")
         run_cmd(
             f"echo '{CALICO_INSTALLATION}' | kubectl apply -f -",
-            shell=True, env=KUBECONFIG_ENV,
+            shell=True, env=_bootstrap_kubeconfig_env(),
         )
 
         # Wait for pods
@@ -926,7 +983,7 @@ def step_install_calico() -> None:
         for i in range(1, 121):
             result = run_cmd(
                 ["kubectl", "get", "pods", "-n", "calico-system", "--no-headers"],
-                check=False, env=KUBECONFIG_ENV,
+                check=False, env=_bootstrap_kubeconfig_env(),
             )
             if result.returncode == 0 and result.stdout.strip():
                 lines = result.stdout.strip().splitlines()
@@ -939,7 +996,7 @@ def step_install_calico() -> None:
                     log_warn(f"Calico pods not fully ready after 120s ({running}/{total})")
                     run_cmd(
                         ["kubectl", "get", "pods", "-n", "calico-system"],
-                        check=False, env=KUBECONFIG_ENV,
+                        check=False, env=_bootstrap_kubeconfig_env(),
                     )
             time.sleep(1)
 
@@ -1009,9 +1066,9 @@ def step_install_ccm() -> None:
             run_cmd(
                 ["helm", "repo", "add", "aws-cloud-controller-manager",
                  CCM_HELM_REPO, "--force-update"],
-                env=KUBECONFIG_ENV,
+                env=_bootstrap_kubeconfig_env(),
             )
-            run_cmd(["helm", "repo", "update"], env=KUBECONFIG_ENV)
+            run_cmd(["helm", "repo", "update"], env=_bootstrap_kubeconfig_env())
 
             # Install (or upgrade if already present) the CCM
             log_info("Installing AWS Cloud Controller Manager...")
@@ -1021,7 +1078,7 @@ def step_install_ccm() -> None:
                  "--namespace", CCM_HELM_NAMESPACE,
                  "--values", str(values_path),
                  "--wait", "--timeout", "120s"],
-                env=KUBECONFIG_ENV,
+                env=_bootstrap_kubeconfig_env(),
             )
             log_info("✓ AWS CCM Helm release installed")
 
@@ -1032,7 +1089,7 @@ def step_install_ccm() -> None:
                 result = run_cmd(
                     ["kubectl", "get", "nodes", "-o",
                      "jsonpath={.items[*].spec.taints}"],
-                    check=False, env=KUBECONFIG_ENV,
+                    check=False, env=_bootstrap_kubeconfig_env(),
                 )
                 if result.returncode == 0:
                     taints_json = result.stdout.strip()
@@ -1290,7 +1347,7 @@ def step_verify_cluster() -> None:
         log_info("Checking node readiness...")
         result = run_cmd(
             ["kubectl", "get", "nodes", "--no-headers"],
-            check=False, env=KUBECONFIG_ENV,
+            check=False, env=_bootstrap_kubeconfig_env(),
         )
         node_ready = False
         if result.returncode == 0:
@@ -1308,7 +1365,7 @@ def step_verify_cluster() -> None:
         for ns in REQUIRED_NAMESPACES:
             result = run_cmd(
                 ["kubectl", "get", "pods", "-n", ns, "--no-headers"],
-                check=False, env=KUBECONFIG_ENV,
+                check=False, env=_bootstrap_kubeconfig_env(),
             )
             if result.returncode != 0 or not result.stdout.strip():
                 log_warn(f"  ⚠ No pods found in namespace {ns}")
@@ -1332,7 +1389,7 @@ def step_verify_cluster() -> None:
         log_info("Checking ArgoCD...")
         result = run_cmd(
             ["kubectl", "get", "pods", "-n", "argocd", "--no-headers"],
-            check=False, env=KUBECONFIG_ENV,
+            check=False, env=_bootstrap_kubeconfig_env(),
         )
         if result.returncode != 0 or not result.stdout.strip():
             log_warn("  ⚠ ArgoCD namespace not found or empty (may not be bootstrapped yet)")
