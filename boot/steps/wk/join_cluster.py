@@ -31,6 +31,8 @@ from boot_helpers.config import BootConfig
 KUBELET_CONF = "/etc/kubernetes/kubelet.conf"
 CA_CERT_PATH = "/etc/kubernetes/pki/ca.crt"
 CP_MAX_WAIT_SECONDS = 300
+API_REACHABLE_TIMEOUT = 300  # seconds to wait for TCP connectivity
+API_REACHABLE_POLL_INTERVAL = 10  # seconds between TCP probes
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -142,6 +144,87 @@ def resolve_control_plane_endpoint(cfg: BootConfig) -> str:
     )
 
 
+def _parse_host_port(endpoint: str) -> tuple[str, str]:
+    """Split an endpoint string into (host, port).
+
+    Args:
+        endpoint: Endpoint in ``host:port`` format.
+
+    Returns:
+        Tuple of (host, port). Defaults port to ``6443`` if omitted.
+    """
+    if ":" in endpoint:
+        host, port = endpoint.rsplit(":", 1)
+        return host, port
+    return endpoint, "6443"
+
+
+def tcp_probe(host: str, port: str) -> bool:
+    """Test TCP connectivity to a host:port using netcat.
+
+    Uses ``nc -zw5`` which attempts a zero-I/O connection with a 5-second
+    timeout. This is a lightweight probe that does not perform TLS.
+
+    Args:
+        host: Target hostname or IP address.
+        port: Target port number.
+
+    Returns:
+        ``True`` if the TCP connection succeeded, ``False`` otherwise.
+    """
+    result = run_cmd(
+        ["nc", "-zw5", host, port],
+        check=False,
+        timeout=10,
+    )
+    return result.returncode == 0
+
+
+def wait_for_api_server_reachable(endpoint: str) -> None:
+    """Block until the API server accepts TCP connections.
+
+    Polls the API server endpoint with netcat TCP probes every
+    ``API_REACHABLE_POLL_INTERVAL`` seconds until a connection succeeds
+    or ``API_REACHABLE_TIMEOUT`` is exceeded.
+
+    This gate prevents burning expensive ``kubeadm join`` retry budget
+    against an unreachable API server (e.g. during CP initialisation or
+    Route 53 propagation).
+
+    Args:
+        endpoint: API server endpoint in ``host:port`` format.
+
+    Raises:
+        RuntimeError: If the API server is not reachable within the timeout.
+    """
+    host, port = _parse_host_port(endpoint)
+    log_info(
+        f"Waiting for API server TCP connectivity: {host}:{port} "
+        f"(timeout={API_REACHABLE_TIMEOUT}s)"
+    )
+
+    waited = 0
+    while waited < API_REACHABLE_TIMEOUT:
+        if tcp_probe(host, port):
+            log_info(
+                f"✓ API server is reachable at {host}:{port} (waited {waited}s)"
+            )
+            return
+
+        log_info(
+            f"API server not yet reachable ({waited}s / {API_REACHABLE_TIMEOUT}s) "
+            f"— retrying in {API_REACHABLE_POLL_INTERVAL}s"
+        )
+        time.sleep(API_REACHABLE_POLL_INTERVAL)
+        waited += API_REACHABLE_POLL_INTERVAL
+
+    raise RuntimeError(
+        f"API server at {host}:{port} not reachable after {API_REACHABLE_TIMEOUT}s. "
+        f"Check that the control plane is running, the DNS record has propagated, "
+        f"and security groups allow TCP {port} from this worker node."
+    )
+
+
 def join_cluster(endpoint: str, cfg: BootConfig) -> None:
     """Join the cluster with retry logic."""
     log_info(f"Joining kubeadm cluster as worker node (label={cfg.node_label})")
@@ -202,6 +285,15 @@ def join_cluster(endpoint: str, cfg: BootConfig) -> None:
             raise RuntimeError(
                 f"CA hash never became available after {cfg.join_max_retries} attempts"
             )
+
+        # Pre-retry TCP diagnostic — log whether the API server is
+        # reachable before each attempt so CloudWatch captures the cause
+        host, port = _parse_host_port(endpoint)
+        reachable = tcp_probe(host, port)
+        log_info(
+            f"Pre-join TCP probe: {host}:{port} → "
+            f"{'reachable' if reachable else 'UNREACHABLE'}"
+        )
 
         log_info("Running kubeadm join...")
         try:
@@ -281,6 +373,7 @@ def step_join_cluster(cfg: BootConfig) -> None:
             return
 
         endpoint = resolve_control_plane_endpoint(cfg)
+        wait_for_api_server_reachable(endpoint)
         join_cluster(endpoint, cfg)
         wait_for_kubelet()
 

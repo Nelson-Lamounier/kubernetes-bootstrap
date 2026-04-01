@@ -88,8 +88,12 @@ class BootConfig:
     log_group_name: str = field(
         default_factory=lambda: os.environ.get("LOG_GROUP_NAME", ""),
     )
+    # Timeout budget constraint: each retry cycle costs ~155s
+    # (120s join timeout + ~5s kubeadm reset + 30s sleep).
+    # SSM Automation step timeout is 900s, so max safe retries = 5
+    # (5 × 155s = 775s, leaving ~125s headroom for S3 sync + setup).
     join_max_retries: int = field(
-        default_factory=lambda: int(os.environ.get("JOIN_MAX_RETRIES", "10")),
+        default_factory=lambda: int(os.environ.get("JOIN_MAX_RETRIES", "5")),
     )
     join_retry_interval: int = field(
         default_factory=lambda: int(os.environ.get("JOIN_RETRY_INTERVAL", "30")),
