@@ -287,8 +287,101 @@ def _renew_apiserver_cert(private_ip: str, public_ip: str) -> None:
     )
 
 
+# ── Addon Guards ──────────────────────────────────────────────────────────
+# On DR restore, admin.conf is recovered from S3 but kubeadm init is
+# skipped — critical addons (kube-proxy, CoreDNS) are never deployed.
+# These guards detect and repair the missing addons.
+
+
+def _ensure_kube_proxy() -> None:
+    """Verify kube-proxy DaemonSet exists; re-deploy if missing.
+
+    On a DR restore, admin.conf is recovered from the S3 backup but
+    ``kubeadm init`` is skipped — kube-proxy never gets deployed.
+    Without kube-proxy, ClusterIP routing (10.96.0.1) breaks and the
+    entire cluster cascades into failure: CCM crash-loops, the
+    ``uninitialized`` taint persists, and ``kubeadm join`` hangs.
+
+    Uses ``kubeadm init phase addon kube-proxy`` which is idempotent —
+    safe to call even if the DaemonSet already exists.
+    """
+    result = run_cmd(
+        ["kubectl", "get", "daemonset", "kube-proxy", "-n", "kube-system"],
+        check=False, env=_bootstrap_kubeconfig_env(),
+    )
+    if result.returncode == 0 and "kube-proxy" in result.stdout:
+        log_info("kube-proxy DaemonSet already present — no action needed")
+        return
+
+    log_warn(
+        "kube-proxy DaemonSet MISSING — deploying via "
+        "kubeadm init phase addon kube-proxy"
+    )
+
+    private_ip = get_imds_value("local-ipv4")
+    if not private_ip:
+        raise RuntimeError(
+            "Cannot deploy kube-proxy: failed to retrieve private IP from IMDS"
+        )
+
+    run_cmd([
+        "kubeadm", "init", "phase", "addon", "kube-proxy",
+        f"--apiserver-advertise-address={private_ip}",
+        f"--pod-network-cidr={POD_CIDR}",
+    ])
+    log_info("✓ kube-proxy DaemonSet deployed")
+
+    # Wait for at least one pod to reach Running
+    for i in range(1, 61):
+        result = run_cmd(
+            ["kubectl", "get", "pods", "-n", "kube-system",
+             "-l", "k8s-app=kube-proxy", "--no-headers"],
+            check=False, env=_bootstrap_kubeconfig_env(),
+        )
+        if result.returncode == 0 and "Running" in result.stdout:
+            log_info(f"kube-proxy pod running (waited {i}s)")
+            return
+        time.sleep(1)
+
+    log_warn(
+        "kube-proxy pod not Running after 60s — continuing "
+        "(may self-heal once networking stabilises)"
+    )
+
+
+def _ensure_coredns() -> None:
+    """Verify CoreDNS Deployment exists; re-deploy if missing.
+
+    CoreDNS is deployed by ``kubeadm init`` alongside kube-proxy.
+    On the second-run path (DR restore), both are missing.
+
+    Uses ``kubeadm init phase addon coredns`` which is idempotent.
+    """
+    result = run_cmd(
+        ["kubectl", "get", "deployment", "coredns", "-n", "kube-system"],
+        check=False, env=_bootstrap_kubeconfig_env(),
+    )
+    if result.returncode == 0 and "coredns" in result.stdout:
+        log_info("CoreDNS deployment already present — no action needed")
+        return
+
+    log_warn(
+        "CoreDNS deployment MISSING — deploying via "
+        "kubeadm init phase addon coredns"
+    )
+    run_cmd([
+        "kubeadm", "init", "phase", "addon", "coredns",
+        f"--service-cidr={SERVICE_CIDR}",
+    ])
+    log_info("✓ CoreDNS deployment deployed")
+
+
 def _handle_second_run() -> None:
-    """Handle second-run: update DNS and refresh kubeconfig."""
+    """Handle second-run: update DNS, ensure addons, and refresh kubeconfig.
+
+    Called when ``admin.conf`` already exists (i.e. the cluster was
+    previously initialised).  This is the normal path after ASG
+    replacement when DR restore recovers the control plane state."""
     log_info("Cluster already initialized — running second-run maintenance")
     log_info("Using super-admin.conf for bootstrap operations")
 
@@ -310,6 +403,14 @@ def _handle_second_run() -> None:
         run_cmd(["chmod", "600", "/home/ssm-user/.kube/config"])
 
     _publish_kubeconfig_to_ssm()
+
+    # ── Ensure critical addons are present ─────────────────────────
+    # On DR restore, kubeadm init is skipped because admin.conf was
+    # recovered from S3.  This means kube-proxy and CoreDNS are never
+    # deployed.  Without kube-proxy, ClusterIP routing breaks and the
+    # entire cluster cascades into failure.
+    _ensure_kube_proxy()
+    _ensure_coredns()
 
     # Detect IP mismatch: if the current private IP is not in the cert SANs,
     # the kubelet cannot register and the entire bootstrap will fail downstream.
