@@ -495,12 +495,112 @@ def _update_dns_record(private_ip: str) -> None:
     log_info(f"DNS updated: {API_DNS_NAME} → {private_ip}")
 
 
+def _get_apiserver_cert_ips() -> list[str]:
+    """Extract the IP SANs from the current API server certificate.
+
+    Returns a list of IP addresses the cert is currently valid for,
+    so we can detect when the instance IP has changed (e.g. after ASG replacement).
+    """
+    result = run_cmd(
+        ["openssl", "x509", "-in", "/etc/kubernetes/pki/apiserver.crt",
+         "-noout", "-text"],
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+
+    ips: list[str] = []
+    in_san = False
+    for line in result.stdout.splitlines():
+        if "Subject Alternative Name" in line:
+            in_san = True
+            continue
+        if in_san:
+            for part in line.split(","):
+                part = part.strip()
+                if part.startswith("IP Address:"):
+                    ips.append(part.removeprefix("IP Address:").strip())
+            break
+    return ips
+
+
+def _renew_apiserver_cert(private_ip: str, public_ip: str) -> None:
+    """Regenerate the API server certificate with the current instance IPs.
+
+    Called when the instance has a new private IP that is not covered by the
+    existing cert SANs — the typical case after ASG replacement where the new
+    EC2 instance gets a different IP from the original.
+
+    Steps:
+        1. Delete the stale apiserver cert/key (kubeadm will not overwrite them).
+        2. Re-run ``kubeadm init phase certs apiserver`` with the correct SANs.
+        3. Restart the kube-apiserver static pod by removing its container so
+           kubelet recreates it from the updated manifest.
+        4. Wait up to 60 s for the API server to become healthy again.
+    """
+    log_info(f"Renewing API server certificate for IP {private_ip}...")
+
+    # Build the full SAN list — must include everything the original init used
+    extra_sans = f"127.0.0.1,{private_ip},{API_DNS_NAME}"
+    if public_ip:
+        extra_sans += f",{public_ip}"
+
+    # Step 1: Remove stale cert/key so kubeadm regenerates them
+    for path in ["/etc/kubernetes/pki/apiserver.crt", "/etc/kubernetes/pki/apiserver.key"]:
+        if Path(path).exists():
+            Path(path).unlink()
+            log_info(f"Removed stale cert: {path}")
+
+    # Step 2: Regenerate with correct SANs
+    result = run_cmd(
+        [
+            "kubeadm", "init", "phase", "certs", "apiserver",
+            f"--apiserver-advertise-address={private_ip}",
+            f"--apiserver-cert-extra-sans={extra_sans}",
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"kubeadm cert regeneration failed: {result.stderr.strip()}"
+        )
+    log_info("✓ API server certificate regenerated")
+
+    # Step 3: Force kube-apiserver static pod to reload the new cert.
+    # Removing the running container causes kubelet to recreate it immediately.
+    log_info("Restarting kube-apiserver static pod to pick up new certificate...")
+    run_cmd(
+        ["bash", "-c",
+         "crictl rm $(crictl ps --name kube-apiserver -q) 2>/dev/null || true"],
+        check=False,
+    )
+
+    # Step 4: Wait for the API server to come back up
+    log_info("Waiting for API server to become healthy after cert renewal...")
+    for i in range(1, 61):
+        probe = run_cmd(
+            ["kubectl", "get", "--raw", "/healthz"],
+            check=False, env=_bootstrap_kubeconfig_env(),
+        )
+        if probe.returncode == 0 and "ok" in probe.stdout.lower():
+            log_info(f"✓ API server healthy after cert renewal (waited {i}s)")
+            return
+        time.sleep(1)
+
+    raise RuntimeError(
+        "API server did not become healthy within 60s after cert renewal. "
+        "Check 'crictl ps' and 'journalctl -u kubelet' for details."
+    )
+
+
 def _handle_second_run() -> None:
     """Handle second-run: update DNS and refresh kubeconfig."""
     log_info("Cluster already initialized — running second-run maintenance")
     log_info("Using super-admin.conf for bootstrap operations")
 
     private_ip = get_imds_value("local-ipv4")
+    public_ip = get_imds_value("public-ipv4")
+
     if private_ip:
         _update_dns_record(private_ip)
 
@@ -516,6 +616,20 @@ def _handle_second_run() -> None:
         run_cmd(["chmod", "600", "/home/ssm-user/.kube/config"])
 
     _publish_kubeconfig_to_ssm()
+
+    # Detect IP mismatch: if the current private IP is not in the cert SANs,
+    # the kubelet cannot register and the entire bootstrap will fail downstream.
+    # This is the normal case after ASG replacement with a new EC2 instance IP.
+    if private_ip:
+        cert_ips = _get_apiserver_cert_ips()
+        if cert_ips and private_ip not in cert_ips:
+            log_warn(
+                f"IP mismatch detected — cert SANs: {cert_ips}, "
+                f"current IP: {private_ip}. Renewing API server certificate..."
+            )
+            _renew_apiserver_cert(private_ip, public_ip or "")
+        elif not cert_ips:
+            log_warn("Could not read cert SANs — skipping IP mismatch check")
 
     # Verify API server is healthy using super-admin
     result = run_cmd(

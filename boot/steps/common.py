@@ -88,6 +88,7 @@ def run_cmd(
     timeout: int = 300,
     env: Optional[dict] = None,
     capture: bool = True,
+    input: Optional[bytes] = None,
 ) -> CmdResult:
     """
     Execute a command with structured logging and timing.
@@ -99,6 +100,7 @@ def run_cmd(
         timeout: Seconds before killing the process.
         env: Additional environment variables (merged with os.environ).
         capture: Capture stdout/stderr (False to stream live).
+        input: Optional byte string to pass as standard input.
 
     Returns:
         CmdResult with exit code, output, and timing.
@@ -120,6 +122,7 @@ def run_cmd(
             text=True,
             timeout=timeout,
             env=merged_env,
+            input=input.decode('utf-8') if input else None,
         )
     except subprocess.TimeoutExpired:
         duration = time.monotonic() - start
