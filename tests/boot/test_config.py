@@ -31,7 +31,6 @@ class TestBootConfigDefaults:
             "MOUNT_POINT": "/mnt/data",
             "K8S_VERSION": "1.30.0",
             "NODE_LABEL": "workload=monitoring",
-            "VOLUME_ID": "vol-abc123",
             "S3_BUCKET": "my-bucket",
         }
         with patch.dict("os.environ", env, clear=True):
@@ -42,7 +41,6 @@ class TestBootConfigDefaults:
         assert cfg.mount_point == "/mnt/data"
         assert cfg.k8s_version == "1.30.0"
         assert cfg.node_label == "workload=monitoring"
-        assert cfg.volume_id == "vol-abc123"
         assert cfg.s3_bucket == "my-bucket"
 
     def test_environment_field(self) -> None:
@@ -66,7 +64,6 @@ class TestBootConfigDefaults:
         with patch.dict("os.environ", {}, clear=True):
             cfg = BootConfig.from_env()
 
-        assert cfg.volume_id == ""
         assert cfg.hosted_zone_id == ""
         assert cfg.s3_bucket == ""
         assert cfg.log_group_name == ""

@@ -8,6 +8,7 @@ Handles:
 """
 from __future__ import annotations
 
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -160,30 +161,31 @@ def _parse_host_port(endpoint: str) -> tuple[str, str]:
 
 
 def tcp_probe(host: str, port: str) -> bool:
-    """Test TCP connectivity to a host:port using netcat.
+    """Test TCP connectivity to a host:port using Python's socket module.
 
-    Uses ``nc -zw5`` which attempts a zero-I/O connection with a 5-second
-    timeout. This is a lightweight probe that does not perform TLS.
+    Uses ``socket.create_connection()`` with a 5-second timeout to attempt
+    a zero-I/O TCP connection. This is a lightweight probe that does not
+    perform TLS and has zero external binary dependencies.
 
     Args:
         host: Target hostname or IP address.
-        port: Target port number.
+        port: Target port number (string — converted internally).
 
     Returns:
         ``True`` if the TCP connection succeeded, ``False`` otherwise.
     """
-    result = run_cmd(
-        ["nc", "-zw5", host, port],
-        check=False,
-        timeout=10,
-    )
-    return result.returncode == 0
+    try:
+        conn = socket.create_connection((host, int(port)), timeout=5)
+        conn.close()
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def wait_for_api_server_reachable(endpoint: str) -> None:
     """Block until the API server accepts TCP connections.
 
-    Polls the API server endpoint with netcat TCP probes every
+    Polls the API server endpoint with Python socket TCP probes every
     ``API_REACHABLE_POLL_INTERVAL`` seconds until a connection succeeds
     or ``API_REACHABLE_TIMEOUT`` is exceeded.
 
