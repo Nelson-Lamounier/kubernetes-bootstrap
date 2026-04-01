@@ -166,9 +166,28 @@ def apply_ingress(cfg: Config) -> None:
     # Wait for Traefik CRDs to be installed by ArgoCD.
     # The root app triggers ArgoCD to sync Traefik, but CRD registration
     # can take minutes depending on cluster load and sync wave ordering.
+    #
+    # Fast-fail: if all ArgoCD pods are Pending (not yet scheduled), Traefik
+    # will never sync — skip the wait immediately rather than burning 5 minutes.
     traefik_crd = "ingressroutes.traefik.io"
-    crd_max_attempts = 30  # 30 × 10s = 5 min
+    crd_max_attempts = 12  # 12 × 5s = 60s
     log(f"  → Waiting for Traefik CRD '{traefik_crd}' to be available...")
+
+    # Check if ArgoCD is even running before polling
+    argocd_running = subprocess.run(
+        ["kubectl", "get", "pods", "-n", "argocd",
+         "--field-selector=status.phase=Running", "-o", "name"],
+        env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+        capture_output=True, text=True,
+    )
+    running_pods = [p for p in argocd_running.stdout.strip().split("\n") if p]
+    if not running_pods:
+        log(f"  ⚠ No ArgoCD pods Running — Traefik will not sync yet")
+        log(f"    Skipping CRD wait — apply ingress manually once ArgoCD is healthy:")
+        for manifest_path, _ in manifests_to_apply:
+            log(f"    kubectl apply -f {manifest_path}")
+        log("")
+        return
 
     crd_ready = False
     for attempt in range(1, crd_max_attempts + 1):
@@ -182,11 +201,11 @@ def apply_ingress(cfg: Config) -> None:
             crd_ready = True
             break
         if attempt < crd_max_attempts:
-            log(f"    Attempt {attempt}/{crd_max_attempts} — CRD not found, waiting 10s...")
-            time.sleep(10)
+            log(f"    Attempt {attempt}/{crd_max_attempts} — CRD not found, waiting 5s...")
+            time.sleep(5)
 
     if not crd_ready:
-        log(f"  ⚠ Traefik CRD '{traefik_crd}' not available after 5 min")
+        log(f"  ⚠ Traefik CRD '{traefik_crd}' not available after 60s")
         log("    ArgoCD may not have synced Traefik yet. Apply manually:")
         for manifest_path, _ in manifests_to_apply:
             log(f"    kubectl apply -f {manifest_path}")

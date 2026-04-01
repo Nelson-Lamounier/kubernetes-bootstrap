@@ -446,9 +446,25 @@ def apply_cert_manager_issuer(cfg: Config) -> None:
     # syncing the cert-manager Application. Without this wait, kubectl apply
     # fails with "no matches for kind ClusterIssuer" and the function returns
     # silently, leaving cert-manager-config stuck in Progressing.
+    #
+    # Fast-fail: if all ArgoCD pods are Pending (not yet scheduled), cert-manager
+    # will never sync — skip the wait immediately rather than burning 3 minutes.
     crd_name = "clusterissuers.cert-manager.io"
-    crd_max_attempts = 18  # 18 × 10s = 3 min
+    crd_max_attempts = 12  # 12 × 5s = 60s
     log(f"  → Waiting for CRD '{crd_name}' to be available...")
+
+    # Check if ArgoCD is even running before polling
+    argocd_running = subprocess.run(
+        ["kubectl", "get", "pods", "-n", "argocd",
+         "--field-selector=status.phase=Running", "-o", "name"],
+        env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+        capture_output=True, text=True,
+    )
+    running_pods = [p for p in argocd_running.stdout.strip().split("\n") if p]
+    if not running_pods:
+        log(f"  ⚠ No ArgoCD pods Running — cert-manager will not sync yet")
+        log(f"    Skipping CRD wait — re-run bootstrap once ArgoCD is healthy\n")
+        return
 
     crd_ready = False
     for attempt in range(1, crd_max_attempts + 1):
@@ -462,11 +478,11 @@ def apply_cert_manager_issuer(cfg: Config) -> None:
             crd_ready = True
             break
         if attempt < crd_max_attempts:
-            log(f"    Attempt {attempt}/{crd_max_attempts} — CRD not found, waiting 10s...")
-            time.sleep(10)
+            log(f"    Attempt {attempt}/{crd_max_attempts} — CRD not found, waiting 5s...")
+            time.sleep(5)
 
     if not crd_ready:
-        log(f"  ⚠ CRD '{crd_name}' not available after 3 min")
+        log(f"  ⚠ CRD '{crd_name}' not available after 60s")
         log("    cert-manager may not be synced yet — ClusterIssuer will be missing")
         log("    Re-run bootstrap after cert-manager is healthy\n")
         return
