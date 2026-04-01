@@ -370,14 +370,35 @@ def join_cluster(endpoint: str, cfg: BootConfig) -> None:
 
 
 def wait_for_kubelet() -> None:
-    """Wait for kubelet to become active."""
+    """Wait for kubelet to become active and stable.
+
+    Checks both systemd active state and the presence of
+    /var/lib/kubelet/config.yaml — written by kubeadm join on success.
+    A crash-looping kubelet (missing config) will pass is-active transiently
+    but never have the config file, so we detect that early and fail fast.
+    """
     log_info("Waiting for kubelet to become active...")
+    kubelet_config = "/var/lib/kubelet/config.yaml"
+
     for i in range(1, 61):
+        # Fail fast: if kubelet has been trying for >10s and config still
+        # doesn't exist, kubeadm join didn't complete — no point waiting.
+        if i > 10 and not Path(kubelet_config).exists():
+            log_warn(
+                f"kubelet config not found after {i}s — "
+                f"kubeadm join likely did not complete successfully"
+            )
+            run_cmd(
+                ["journalctl", "-u", "kubelet", "--no-pager", "-n", "20"],
+                check=False,
+            )
+            return
+
         result = run_cmd(
             ["systemctl", "is-active", "--quiet", "kubelet"],
             check=False,
         )
-        if result.returncode == 0:
+        if result.returncode == 0 and Path(kubelet_config).exists():
             log_info(f"kubelet is active (waited {i}s)")
             return
         if i == 60:
