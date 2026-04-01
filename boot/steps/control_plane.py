@@ -950,6 +950,10 @@ def step_install_ccm() -> None:
                     f"Check CCM pod logs: kubectl logs -n kube-system "
                     f"-l app.kubernetes.io/name=aws-cloud-controller-manager"
                 )
+                # Raise so StepRunner does NOT write the marker — forces retry
+                raise RuntimeError(
+                    "CCM installed but taint not removed — step will retry on next run"
+                )
 
             step.details["helm_release"] = CCM_HELM_RELEASE
             step.details["taint_removed"] = taint_removed
