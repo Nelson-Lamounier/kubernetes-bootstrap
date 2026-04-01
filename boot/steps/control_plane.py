@@ -1077,6 +1077,38 @@ def step_install_calico() -> None:
             env=_bootstrap_kubeconfig_env(),
         )
 
+        # The tigera-operator uses the kubernetes ClusterIP (10.96.0.1) by default
+        # to reach the API server. On a fresh node the pod network doesn't exist yet,
+        # so that address is unreachable — the operator loops on i/o timeout and never
+        # reconciles the Installation CR. Providing this ConfigMap tells the operator
+        # to use the node IP directly, bypassing the ClusterIP entirely.
+        private_ip = get_imds_value("local-ipv4")
+        if private_ip:
+            log_info(
+                f"Creating kubernetes-services-endpoint ConfigMap "
+                f"(operator → {private_ip}:6443)"
+            )
+            endpoint_cm = f"""apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubernetes-services-endpoint
+  namespace: tigera-operator
+data:
+  KUBERNETES_SERVICE_HOST: "{private_ip}"
+  KUBERNETES_SERVICE_PORT: "6443"
+"""
+            run_cmd(
+                ["kubectl", "apply", "-f", "-"],
+                input=endpoint_cm.encode(),
+                env=_bootstrap_kubeconfig_env(),
+            )
+        else:
+            log_warn(
+                "Could not retrieve private IP from IMDS — "
+                "skipping kubernetes-services-endpoint ConfigMap. "
+                "Calico operator may fail to reach the API server."
+            )
+
         log_info("Waiting for Calico operator deployment...")
         run_cmd(
             ["kubectl", "wait", "--for=condition=Available",

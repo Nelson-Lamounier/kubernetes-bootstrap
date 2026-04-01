@@ -26,8 +26,42 @@ def _has_worker_nodes(cfg: Config) -> bool:
     return len(nodes) > 0
 
 
+def _argocd_pods_pending(cfg: Config) -> bool:
+    """Return True if ALL ArgoCD pods are still Pending (not yet scheduled).
+
+    Used to detect the case where pods exist but can't schedule — continuing
+    to wait for a rollout in this state will always time out.
+    """
+    result = run(
+        ["kubectl", "get", "pods", "-n", "argocd",
+         "--field-selector=status.phase=Pending",
+         "-o", "name"],
+        cfg=cfg, check=False, capture=True,
+    )
+    if result.returncode != 0:
+        return False
+    pending = [p for p in result.stdout.strip().split("\n") if p]
+
+    running_result = run(
+        ["kubectl", "get", "pods", "-n", "argocd",
+         "--field-selector=status.phase=Running",
+         "-o", "name"],
+        cfg=cfg, check=False, capture=True,
+    )
+    running = (
+        [p for p in running_result.stdout.strip().split("\n") if p]
+        if running_result.returncode == 0 else []
+    )
+    return len(pending) > 0 and len(running) == 0
+
+
 def wait_for_argocd(cfg: Config) -> None:
-    """Wait for ArgoCD server, repo-server, and application-controller to be ready."""
+    """Wait for ArgoCD server, repo-server, and application-controller to be ready.
+
+    Uses a single overall deadline (3 × argo_timeout) shared across all
+    components so the step cannot block indefinitely. Fails fast if all pods
+    are stuck in Pending — a rollout wait in that state will never succeed.
+    """
     log("=== Step 6: Waiting for ArgoCD server ===")
 
     if cfg.dry_run:
@@ -42,22 +76,50 @@ def wait_for_argocd(cfg: Config) -> None:
         log("  → Skipping readiness wait (control plane has NoSchedule taint)\n")
         return
 
+    # Fail fast: if every ArgoCD pod is Pending, rollout status will always
+    # time out — no point burning the full timeout per component.
+    if _argocd_pods_pending(cfg):
+        log("  ⚠ All ArgoCD pods are Pending (not yet scheduled)")
+        log("  ⚠ Check node taints, resource limits, or image pull status")
+        log("  → Skipping rollout wait — re-run bootstrap once pods are Running\n")
+        return
+
     targets = [
         ("deployment", "argocd-server"),
         ("deployment", "argocd-repo-server"),
         ("statefulset", "argocd-application-controller"),
     ]
 
+    # Overall deadline shared across all components — prevents the step from
+    # blocking for N × argo_timeout when multiple components are unhealthy.
+    overall_deadline = time.time() + (len(targets) * cfg.argo_timeout)
+    not_ready: list[str] = []
+
     for kind, name in targets:
-        log(f"  → Waiting for {name}...")
+        remaining = int(overall_deadline - time.time())
+        if remaining <= 0:
+            log(f"  ⚠ Overall deadline reached — skipping wait for {name}")
+            not_ready.append(name)
+            continue
+
+        per_component_timeout = min(cfg.argo_timeout, remaining)
+        log(f"  → Waiting for {name} (timeout: {per_component_timeout}s)...")
         result = run(
             ["kubectl", "rollout", "status", f"{kind}/{name}",
-             "-n", "argocd", f"--timeout={cfg.argo_timeout}s"],
+             "-n", "argocd", f"--timeout={per_component_timeout}s"],
             cfg=cfg, check=False,
         )
         if result.returncode != 0:
-            log(f"  ⚠ {name} not ready within {cfg.argo_timeout}s")
+            log(f"  ⚠ {name} not ready within {per_component_timeout}s")
+            not_ready.append(name)
+        else:
+            log(f"  ✓ {name} ready")
 
+    if not_ready:
+        log(f"  ⚠ Components not ready: {', '.join(not_ready)}")
+        log("  ⚠ ArgoCD may be partially functional — check pod logs")
+        log("    kubectl get pods -n argocd")
+        log("    kubectl describe pod -n argocd <pod-name>")
     log("")
 
 
