@@ -297,13 +297,48 @@ def join_cluster(endpoint: str, cfg: BootConfig) -> None:
             f"{'reachable' if reachable else 'UNREACHABLE'}"
         )
 
+        if not reachable:
+            log_warn(
+                f"API server not reachable on attempt {attempt} — "
+                f"skipping join, waiting {cfg.join_retry_interval}s"
+            )
+            if attempt < cfg.join_max_retries:
+                time.sleep(cfg.join_retry_interval)
+                continue
+            raise RuntimeError(
+                f"API server at {endpoint} unreachable on all "
+                f"{cfg.join_max_retries} attempts"
+            )
+
+        # Verify the API server is actually serving HTTPS, not just accepting
+        # TCP connections. A passing TCP probe does not guarantee the API server
+        # is healthy enough to process a kubeadm join (TLS discovery + CSR signing).
+        healthz = run_cmd(
+            ["curl", "-sk", "--max-time", "10",
+             f"https://{host}:{port}/healthz"],
+            check=False, capture=True,
+        )
+        if healthz.returncode != 0 or "ok" not in healthz.stdout.lower():
+            log_warn(
+                f"API server /healthz not OK on attempt {attempt} "
+                f"(stdout={healthz.stdout.strip()!r}) — "
+                f"waiting {cfg.join_retry_interval}s before retry"
+            )
+            if attempt < cfg.join_max_retries:
+                time.sleep(cfg.join_retry_interval)
+                continue
+            raise RuntimeError(
+                f"API server at {endpoint} not healthy after "
+                f"{cfg.join_max_retries} attempts"
+            )
+
         log_info("Running kubeadm join...")
         try:
             result = run_cmd(
                 ["kubeadm", "join", endpoint,
                  "--token", join_token,
                  "--discovery-token-ca-cert-hash", ca_hash],
-                check=False, capture=False, timeout=120,
+                check=False, capture=False, timeout=300,
             )
         except subprocess.TimeoutExpired:
             log_warn(

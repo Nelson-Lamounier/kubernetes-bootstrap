@@ -8,7 +8,6 @@ entry point. Each step is wrapped in a StepRunner for structured
 logging, timing, and idempotency guards.
 
 Steps (in order):
-    0.  attach_ebs_volume — Attach, format, and mount the EBS data volume
     1.  validate_ami       — Verify Golden AMI binaries and kernel settings
     2.  restore_backup     — Restore etcd + certs from S3 if EBS is empty (DR)
     3.  init_kubeadm       — kubeadm init + publish join credentials to SSM
@@ -42,7 +41,6 @@ Usage:
     python3 control_plane.py
 """
 
-import glob
 import json
 import os
 import re
@@ -88,7 +86,6 @@ HOSTED_ZONE_ID = os.environ.get("HOSTED_ZONE_ID", "")
 API_DNS_NAME = os.environ.get("API_DNS_NAME", "k8s-api.k8s.internal")
 S3_BUCKET = os.environ.get("S3_BUCKET", "")
 MOUNT_POINT = os.environ.get("MOUNT_POINT", "/data")
-VOLUME_ID = os.environ.get("VOLUME_ID", "")
 CALICO_VERSION = os.environ.get("CALICO_VERSION", "v3.29.3")
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "development")
 
@@ -109,13 +106,6 @@ def _bootstrap_kubeconfig_env() -> dict[str, str]:
 
 CALICO_MARKER = "/etc/kubernetes/.calico-installed"
 CCM_MARKER = "/etc/kubernetes/.ccm-installed"
-EBS_ATTACH_MARKER = "/etc/kubernetes/.ebs-attached"
-
-# EBS attachment constants
-EBS_DEVICE_NAME = "/dev/xvdf"
-EBS_FILESYSTEM = "ext4"
-EBS_MAX_ATTACH_RETRIES = 30
-EBS_RETRY_INTERVAL_SECONDS = 10
 
 # DR backup paths
 DR_BACKUP_PREFIX = "dr-backups"
@@ -123,301 +113,6 @@ DR_RESTORE_MARKER = "/etc/kubernetes/.dr-restored"
 
 
 # =============================================================================
-# Step 0 — Attach and Mount EBS Data Volume
-# =============================================================================
-
-def _resolve_nvme_device() -> str:
-    """Resolve the NVMe device path for the attached EBS volume.
-
-    On Nitro-based instances (t3, m5, c5, etc.), EBS volumes attached as
-    /dev/xvdf appear as /dev/nvme<N>n1 in the kernel. This function finds
-    the correct NVMe device by checking for any non-root NVMe block device.
-
-    Returns:
-        The device path (e.g. '/dev/nvme1n1') or empty string if not found.
-    """
-    # Check traditional device name first
-    if Path(EBS_DEVICE_NAME).exists():
-        return EBS_DEVICE_NAME
-
-    # Scan NVMe devices — the root volume is always nvme0n1
-    nvme_devices = sorted(glob.glob("/dev/nvme[1-9]n1"))
-    if nvme_devices:
-        return nvme_devices[0]
-
-    return ""
-
-
-def _is_already_mounted(mount_point: str) -> bool:
-    """Check if the mount point is already a mounted filesystem."""
-    result = run_cmd(
-        ["mountpoint", "-q", mount_point],
-        check=False,
-    )
-    return result.returncode == 0
-
-
-def _describe_volume(volume_id: str) -> dict:
-    """Describe an EBS volume and return its state and attachment info.
-
-    Returns:
-        Dict with keys: 'state', 'attached_instance', 'device'.
-    """
-    result = run_cmd(
-        ["aws", "ec2", "describe-volumes",
-         "--volume-ids", volume_id,
-         "--query", "Volumes[0].{State:State,Attachments:Attachments}",
-         "--output", "json",
-         "--region", AWS_REGION],
-        check=True,
-    )
-    data = json.loads(result.stdout)
-    attachments = data.get("Attachments", []) or []
-    attached_instance = attachments[0]["InstanceId"] if attachments else ""
-    device = attachments[0]["Device"] if attachments else ""
-
-    return {
-        "state": data.get("State", "unknown"),
-        "attached_instance": attached_instance,
-        "device": device,
-    }
-
-
-def _wait_for_volume_available(volume_id: str, instance_id: str) -> str:
-    """Wait for the EBS volume to become available for attachment.
-
-    Handles ASG replacement: if the volume is still attached to the old
-    (terminating) instance, this retries until it transitions to 'available'.
-    If the volume is already attached to THIS instance, returns 'already-attached'.
-
-    Returns:
-        'available'          — volume is ready to attach
-        'already-attached'   — volume is already attached to this instance
-
-    Raises:
-        RuntimeError if the volume does not become available within the retry window.
-    """
-    for attempt in range(1, EBS_MAX_ATTACH_RETRIES + 1):
-        info = _describe_volume(volume_id)
-        state = info["state"]
-        attached_to = info["attached_instance"]
-
-        if state == "available":
-            log_info(f"Volume {volume_id} is available (attempt {attempt})")
-            return "available"
-
-        if state == "in-use" and attached_to == instance_id:
-            log_info(
-                f"Volume {volume_id} already attached to this instance — "
-                f"skipping attach"
-            )
-            return "already-attached"
-
-        if state == "in-use":
-            log_warn(
-                f"Volume {volume_id} still attached to {attached_to} "
-                f"(ASG replacement in progress). "
-                f"Waiting {EBS_RETRY_INTERVAL_SECONDS}s... "
-                f"(attempt {attempt}/{EBS_MAX_ATTACH_RETRIES})"
-            )
-        else:
-            log_warn(
-                f"Volume {volume_id} in unexpected state '{state}'. "
-                f"Waiting {EBS_RETRY_INTERVAL_SECONDS}s... "
-                f"(attempt {attempt}/{EBS_MAX_ATTACH_RETRIES})"
-            )
-
-        time.sleep(EBS_RETRY_INTERVAL_SECONDS)
-
-    raise RuntimeError(
-        f"EBS volume {volume_id} did not become available after "
-        f"{EBS_MAX_ATTACH_RETRIES * EBS_RETRY_INTERVAL_SECONDS}s. "
-        f"Check if the old EC2 instance has fully terminated."
-    )
-
-
-def _attach_volume(volume_id: str, instance_id: str) -> None:
-    """Attach the EBS volume to this instance."""
-    log_info(
-        f"Attaching volume {volume_id} to {instance_id} "
-        f"as {EBS_DEVICE_NAME}..."
-    )
-    run_cmd(
-        ["aws", "ec2", "attach-volume",
-         "--volume-id", volume_id,
-         "--instance-id", instance_id,
-         "--device", EBS_DEVICE_NAME,
-         "--region", AWS_REGION],
-        check=True,
-    )
-    log_info(f"Attach command sent for {volume_id}")
-
-
-def _wait_for_device() -> str:
-    """Wait for the block device to appear in the OS after attachment.
-
-    Returns:
-        The resolved device path (e.g. '/dev/nvme1n1' or '/dev/xvdf').
-
-    Raises:
-        RuntimeError if the device does not appear within 60 seconds.
-    """
-    log_info("Waiting for block device to appear...")
-    for i in range(1, 61):
-        device = _resolve_nvme_device()
-        if device:
-            log_info(f"Block device appeared: {device} (waited {i}s)")
-            return device
-        time.sleep(1)
-
-    raise RuntimeError(
-        f"Block device did not appear within 60s after attachment. "
-        f"Expected {EBS_DEVICE_NAME} or /dev/nvme<N>n1. "
-        f"Run 'lsblk' to inspect available devices."
-    )
-
-
-def _format_if_needed(device: str) -> bool:
-    """Format the EBS volume with ext4 if it has no filesystem.
-
-    Returns True if formatting was performed, False if already formatted.
-    """
-    result = run_cmd(
-        ["blkid", "-o", "value", "-s", "TYPE", device],
-        check=False,
-    )
-    existing_fs = result.stdout.strip()
-
-    if existing_fs:
-        log_info(f"Device {device} already has filesystem: {existing_fs}")
-        return False
-
-    log_info(f"No filesystem on {device} — formatting as {EBS_FILESYSTEM}")
-    run_cmd(
-        ["mkfs", "-t", EBS_FILESYSTEM, device],
-        check=True,
-    )
-    log_info(f"Formatted {device} as {EBS_FILESYSTEM}")
-    return True
-
-
-def _mount_volume(device: str, mount_point: str) -> None:
-    """Mount the device and ensure persistence via fstab."""
-    Path(mount_point).mkdir(parents=True, exist_ok=True)
-
-    # Mount the device
-    log_info(f"Mounting {device} at {mount_point}")
-    run_cmd(["mount", device, mount_point], check=True)
-
-    # Add fstab entry for reboot persistence (idempotent)
-    fstab = Path("/etc/fstab")
-    fstab_content = fstab.read_text() if fstab.exists() else ""
-    if mount_point not in fstab_content:
-        # Use nofail so the instance still boots if the volume is missing
-        entry = f"{device}  {mount_point}  {EBS_FILESYSTEM}  defaults,nofail  0  2\n"
-        with fstab.open("a") as f:
-            f.write(entry)
-        log_info(f"fstab entry added: {entry.strip()}")
-    else:
-        log_info(f"fstab already contains entry for {mount_point}")
-
-
-def _ensure_data_directories(mount_point: str) -> None:
-    """Create the required subdirectory structure on the data volume.
-
-    These directories match what the Golden AMI component creates
-    in the root filesystem at build time. Once the EBS volume is
-    mounted over /data, they need to exist on the volume itself.
-    """
-    subdirs = ["kubernetes", "k8s-bootstrap", "app-deploy"]
-    for subdir in subdirs:
-        path = Path(mount_point) / subdir
-        path.mkdir(parents=True, exist_ok=True)
-    log_info(
-        f"Data directories ensured: "
-        f"{', '.join(str(Path(mount_point) / d) for d in subdirs)}"
-    )
-
-
-def step_attach_ebs_volume() -> None:
-    """Step 0: Attach, format (if needed), and mount the EBS data volume.
-
-    This step runs before everything else to ensure /data is on the
-    persistent EBS volume rather than the ephemeral root volume.
-
-    Handles:
-    - Idempotent re-runs (marker file + mountpoint check)
-    - ASG replacement (waits for volume to detach from old instance)
-    - NVMe device naming on Nitro instances
-    - First-boot formatting (only if volume has no filesystem)
-    - fstab entry for reboot persistence
-    """
-    with StepRunner("attach-ebs-volume", skip_if=EBS_ATTACH_MARKER) as step:
-        if step.skipped:
-            return
-
-        if not VOLUME_ID:
-            log_warn(
-                "VOLUME_ID not set — skipping EBS attachment. "
-                "Kubernetes data will use the root volume (not persistent)."
-            )
-            step.details["action"] = "skipped_no_volume_id"
-            return
-
-        # Already mounted (e.g. manual recovery or previous partial run)
-        if _is_already_mounted(MOUNT_POINT):
-            log_info(
-                f"{MOUNT_POINT} is already a mount point — "
-                f"skipping attachment"
-            )
-            step.details["action"] = "skipped_already_mounted"
-            _ensure_data_directories(MOUNT_POINT)
-            return
-
-        instance_id = get_imds_value("instance-id")
-        if not instance_id:
-            raise RuntimeError(
-                "Failed to retrieve instance ID from IMDS. "
-                "Cannot attach EBS volume without knowing the instance ID."
-            )
-
-        step.details["volume_id"] = VOLUME_ID
-        step.details["instance_id"] = instance_id
-        step.details["mount_point"] = MOUNT_POINT
-
-        # Wait for volume to be available (handles ASG replacement)
-        availability = _wait_for_volume_available(VOLUME_ID, instance_id)
-
-        # Attach if not already attached to this instance
-        if availability == "available":
-            _attach_volume(VOLUME_ID, instance_id)
-            device = _wait_for_device()
-            step.details["action"] = "attached"
-        else:
-            # Already attached to this instance — resolve the device
-            device = _resolve_nvme_device()
-            if not device:
-                device = _wait_for_device()
-            step.details["action"] = "already_attached"
-
-        step.details["device"] = device
-
-        # Format if this is a brand-new volume
-        formatted = _format_if_needed(device)
-        step.details["formatted"] = formatted
-
-        # Mount and add fstab entry
-        _mount_volume(device, MOUNT_POINT)
-
-        # Ensure directory structure exists on the volume
-        _ensure_data_directories(MOUNT_POINT)
-
-        log_info(
-            f"✓ EBS volume {VOLUME_ID} attached as {device}, "
-            f"mounted at {MOUNT_POINT}"
-        )
-
-
 # Step 1 — Validate Golden AMI
 # Imported from common: step_validate_ami()
 
@@ -1689,7 +1384,6 @@ def step_install_token_rotator() -> None:
 def main() -> None:
     """Execute all control plane bootstrap steps in order."""
     steps = [
-        step_attach_ebs_volume,
         step_validate_ami,
         step_restore_from_backup,
         step_init_kubeadm,
