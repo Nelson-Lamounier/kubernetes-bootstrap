@@ -123,24 +123,23 @@ DR_RESTORE_MARKER = "/etc/kubernetes/.dr-restored"
 
 
 def _label_control_plane_node() -> None:
-    """Apply workload and environment labels to the control plane node.
+    """Apply role and workload labels to the control plane node.
 
-    Enables Grafana dashboards to identify the control plane by role
-    rather than by IP address. Idempotent — re-labelling an already-labelled
-    node is a no-op.
+    Uses the node hostname from IMDS to identify the node directly,
+    avoiding the chicken-and-egg problem where the role label selector
+    returns nothing on a fresh node that hasn't been labelled yet.
     """
     hostname = run_cmd(
-        ["kubectl", "get", "nodes",
-         "-l", "node-role.kubernetes.io/control-plane=",
-         "-o", "jsonpath={.items[0].metadata.name}"],
-        check=False, env=_bootstrap_kubeconfig_env(),
+        ["hostname", "-f"],
+        check=False,
     )
     node_name = hostname.stdout.strip()
     if not node_name:
-        log_warn("Could not resolve control plane node name — skipping labelling")
+        log_warn("Could not resolve node hostname — skipping labelling")
         return
 
     labels = {
+        "node-role.kubernetes.io/control-plane": "",
         "workload": "control-plane",
         "environment": ENVIRONMENT,
     }
