@@ -184,30 +184,37 @@ class TestResolveControlPlaneEndpoint:
 class TestWaitForKubelet:
     """Test kubelet readiness check."""
 
+    @patch("wk.join_cluster.Path")
     @patch("wk.join_cluster.run_cmd")
     @patch("wk.join_cluster.time.sleep")
     def test_detects_active_kubelet(
-        self, mock_sleep: MagicMock, mock_run: MagicMock,
+        self, mock_sleep: MagicMock, mock_run: MagicMock, mock_path: MagicMock,
     ) -> None:
         """Should detect kubelet active on first check."""
         from wk.join_cluster import wait_for_kubelet
 
+        # Simulate kubelet config file exists (kubeadm join completed)
+        mock_path.return_value.exists.return_value = True
         mock_run.return_value = _ok()
 
         wait_for_kubelet()
 
         mock_sleep.assert_not_called()
 
+    @patch("wk.join_cluster.Path")
     @patch("wk.join_cluster.run_cmd")
     @patch("wk.join_cluster.time.sleep")
     def test_waits_then_detects(
-        self, mock_sleep: MagicMock, mock_run: MagicMock,
+        self, mock_sleep: MagicMock, mock_run: MagicMock, mock_path: MagicMock,
     ) -> None:
         """Should wait and retry until kubelet becomes active."""
         from wk.join_cluster import wait_for_kubelet
 
+        # Simulate kubelet config file exists (kubeadm join completed)
+        mock_path.return_value.exists.return_value = True
         mock_run.side_effect = [_fail(), _fail(), _ok()]
 
         wait_for_kubelet()
 
         assert mock_sleep.call_count == 2
+
