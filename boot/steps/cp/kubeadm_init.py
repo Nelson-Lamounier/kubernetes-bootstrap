@@ -202,10 +202,49 @@ def backup_certificates(cfg: BootConfig) -> None:
             os.remove(archive_path)
 
 
-# ── Addon Guards ──────────────────────────────────────────────────────────
+# ── Bootstrap & Addon Guards ─────────────────────────────────────────────
 # On DR restore, admin.conf is recovered from S3 but kubeadm init is
-# skipped — critical addons (kube-proxy, CoreDNS) are never deployed.
-# These guards detect and repair the missing addons.
+# skipped — critical resources are never created:
+#   1. cluster-info ConfigMap (kube-public) — kubeadm join discovery
+#   2. Bootstrap RBAC bindings — CSR creation & auto-approval
+#   3. kube-proxy DaemonSet — ClusterIP routing
+#   4. CoreDNS Deployment — DNS resolution
+# These guards detect and repair all missing components.
+
+
+def ensure_bootstrap_token() -> None:
+    """Verify bootstrap token RBAC and cluster-info ConfigMap; re-create if missing.
+
+    On a DR restore, ``kubeadm init`` is skipped because ``admin.conf`` was
+    recovered from S3.  This means the ``cluster-info`` ConfigMap in
+    ``kube-public`` and the bootstrap RBAC bindings (``kubeadm:kubelet-bootstrap``,
+    ``kubeadm:node-autoapprove-bootstrap``, ``kubeadm:node-autoapprove-certificate-rotation``)
+    are never created.
+
+    Without ``cluster-info``, ``kubeadm join`` hangs indefinitely during the
+    TLS bootstrap discovery phase — workers can reach the API server via TCP
+    but cannot complete the join handshake.
+
+    Uses ``kubeadm init phase bootstrap-token`` which is idempotent — safe
+    to call even when all resources already exist.
+    """
+    result = run_cmd(
+        ["kubectl", "get", "configmap", "cluster-info", "-n", "kube-public"],
+        check=False, env=KUBECONFIG_ENV,
+    )
+    if result.returncode == 0 and "cluster-info" in result.stdout:
+        log_info("cluster-info ConfigMap already present — bootstrap-token phase OK")
+        return
+
+    log_warn(
+        "cluster-info ConfigMap MISSING — running "
+        "kubeadm init phase bootstrap-token"
+    )
+    run_cmd(["kubeadm", "init", "phase", "bootstrap-token"])
+    log_info(
+        "✓ Bootstrap token phase complete — cluster-info ConfigMap, "
+        "RBAC bindings, and bootstrap tokens created"
+    )
 
 
 def ensure_kube_proxy(cfg: BootConfig) -> None:
@@ -325,11 +364,14 @@ def handle_second_run(cfg: BootConfig) -> None:
 
     publish_kubeconfig_to_ssm(cfg)
 
-    # ── Ensure critical addons are present ─────────────────────────
+    # ── Ensure bootstrap infrastructure is present ──────────────────
     # On DR restore, kubeadm init is skipped because admin.conf was
-    # recovered from S3.  This means kube-proxy and CoreDNS are never
-    # deployed.  Without kube-proxy, ClusterIP routing breaks and the
-    # entire cluster cascades into failure.
+    # recovered from S3.  This means the cluster-info ConfigMap,
+    # bootstrap RBAC bindings, kube-proxy, and CoreDNS are never
+    # created.  Without cluster-info, kubeadm join hangs during TLS
+    # discovery.  Without kube-proxy, ClusterIP routing breaks and
+    # the entire cluster cascades into failure.
+    ensure_bootstrap_token()
     ensure_kube_proxy(cfg)
     ensure_coredns(cfg)
 

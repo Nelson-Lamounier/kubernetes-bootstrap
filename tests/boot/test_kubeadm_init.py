@@ -1,7 +1,8 @@
 """Unit tests for the kubeadm init step (cp/kubeadm_init.py).
 
-Covers the ensure_kube_proxy() and ensure_coredns() addon guards
-that were added to prevent missing critical addons after DR restore.
+Covers the ensure_bootstrap_token(), ensure_kube_proxy(), and
+ensure_coredns() guards that repair missing cluster infrastructure
+after a DR restore where kubeadm init was skipped.
 
 All subprocess calls are mocked — no AWS or system interaction.
 """
@@ -149,29 +150,76 @@ class TestEnsureCoreDNS:
         assert "--service-cidr=10.96.0.0/12" in cmd
 
 
+# ── ensure_bootstrap_token ────────────────────────────────────────────────
+
+class TestEnsureBootstrapToken:
+    """Tests for the bootstrap-token phase guard."""
+
+    @patch("cp.kubeadm_init.run_cmd")
+    def test_skips_when_cluster_info_exists(
+        self, mock_run: MagicMock,
+    ) -> None:
+        """Should short-circuit when cluster-info ConfigMap is present."""
+        from cp.kubeadm_init import ensure_bootstrap_token
+
+        mock_run.return_value = _ok(
+            stdout="NAME           DATA   AGE\n"
+                   "cluster-info   3      5d\n"
+        )
+
+        ensure_bootstrap_token()
+
+        assert mock_run.call_count == 1
+        cmd_args = mock_run.call_args[0][0]
+        assert "configmap" in cmd_args
+        assert "cluster-info" in cmd_args
+
+    @patch("cp.kubeadm_init.run_cmd")
+    def test_runs_bootstrap_token_phase_when_missing(
+        self, mock_run: MagicMock,
+    ) -> None:
+        """Should run kubeadm init phase bootstrap-token when ConfigMap missing."""
+        from cp.kubeadm_init import ensure_bootstrap_token
+
+        mock_run.side_effect = [
+            _fail(stderr="Error from server (NotFound)"),  # ConfigMap missing
+            _ok(),  # kubeadm init phase bootstrap-token
+        ]
+
+        ensure_bootstrap_token()
+
+        kubeadm_call = mock_run.call_args_list[1]
+        cmd = kubeadm_call[0][0]
+        assert cmd[0] == "kubeadm"
+        assert "bootstrap-token" in cmd
+        assert "phase" in cmd
+
+
 # ── handle_second_run integration ─────────────────────────────────────────
 
 class TestHandleSecondRunGuards:
-    """Verify that handle_second_run calls addon guards."""
+    """Verify that handle_second_run calls all guards."""
 
     @patch("cp.kubeadm_init.ensure_coredns")
     @patch("cp.kubeadm_init.ensure_kube_proxy")
+    @patch("cp.kubeadm_init.ensure_bootstrap_token")
     @patch("cp.kubeadm_init.publish_kubeconfig_to_ssm")
     @patch("cp.kubeadm_init.ssm_put")
     @patch("cp.kubeadm_init.update_dns_record")
     @patch("cp.kubeadm_init.get_imds_value", return_value="10.0.1.42")
     @patch("cp.kubeadm_init.run_cmd")
-    def test_calls_ensure_guards_during_second_run(
+    def test_calls_all_ensure_guards_during_second_run(
         self,
         mock_run: MagicMock,
         mock_imds: MagicMock,
         mock_dns: MagicMock,
         mock_ssm: MagicMock,
         mock_publish: MagicMock,
+        mock_ensure_bt: MagicMock,
         mock_ensure_kp: MagicMock,
         mock_ensure_dns: MagicMock,
     ) -> None:
-        """Both ensure_kube_proxy and ensure_coredns must be called."""
+        """All three guards must be called in order: bootstrap-token, kube-proxy, coredns."""
         from cp.kubeadm_init import handle_second_run
 
         # Simulate: id ssm-user fails (no ssm-user), kubectl get nodes succeeds,
@@ -186,5 +234,7 @@ class TestHandleSecondRunGuards:
         cfg = _cfg()
         handle_second_run(cfg)
 
+        # Verify all three guards were called
+        mock_ensure_bt.assert_called_once()
         mock_ensure_kp.assert_called_once_with(cfg)
         mock_ensure_dns.assert_called_once_with(cfg)
