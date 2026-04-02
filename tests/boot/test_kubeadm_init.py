@@ -175,24 +175,36 @@ class TestEnsureBootstrapToken:
         assert "cluster-info" in cmd_args
 
     @patch("cp.kubeadm_init.run_cmd")
-    def test_runs_bootstrap_token_phase_when_missing(
+    def test_runs_all_restore_phases_when_missing(
         self, mock_run: MagicMock,
     ) -> None:
-        """Should run kubeadm init phase bootstrap-token when ConfigMap missing."""
+        """Should run upload-config (kubeadm + kubelet) then bootstrap-token."""
         from cp.kubeadm_init import ensure_bootstrap_token
 
         mock_run.side_effect = [
             _fail(stderr="Error from server (NotFound)"),  # ConfigMap missing
+            _ok(),  # kubeadm init phase upload-config kubeadm
+            _ok(),  # kubeadm init phase upload-config kubelet
             _ok(),  # kubeadm init phase bootstrap-token
         ]
 
         ensure_bootstrap_token()
 
-        kubeadm_call = mock_run.call_args_list[1]
-        cmd = kubeadm_call[0][0]
-        assert cmd[0] == "kubeadm"
-        assert "bootstrap-token" in cmd
-        assert "phase" in cmd
+        assert mock_run.call_count == 4
+
+        # Verify upload-config kubeadm
+        upload_kubeadm_cmd = mock_run.call_args_list[1][0][0]
+        assert "upload-config" in upload_kubeadm_cmd
+        assert "kubeadm" in upload_kubeadm_cmd
+
+        # Verify upload-config kubelet
+        upload_kubelet_cmd = mock_run.call_args_list[2][0][0]
+        assert "upload-config" in upload_kubelet_cmd
+        assert "kubelet" in upload_kubelet_cmd
+
+        # Verify bootstrap-token
+        bootstrap_cmd = mock_run.call_args_list[3][0][0]
+        assert "bootstrap-token" in bootstrap_cmd
 
 
 # ── handle_second_run integration ─────────────────────────────────────────

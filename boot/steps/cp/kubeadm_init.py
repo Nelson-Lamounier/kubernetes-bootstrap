@@ -213,20 +213,22 @@ def backup_certificates(cfg: BootConfig) -> None:
 
 
 def ensure_bootstrap_token() -> None:
-    """Verify bootstrap token RBAC and cluster-info ConfigMap; re-create if missing.
+    """Verify bootstrap resources and restore any missing after DR.
 
     On a DR restore, ``kubeadm init`` is skipped because ``admin.conf`` was
-    recovered from S3.  This means the ``cluster-info`` ConfigMap in
-    ``kube-public`` and the bootstrap RBAC bindings (``kubeadm:kubelet-bootstrap``,
-    ``kubeadm:node-autoapprove-bootstrap``, ``kubeadm:node-autoapprove-certificate-rotation``)
-    are never created.
+    recovered from S3.  This means three categories of resources are missing:
 
-    Without ``cluster-info``, ``kubeadm join`` hangs indefinitely during the
-    TLS bootstrap discovery phase — workers can reach the API server via TCP
-    but cannot complete the join handshake.
+    1. **cluster-info** ConfigMap (``kube-public``) — ``kubeadm join`` TLS
+       discovery hangs without it.
+    2. **kubeadm-config** ConfigMap (``kube-system``) — ``kubeadm join``
+       preflight reads cluster configuration from it.
+    3. **kubelet-config** ConfigMap (``kube-system``) — ``kubeadm join``
+       downloads kubelet settings from it.
+    4. **Bootstrap RBAC** bindings — CSR creation & auto-approval for new
+       nodes (``kubeadm:kubelet-bootstrap``, ``kubeadm:node-autoapprove-*``).
 
-    Uses ``kubeadm init phase bootstrap-token`` which is idempotent — safe
-    to call even when all resources already exist.
+    Uses idempotent ``kubeadm init phase`` subcommands — safe to call even
+    when all resources already exist.
     """
     result = run_cmd(
         ["kubectl", "get", "configmap", "cluster-info", "-n", "kube-public"],
@@ -237,13 +239,23 @@ def ensure_bootstrap_token() -> None:
         return
 
     log_warn(
-        "cluster-info ConfigMap MISSING — running "
-        "kubeadm init phase bootstrap-token"
+        "cluster-info ConfigMap MISSING — restoring bootstrap resources"
     )
+
+    # Phase 1: Upload kubeadm + kubelet config ConfigMaps to kube-system.
+    # Without these, kubeadm join fails at preflight with RBAC errors
+    # reading kubeadm-config and kubelet-config.
+    run_cmd(["kubeadm", "init", "phase", "upload-config", "kubeadm"])
+    log_info("✓ kubeadm-config ConfigMap restored")
+
+    run_cmd(["kubeadm", "init", "phase", "upload-config", "kubelet"])
+    log_info("✓ kubelet-config ConfigMap restored")
+
+    # Phase 2: Create bootstrap tokens, cluster-info ConfigMap, and RBAC.
     run_cmd(["kubeadm", "init", "phase", "bootstrap-token"])
     log_info(
-        "✓ Bootstrap token phase complete — cluster-info ConfigMap, "
-        "RBAC bindings, and bootstrap tokens created"
+        "✓ Bootstrap restoration complete — cluster-info, kubeadm-config, "
+        "kubelet-config ConfigMaps and RBAC bindings created"
     )
 
 
