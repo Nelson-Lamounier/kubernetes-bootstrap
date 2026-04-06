@@ -187,8 +187,8 @@ def apply_ingress(cfg: Config) -> None:
     )
     running_pods = [p for p in argocd_running.stdout.strip().split("\n") if p]
     if not running_pods:
-        log(f"  ⚠ No ArgoCD pods Running — Traefik will not sync yet")
-        log(f"    Skipping CRD wait — apply ingress manually once ArgoCD is healthy:")
+        log("  ⚠ No ArgoCD pods Running — Traefik will not sync yet")
+        log("    Skipping CRD wait — apply ingress manually once ArgoCD is healthy:")
         for manifest_path, _ in manifests_to_apply:
             log(f"    kubectl apply -f {manifest_path}")
         log("")
