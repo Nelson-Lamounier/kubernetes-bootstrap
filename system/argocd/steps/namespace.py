@@ -119,7 +119,12 @@ def preserve_argocd_secret(cfg: Config) -> str | None:
     tokens (including the CI bot token). By extracting the key beforehand,
     we can patch it back after installation, preserving token validity.
 
-    Returns the base64-decoded signing key, or None if it doesn't exist
+    Fallback chain:
+      1. In-cluster argocd-secret (normal re-bootstrap)
+      2. SSM Parameter Store backup (DR — fresh cluster, key backed up by 10d)
+      3. None (first-ever install — new key will be generated)
+
+    Returns the base64-encoded signing key, or None if no key exists anywhere
     (first install — no key to preserve).
     """
     log("=== Step 3b: Preserving ArgoCD JWT signing key ===")
@@ -128,6 +133,7 @@ def preserve_argocd_secret(cfg: Config) -> str | None:
         log("  [DRY-RUN] Would extract server.secretkey from argocd-secret\n")
         return None
 
+    # ── Source 1: In-cluster argocd-secret (normal re-bootstrap) ──────────
     result = subprocess.run(
         ["kubectl", "get", "secret", "argocd-secret", "-n", "argocd",
          "-o", "jsonpath={.data.server\\.secretkey}"],
@@ -135,11 +141,28 @@ def preserve_argocd_secret(cfg: Config) -> str | None:
         capture_output=True, text=True,
     )
 
-    if result.returncode != 0 or not result.stdout.strip():
-        log("  ℹ No existing argocd-secret found — first install")
-        log("    A new signing key will be generated\n")
-        return None
+    if result.returncode == 0 and result.stdout.strip():
+        signing_key = result.stdout.strip()
+        log("  ✓ JWT signing key preserved from in-cluster secret\n")
+        return signing_key
 
-    signing_key = result.stdout.strip()
-    log("  ✓ JWT signing key preserved (will be restored after install)\n")
-    return signing_key
+    # ── Source 2: SSM Parameter Store (DR — fresh cluster) ────────────────
+    #
+    # Step 10d backs up the signing key to SSM after every bootstrap.
+    # On a DR rebuild the in-cluster secret doesn't exist, but the SSM
+    # backup is still available. Recovering it here ensures the old CI
+    # bot token in Secrets Manager remains valid after re-install.
+    log("  ℹ No in-cluster argocd-secret — attempting SSM fallback (DR recovery)")
+
+    ssm_path = f"{cfg.ssm_prefix}/argocd/server-secret-key"
+    try:
+        ssm = get_ssm_client(cfg)
+        resp = ssm.get_parameter(Name=ssm_path, WithDecryption=True)
+        signing_key = resp["Parameter"]["Value"]
+        log(f"  ✓ JWT signing key recovered from SSM: {ssm_path}")
+        log("    Existing CI bot tokens will remain valid after install\n")
+        return signing_key
+    except Exception as exc:
+        log(f"  ℹ SSM fallback not available ({ssm_path}) — {exc}")
+        log("    First install — a new signing key will be generated\n")
+        return None
