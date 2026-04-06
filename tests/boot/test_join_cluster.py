@@ -21,7 +21,7 @@ def _make_cfg(**overrides: str) -> BootConfig:
         "AWS_REGION": "eu-west-1",
         "SSM_PREFIX": "/k8s/development",
         "MOUNT_POINT": "/data",
-        "NODE_LABEL": "role=application",
+        "NODE_LABEL": "workload=frontend,environment=development",
         "JOIN_MAX_RETRIES": "3",
         "JOIN_RETRY_INTERVAL": "0",
     }
