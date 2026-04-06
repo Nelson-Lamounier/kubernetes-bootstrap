@@ -10,5 +10,6 @@ Provides reusable modules for SSM → K8s Secret workflows:
 
 Used by:
 - ``workloads/charts/nextjs/deploy.py``
+- ``workloads/charts/start-admin/deploy.py``
 - ``platform/charts/monitoring/deploy.py``
 """
