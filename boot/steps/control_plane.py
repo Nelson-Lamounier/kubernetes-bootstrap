@@ -333,8 +333,11 @@ def _ensure_bootstrap_token() -> None:
     # Phase 1: Upload kubeadm + kubelet config ConfigMaps to kube-system.
     # Without these, kubeadm join fails at preflight with RBAC errors
     # reading kubeadm-config and kubelet-config.
-    run_cmd(["kubeadm", "init", "phase", "upload-config", "kubeadm"])
-    log_info("✓ kubeadm-config ConfigMap restored")
+    run_cmd([
+        "kubeadm", "init", "phase", "upload-config", "kubeadm",
+        f"--pod-network-cidr={POD_CIDR}",
+    ])
+    log_info("✓ kubeadm-config ConfigMap restored (with podSubnet)")
 
     run_cmd(["kubeadm", "init", "phase", "upload-config", "kubelet"])
     log_info("✓ kubelet-config ConfigMap restored")
@@ -444,13 +447,14 @@ def _reconstruct_control_plane(private_ip: str, public_ip: str) -> None:
     - static pod manifests (``/etc/kubernetes/manifests/``) are empty
     - kubeconfigs for controller-manager/scheduler are absent
     - DNS A record still points to the old instance
+    - **API server certificate** has old instance IPs in its SANs
 
     This function uses ``kubeadm init phase`` subcommands to regenerate
-    manifests and kubeconfigs **from existing PKI** — zero certificates
-    are regenerated.  The ``--control-plane-endpoint`` uses a DNS name
-    (``k8s-api.k8s.internal``) which is already a SAN in the restored
-    certificate, so all TLS connections work via DNS even though the
-    private IP has changed.
+    manifests and kubeconfigs from existing PKI.  The apiserver certificate
+    is **always regenerated** because its SANs contain instance-specific
+    IPs that change on every ASG replacement.  Without this step the
+    kubelet cannot verify the API server certificate and node registration
+    fails.
     """
     log_info("=== Reconstructing control plane from restored PKI ===")
 
@@ -494,7 +498,22 @@ def _reconstruct_control_plane(private_ip: str, public_ip: str) -> None:
     ], check=False)  # Non-fatal: kubelet may already be partially configured
     log_info("✓ Kubelet configuration generated")
 
-    # ── 7. Generate static pod manifests ────────────────────────────
+    # ── 7. Renew API server certificate with current instance IPs ───
+    # The restored cert contains the OLD instance's private/public IPs
+    # as SANs.  The kubelet connects via the raw IP address (not DNS),
+    # so TLS verification fails if the cert doesn't include the new IP.
+    # This MUST happen before generating static pod manifests.
+    cert_ips = _get_apiserver_cert_ips()
+    if private_ip not in cert_ips:
+        log_warn(
+            f"API server cert SANs {cert_ips} do not include "
+            f"current IP {private_ip} — regenerating certificate"
+        )
+        _renew_apiserver_cert(private_ip, public_ip)
+    else:
+        log_info(f"API server cert already includes {private_ip} — no renewal needed")
+
+    # ── 8. Generate static pod manifests ────────────────────────────
     # These use existing certs and create the YAML manifests that
     # kubelet watches to start kube-apiserver, controller-manager,
     # and kube-scheduler as static pods.
@@ -506,21 +525,21 @@ def _reconstruct_control_plane(private_ip: str, public_ip: str) -> None:
     ])
     log_info("✓ Control plane manifests generated (apiserver, controller-manager, scheduler)")
 
-    # ── 8. Generate etcd static pod manifest ────────────────────────
+    # ── 9. Generate etcd static pod manifest ────────────────────────
     log_info("Generating etcd static pod manifest...")
     run_cmd([
         "kubeadm", "init", "phase", "etcd", "local",
     ])
     log_info("✓ etcd manifest generated")
 
-    # ── 9. Start kubelet → static pods start automatically ──────────
+    # ── 10. Start kubelet → static pods start automatically ─────────
     # Kubelet is enabled in the Golden AMI (systemctl enable kubelet)
     # but needs an explicit start since there was no kubeadm init to
     # trigger it.
     log_info("Starting kubelet service...")
     run_cmd(["systemctl", "restart", "kubelet"])
 
-    # ── 10. Wait for API server to become healthy ───────────────────
+    # ── 11. Wait for API server to become healthy ───────────────────
     log_info("Waiting for API server to become healthy...")
     for i in range(1, 91):
         probe = run_cmd(
@@ -537,7 +556,7 @@ def _reconstruct_control_plane(private_ip: str, public_ip: str) -> None:
             )
         time.sleep(1)
 
-    # ── 11. Copy kubeconfig for user access ─────────────────────────
+    # ── 12. Copy kubeconfig for user access ─────────────────────────
     Path("/root/.kube").mkdir(parents=True, exist_ok=True)
     run_cmd(["cp", "-f", ADMIN_CONF, ROOT_KUBECONFIG])
     run_cmd(["chmod", "600", ROOT_KUBECONFIG])
@@ -611,6 +630,19 @@ def _handle_second_run() -> None:
         log_info("API server already running — skipping reconstruction")
         # Still update DNS to point to current instance
         _update_dns_record(private_ip)
+
+    # ── Safety net: verify apiserver cert SANs match current IP ─────
+    # Even when reconstruction is skipped (API server was already running
+    # from a partial kubeadm init), the cert may have stale IPs.  This
+    # catches the edge case where kubeadm init failed AFTER generating
+    # manifests but BEFORE the cert was regenerated with new SANs.
+    cert_ips = _get_apiserver_cert_ips()
+    if cert_ips and private_ip not in cert_ips:
+        log_warn(
+            f"API server cert SANs {cert_ips} do not include "
+            f"current IP {private_ip} — renewing certificate"
+        )
+        _renew_apiserver_cert(private_ip, public_ip or "")
 
     # ── Post-reconstruction maintenance ─────────────────────────────
     api_endpoint = f"{API_DNS_NAME}:6443"
