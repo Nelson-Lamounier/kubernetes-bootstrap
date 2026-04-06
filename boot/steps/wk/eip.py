@@ -23,7 +23,9 @@ from boot_helpers.config import BootConfig
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
-APP_WORKER_LABEL = "role=application"
+# The CDK config sets NODE_LABEL='workload=frontend,environment=<env>'.
+# Use a prefix check since the label string is compound (comma-separated).
+APP_WORKER_LABEL_PREFIX = "workload=frontend"
 
 
 # ── Step ───────────────────────────────────────────────────────────────────
@@ -38,11 +40,11 @@ def step_associate_eip(cfg: BootConfig) -> None:
         if step.skipped:
             return
 
-        # Gate: only app-worker nodes get the EIP
-        if cfg.node_label != APP_WORKER_LABEL:
+        # Gate: only app-worker (frontend) nodes get the EIP
+        if not cfg.node_label.startswith(APP_WORKER_LABEL_PREFIX):
             log_info(
                 f"Skipping EIP association — NODE_LABEL={cfg.node_label} "
-                f"(only {APP_WORKER_LABEL} receives the EIP)"
+                f"(only {APP_WORKER_LABEL_PREFIX}* receives the EIP)"
             )
             step.details["skipped_reason"] = f"not an app-worker (label={cfg.node_label})"
             return

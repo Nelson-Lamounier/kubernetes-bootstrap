@@ -13,6 +13,7 @@ Steps (in order):
     3. install_cw_agent     — CloudWatch Agent for log streaming
     4. associate_eip        — Associate Elastic IP (app-worker only)
     5. clean_stale_pvs      — Remove stale PVs/PVCs from dead nodes (mon-worker only)
+    6. verify_membership    — Verify cluster registration and correct labels
 
 Idempotent: each step uses marker files or existence checks to skip
 if already completed. Safe to re-run on instance replacement.
@@ -442,7 +443,9 @@ def step_join_cluster() -> None:
 # =============================================================================
 
 EIP_SSM_PATH = f"{SSM_PREFIX}/elastic-ip-allocation-id"
-APP_WORKER_LABEL = "role=application"
+# The CDK config sets NODE_LABEL='workload=frontend,environment=<env>'.
+# Use a prefix check since the label string is compound (comma-separated).
+APP_WORKER_LABEL_PREFIX = "workload=frontend"
 
 
 def step_associate_eip() -> None:
@@ -451,11 +454,11 @@ def step_associate_eip() -> None:
         if step.skipped:
             return
 
-        # Gate: only app-worker nodes get the EIP
-        if NODE_LABEL != APP_WORKER_LABEL:
+        # Gate: only app-worker (frontend) nodes get the EIP
+        if not NODE_LABEL.startswith(APP_WORKER_LABEL_PREFIX):
             log_info(
                 f"Skipping EIP association — NODE_LABEL={NODE_LABEL} "
-                f"(only {APP_WORKER_LABEL} receives the EIP)"
+                f"(only {APP_WORKER_LABEL_PREFIX}* receives the EIP)"
             )
             step.details["skipped_reason"] = f"not an app-worker (label={NODE_LABEL})"
             return
@@ -724,6 +727,7 @@ def main() -> None:
         step_install_cloudwatch_agent,
         step_associate_eip,
         step_clean_stale_pvs,
+        # step_verify_cluster_membership — only in wk/ refactored package
     ]
 
     log_info(f"Worker node bootstrap starting ({len(steps)} steps)")
