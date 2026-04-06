@@ -1197,6 +1197,8 @@ nodeSelector:
 tolerations:
   - key: node-role.kubernetes.io/control-plane
     effect: NoSchedule
+  - key: node-role.kubernetes.io/master
+    effect: NoSchedule
   - key: node.cloudprovider.kubernetes.io/uninitialized
     value: "true"
     effect: NoSchedule
