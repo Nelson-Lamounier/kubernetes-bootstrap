@@ -130,9 +130,10 @@ def apply_ingress(cfg: Config) -> None:
     """Apply ingress manifests after Traefik CRDs are available.
 
     Waits for the ``ingressroutes.traefik.io`` CRD to be registered before
-    attempting ``kubectl apply``. This is more reliable than the previous
-    retry-on-failure approach because ArgoCD may take several minutes to
-    sync Traefik after the root app is applied.
+    attempting ``kubectl apply``. Uses an extended 300s timeout (60 × 5s)
+    because ArgoCD may take 3–4 minutes to sync Traefik after the root app
+    is applied. Includes post-apply verification to confirm the IngressRoute
+    actually exists in the cluster.
 
     Applied manifests:
       - ingress.yaml — ArgoCD UI IngressRoute (``/argocd``)
@@ -167,11 +168,15 @@ def apply_ingress(cfg: Config) -> None:
     # The root app triggers ArgoCD to sync Traefik, but CRD registration
     # can take minutes depending on cluster load and sync wave ordering.
     #
+    # Extended timeout: 300s (60 × 5s) — ArgoCD typically syncs Traefik
+    # within 3–4 minutes. The previous 60s timeout was too aggressive and
+    # caused silent skips during DR recovery.
+    #
     # Fast-fail: if all ArgoCD pods are Pending (not yet scheduled), Traefik
     # will never sync — skip the wait immediately rather than burning 5 minutes.
     traefik_crd = "ingressroutes.traefik.io"
-    crd_max_attempts = 12  # 12 × 5s = 60s
-    log(f"  → Waiting for Traefik CRD '{traefik_crd}' to be available...")
+    crd_max_attempts = 60  # 60 × 5s = 300s (5 minutes)
+    log(f"  → Waiting for Traefik CRD '{traefik_crd}' (timeout: 300s)...")
 
     # Check if ArgoCD is even running before polling
     argocd_running = subprocess.run(
@@ -201,11 +206,13 @@ def apply_ingress(cfg: Config) -> None:
             crd_ready = True
             break
         if attempt < crd_max_attempts:
-            log(f"    Attempt {attempt}/{crd_max_attempts} — CRD not found, waiting 5s...")
+            # Log progress every 12 attempts (60s) to avoid log spam
+            if attempt % 12 == 0:
+                log(f"    Attempt {attempt}/{crd_max_attempts} — CRD not found, still waiting...")
             time.sleep(5)
 
     if not crd_ready:
-        log(f"  ⚠ Traefik CRD '{traefik_crd}' not available after 60s")
+        log(f"  ⚠ Traefik CRD '{traefik_crd}' not available after 300s")
         log("    ArgoCD may not have synced Traefik yet. Apply manually:")
         for manifest_path, _ in manifests_to_apply:
             log(f"    kubectl apply -f {manifest_path}")
@@ -213,6 +220,7 @@ def apply_ingress(cfg: Config) -> None:
         return
 
     # Apply all ingress manifests now that CRDs are available
+    applied: list[str] = []
     for manifest_path, label in manifests_to_apply:
         result = run(
             ["kubectl", "apply", "-f", str(manifest_path)],
@@ -220,10 +228,42 @@ def apply_ingress(cfg: Config) -> None:
         )
         if result.returncode == 0:
             log(f"  ✓ {label} applied")
+            applied.append(label)
         else:
             log(f"  ⚠ Failed to apply {label}: {manifest_path}")
 
+    # ── Post-apply verification ──────────────────────────────────────────
+    #
+    # Confirm the IngressRoute actually exists in the cluster. This catches
+    # race conditions where the apply succeeds but the resource is immediately
+    # removed by a CRD reconciliation cycle (observed during DR recovery).
+    if applied:
+        log("  → Verifying IngressRoute exists in cluster...")
+        verify_max = 3
+        for attempt in range(1, verify_max + 1):
+            verify = subprocess.run(
+                ["kubectl", "get", "ingressroute", "argocd-ingress",
+                 "-n", "argocd", "-o", "name"],
+                env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+                capture_output=True, text=True,
+            )
+            if verify.returncode == 0 and verify.stdout.strip():
+                log("  ✓ IngressRoute verified — argocd-ingress exists in cluster")
+                break
+            if attempt < verify_max:
+                log(f"    Verification attempt {attempt}/{verify_max} — not found, re-applying in 5s...")
+                time.sleep(5)
+                # Re-apply the main ingress if it disappeared
+                run(
+                    ["kubectl", "apply", "-f", str(argocd_path / "ingress.yaml")],
+                    cfg=cfg, check=False,
+                )
+            else:
+                log("  ⚠ IngressRoute verification failed after 3 attempts")
+                log("    Manual fix: kubectl apply -f ingress.yaml")
+
     log("")
+
 
 
 # ---------------------------------------------------------------------------
