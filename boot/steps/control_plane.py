@@ -334,12 +334,44 @@ def _ensure_bootstrap_token() -> None:
     # Without these, kubeadm join fails at preflight with RBAC errors
     # reading kubeadm-config and kubelet-config.
     # NOTE: --pod-network-cidr was removed in kubeadm v1.35.
-    # The pod CIDR is read from the existing ClusterConfiguration
-    # (networking.podSubnet) automatically — no CLI flag needed.
+    # The pod CIDR must now be injected into the kubeadm-config ConfigMap
+    # *after* `upload-config` restores it, because Tigera operator reads
+    # networking.podSubnet from the ConfigMap to resolve Calico IP pools.
     run_cmd([
         "kubeadm", "init", "phase", "upload-config", "kubeadm",
     ])
     log_info("✓ kubeadm-config ConfigMap restored")
+
+    # Patch podSubnet into the ClusterConfiguration (kubeadm v1.35+).
+    # Tigera operator fails with "kubeadm configuration is missing required
+    # podSubnet field" if this is absent → calico-node never deploys.
+    _patch_script = (
+        "import json, subprocess, sys, yaml; "
+        "raw = subprocess.check_output("
+        "['kubectl', 'get', 'cm', 'kubeadm-config', '-n', 'kube-system', "
+        "'-o', 'jsonpath={.data.ClusterConfiguration}'], "
+        f"env={{'KUBECONFIG': '/etc/kubernetes/super-admin.conf', 'PATH': '/usr/local/bin:/usr/bin:/bin'}}); "
+        "cfg = yaml.safe_load(raw); "
+        f"cfg.setdefault('networking', dict())['podSubnet'] = '{POD_CIDR}'; "
+        "patched = yaml.dump(cfg, default_flow_style=False); "
+        "patch_json = json.dumps({'data': {'ClusterConfiguration': patched}}); "
+        "subprocess.check_call("
+        "['kubectl', 'patch', 'cm', 'kubeadm-config', '-n', 'kube-system', "
+        "'--type', 'merge', '-p', patch_json], "
+        f"env={{'KUBECONFIG': '/etc/kubernetes/super-admin.conf', 'PATH': '/usr/local/bin:/usr/bin:/bin'}})"
+    )
+    result = run_cmd(
+        ["python3", "-c", _patch_script],
+        check=False,
+    )
+    if result.returncode == 0:
+        log_info(f"✓ podSubnet={POD_CIDR} patched into kubeadm-config ConfigMap")
+    else:
+        log_warn(
+            "Could not patch podSubnet into kubeadm-config — "
+            "Calico may fail to resolve IP pool defaults. "
+            f"stderr: {result.stderr.strip()}"
+        )
 
     run_cmd(["kubeadm", "init", "phase", "upload-config", "kubelet"])
     log_info("✓ kubelet-config ConfigMap restored")
@@ -1236,6 +1268,12 @@ tolerations:
   - key: node.cloudprovider.kubernetes.io/uninitialized
     value: "true"
     effect: NoSchedule
+  - key: node.kubernetes.io/not-ready
+    effect: NoSchedule
+  - key: node.kubernetes.io/not-ready
+    effect: NoExecute
+  - key: node.kubernetes.io/unreachable
+    effect: NoExecute
 hostNetworking: true
 """
 
