@@ -178,7 +178,14 @@ def backup_certificates(cfg: BootConfig) -> None:
 
     try:
         log_info("Backing up PKI certificates to S3...")
-        run_cmd(["tar", "czf", archive_path, "-C", "/etc/kubernetes", "pki"])
+        
+        paths_to_tar = ["pki"]
+        if Path("/etc/kubernetes/admin.conf").exists():
+            paths_to_tar.append("admin.conf")
+        if Path("/etc/kubernetes/super-admin.conf").exists():
+            paths_to_tar.append("super-admin.conf")
+            
+        run_cmd(["tar", "czf", archive_path, "-C", "/etc/kubernetes"] + paths_to_tar)
 
         s3_key = f"{DR_BACKUP_PREFIX}/pki/{timestamp}.tar.gz"
         run_cmd([
@@ -348,21 +355,172 @@ def ensure_coredns(cfg: BootConfig) -> None:
     log_info("✓ CoreDNS deployment deployed")
 
 
-# ── Second-Run Maintenance ────────────────────────────────────────────────
+# ── Constants ──────────────────────────────────────────────────────────────
+
+HEALTHZ_PATH = "/healthz"
+SUPER_ADMIN_CONF = "/etc/kubernetes/super-admin.conf"
+ROOT_KUBECONFIG = "/root/.kube/config"
+ROOT_SUPER_ADMIN_KUBECONFIG = "/root/.kube/super-admin.conf"
+
+
+def _bootstrap_kubeconfig_env() -> dict[str, str]:
+    """Return the KUBECONFIG env dict for bootstrap operations.
+
+    Prefers super-admin.conf (full cluster access, bypasses RBAC) when
+    available, falling back to admin.conf otherwise.
+    """
+    if Path(SUPER_ADMIN_CONF).exists():
+        return {"KUBECONFIG": SUPER_ADMIN_CONF}
+    return KUBECONFIG_ENV
+
+
+def reconstruct_control_plane(cfg: BootConfig, private_ip: str, public_ip: str) -> None:
+    """Reconstruct control plane infrastructure on a fresh root filesystem.
+
+    After ASG replacement, the root filesystem is empty — only the EBS
+    volume with etcd data survives, and the S3 DR restore has recovered
+    ``/etc/kubernetes/pki/`` and ``admin.conf``.  This function uses
+    ``kubeadm init phase`` subcommands to regenerate manifests and
+    kubeconfigs **from existing PKI** — zero certificates are regenerated.
+    """
+    log_info("=== Reconstructing control plane from restored PKI ===")
+
+    # ── 1. Start containerd ─────────────────────────────────────────
+    run_cmd(["systemctl", "start", "containerd"])
+    log_info("containerd started")
+
+    # ── 2. Configure ECR credential provider for kubelet ────────────
+    ensure_ecr_credential_provider()
+
+    # ── 3. Write kubelet args with new instance IP ──────────────────
+    Path("/etc/sysconfig").mkdir(parents=True, exist_ok=True)
+    Path("/etc/sysconfig/kubelet").write_text(
+        "KUBELET_EXTRA_ARGS="
+        "--cloud-provider=external"
+        f" --node-ip={private_ip}"
+        f" --image-credential-provider-config={ECR_PROVIDER_CONFIG}"
+        " --image-credential-provider-bin-dir=/usr/local/bin\n"
+    )
+    log_info(f"Kubelet args configured: cloud-provider=external, node-ip={private_ip}")
+
+    # ── 4. Update DNS → new private IP ──────────────────────────────
+    update_dns_record(private_ip, cfg)
+
+    # ── 5. Regenerate kubeconfigs from existing PKI ─────────────────
+    api_endpoint = f"{cfg.api_dns_name}:6443"
+    log_info("Regenerating kubeconfigs from existing PKI...")
+    run_cmd([
+        "kubeadm", "init", "phase", "kubeconfig", "all",
+        f"--control-plane-endpoint={api_endpoint}",
+    ])
+    log_info("✓ Kubeconfigs regenerated (admin, kubelet, controller-manager, scheduler)")
+
+    # ── 6. Generate kubelet configuration ───────────────────────────
+    log_info("Generating kubelet configuration...")
+    run_cmd([
+        "kubeadm", "init", "phase", "kubelet-start",
+        f"--node-name={run_cmd(['hostname', '-f'], check=False).stdout.strip()}",
+    ], check=False)
+    log_info("✓ Kubelet configuration generated")
+
+    # ── 7. Generate static pod manifests ────────────────────────────
+    log_info("Generating control plane static pod manifests...")
+    run_cmd([
+        "kubeadm", "init", "phase", "control-plane", "all",
+        f"--control-plane-endpoint={api_endpoint}",
+        f"--kubernetes-version={cfg.k8s_version}",
+    ])
+    log_info("✓ Control plane manifests generated (apiserver, controller-manager, scheduler)")
+
+    # ── 8. Generate etcd static pod manifest ────────────────────────
+    log_info("Generating etcd static pod manifest...")
+    run_cmd(["kubeadm", "init", "phase", "etcd", "local"])
+    log_info("✓ etcd manifest generated")
+
+    # ── 9. Start kubelet → static pods start automatically ──────────
+    log_info("Starting kubelet service...")
+    run_cmd(["systemctl", "restart", "kubelet"])
+
+    # ── 10. Wait for API server to become healthy ───────────────────
+    log_info("Waiting for API server to become healthy...")
+    for i in range(1, 91):
+        probe = run_cmd(
+            ["kubectl", "get", "--raw", HEALTHZ_PATH],
+            check=False, env=_bootstrap_kubeconfig_env(),
+        )
+        if probe.returncode == 0 and "ok" in probe.stdout.lower():
+            log_info(f"✓ API server healthy (waited {i}s)")
+            break
+        if i == 90:
+            log_warn(
+                "API server did not become healthy in 90s. "
+                "Check 'crictl ps' and 'journalctl -u kubelet' for details."
+            )
+        time.sleep(1)
+
+    # ── 11. Copy kubeconfig for user access ─────────────────────────
+    Path("/root/.kube").mkdir(parents=True, exist_ok=True)
+    run_cmd(["cp", "-f", ADMIN_CONF, ROOT_KUBECONFIG])
+    run_cmd(["chmod", "600", ROOT_KUBECONFIG])
+    if Path(SUPER_ADMIN_CONF).exists():
+        run_cmd(["cp", "-f", SUPER_ADMIN_CONF, ROOT_SUPER_ADMIN_KUBECONFIG])
+        run_cmd(["chmod", "600", ROOT_SUPER_ADMIN_KUBECONFIG])
+
+    log_info("=== Control plane reconstruction complete ===")
+
+
+def is_apiserver_running() -> bool:
+    """Check if the kube-apiserver is currently responding to health probes."""
+    probe = run_cmd(
+        ["kubectl", "get", "--raw", HEALTHZ_PATH],
+        check=False, env=_bootstrap_kubeconfig_env(),
+    )
+    return probe.returncode == 0 and "ok" in probe.stdout.lower()
 
 
 def handle_second_run(cfg: BootConfig) -> None:
-    """Handle second-run: update DNS, ensure addons, and refresh kubeconfig.
+    """Handle second-run: reconstruct control plane if needed, then maintain.
 
     Called when ``admin.conf`` already exists (i.e. the cluster was
     previously initialised).  This is the normal path after ASG
-    replacement when DR restore recovers the control plane state."""
+    replacement when DR restore recovers the control plane state.
+
+    Two sub-scenarios:
+    1. **ASG replacement** (API server NOT running) — must reconstruct
+       static pod manifests, kubeconfigs, and kubelet config using
+       ``kubeadm init phase`` commands.
+    2. **In-place restart** (API server already running) — only DNS
+       update and addon verification are needed.
+    """
     log_info("Cluster already initialised — running second-run maintenance")
 
     private_ip = get_imds_value("local-ipv4")
-    if private_ip:
+    public_ip = get_imds_value("public-ipv4")
+
+    if not private_ip:
+        raise RuntimeError("Failed to retrieve private IP from IMDS")
+
+    # ── Determine if the control plane needs full reconstruction ────
+    manifests_dir = Path("/etc/kubernetes/manifests")
+    apiserver_manifest = manifests_dir / "kube-apiserver.yaml"
+
+    if not apiserver_manifest.exists():
+        log_info(
+            "Static pod manifests missing — ASG replacement detected. "
+            "Reconstructing control plane from restored PKI..."
+        )
+        reconstruct_control_plane(cfg, private_ip, public_ip or "")
+    elif not is_apiserver_running():
+        log_info(
+            "API server manifest exists but not responding — "
+            "attempting reconstruction..."
+        )
+        reconstruct_control_plane(cfg, private_ip, public_ip or "")
+    else:
+        log_info("API server already running — skipping reconstruction")
         update_dns_record(private_ip, cfg)
 
+    # ── Post-reconstruction maintenance ─────────────────────────────
     api_endpoint = f"{cfg.api_dns_name}:6443"
     log_info(f"Publishing DNS endpoint to SSM: {api_endpoint}")
     ssm_put(f"{cfg.ssm_prefix}/control-plane-endpoint", api_endpoint)
@@ -377,25 +535,57 @@ def handle_second_run(cfg: BootConfig) -> None:
     publish_kubeconfig_to_ssm(cfg)
 
     # ── Ensure bootstrap infrastructure is present ──────────────────
-    # On DR restore, kubeadm init is skipped because admin.conf was
-    # recovered from S3.  This means the cluster-info ConfigMap,
-    # bootstrap RBAC bindings, kube-proxy, and CoreDNS are never
-    # created.  Without cluster-info, kubeadm join hangs during TLS
-    # discovery.  Without kube-proxy, ClusterIP routing breaks and
-    # the entire cluster cascades into failure.
     ensure_bootstrap_token()
     ensure_kube_proxy(cfg)
     ensure_coredns(cfg)
 
-    result = run_cmd(
+    # ── Ensure RBAC bindings are intact ─────────────────────────────
+    admin_result = run_cmd(
         ["kubectl", "get", "nodes"],
-        check=False, env=KUBECONFIG_ENV,
+        check=False, env={"KUBECONFIG": ADMIN_CONF},
     )
-    if result.returncode != 0:
-        log_warn("API server not responding — certs may need renewal + restart")
-    else:
-        log_info("API server healthy — second-run maintenance complete")
-        label_control_plane_node(cfg)
+
+    if admin_result.returncode != 0:
+        output = (admin_result.stderr + admin_result.stdout).strip()
+        if "Forbidden" in output:
+            log_warn(
+                "admin.conf got 403 Forbidden. RBAC binding "
+                "'kubeadm:cluster-admins' is missing. Attempting repair..."
+            )
+
+            rbac_manifest = """
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubeadm:cluster-admins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: kubernetes-admin
+"""
+            repair_result = run_cmd(
+                ["kubectl", "apply", "-f", "-"],
+                input=rbac_manifest.encode(),
+                check=False, env=_bootstrap_kubeconfig_env(),
+            )
+            if repair_result.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to repair RBAC binding: {repair_result.stderr}"
+                )
+
+            log_info("✓ RBAC binding kubeadm:cluster-admins repaired successfully")
+        else:
+            log_warn(f"admin.conf failed for a non-RBAC reason: {output}")
+
+    # ── Set providerID for AWS CCM ──────────────────────────────────
+    patch_provider_id(kubeconfig=ROOT_KUBECONFIG)
+
+    log_info("API server healthy — second-run maintenance complete")
+    label_control_plane_node(cfg)
 
 
 def init_cluster(cfg: BootConfig) -> None:
@@ -427,6 +617,14 @@ def init_cluster(cfg: BootConfig) -> None:
 
     log_info("Running kubeadm init...")
     update_dns_record(private_ip, cfg)
+
+    # In case of DR restore from an old backup that didn't include admin.conf,
+    # pki/ will exist but contain apiserver certs with the old instance IP.
+    # We must remove them so kubeadm init regenerates them with the new IP.
+    for path in ["/etc/kubernetes/pki/apiserver.crt", "/etc/kubernetes/pki/apiserver.key"]:
+        if Path(path).exists():
+            Path(path).unlink()
+            log_info(f"Removed stale cert to ensure regeneration with new IP: {path}")
 
     api_endpoint = f"{cfg.api_dns_name}:6443"
     init_cmd = [

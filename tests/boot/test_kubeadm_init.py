@@ -212,41 +212,69 @@ class TestEnsureBootstrapToken:
 class TestHandleSecondRunGuards:
     """Verify that handle_second_run calls all guards."""
 
+    @patch("cp.kubeadm_init.label_control_plane_node")
+    @patch("cp.kubeadm_init.patch_provider_id")
     @patch("cp.kubeadm_init.ensure_coredns")
     @patch("cp.kubeadm_init.ensure_kube_proxy")
     @patch("cp.kubeadm_init.ensure_bootstrap_token")
     @patch("cp.kubeadm_init.publish_kubeconfig_to_ssm")
     @patch("cp.kubeadm_init.ssm_put")
+    @patch("cp.kubeadm_init.is_apiserver_running", return_value=True)
     @patch("cp.kubeadm_init.update_dns_record")
-    @patch("cp.kubeadm_init.get_imds_value", return_value="10.0.1.42")
+    @patch("cp.kubeadm_init.get_imds_value")
     @patch("cp.kubeadm_init.run_cmd")
     def test_calls_all_ensure_guards_during_second_run(
         self,
         mock_run: MagicMock,
         mock_imds: MagicMock,
         mock_dns: MagicMock,
+        mock_apiserver: MagicMock,
         mock_ssm: MagicMock,
         mock_publish: MagicMock,
         mock_ensure_bt: MagicMock,
         mock_ensure_kp: MagicMock,
         mock_ensure_dns: MagicMock,
+        mock_provider: MagicMock,
+        mock_label: MagicMock,
     ) -> None:
         """All three guards must be called in order: bootstrap-token, kube-proxy, coredns."""
         from cp.kubeadm_init import handle_second_run
 
-        # Simulate: id ssm-user fails (no ssm-user), kubectl get nodes succeeds,
-        # then label_control_plane_node calls hostname + kubectl label
+        # get_imds_value is called twice: once for local-ipv4, once for public-ipv4
+        mock_imds.side_effect = ["10.0.1.42", "1.2.3.4"]
+
+        # Simulate: apiserver manifest exists (triggers the "running" path),
+        # id ssm-user fails, kubectl get nodes (admin check) succeeds
         mock_run.side_effect = [
             _fail(),  # id ssm-user
-            _ok(stdout="NAME   STATUS   ROLES   AGE   VERSION"),  # kubectl get nodes
-            _ok(stdout="ip-10-0-1-42.eu-west-1.compute.internal"),  # hostname -f
-            _ok(),  # kubectl label node
+            _ok(stdout="NAME   STATUS   ROLES   AGE   VERSION"),  # kubectl get nodes (RBAC check)
         ]
 
-        cfg = _cfg()
-        handle_second_run(cfg)
+        # Simulate kube-apiserver.yaml manifest exists
+        with patch("cp.kubeadm_init.Path") as mock_path_cls:
+            # The Path("/etc/kubernetes/manifests") / "kube-apiserver.yaml" check
+            manifest_path = MagicMock()
+            manifest_path.exists.return_value = True
+            manifests_dir = MagicMock()
+            manifests_dir.__truediv__ = MagicMock(return_value=manifest_path)
+
+            def path_side_effect(arg: str) -> MagicMock:
+                if arg == "/etc/kubernetes/manifests":
+                    return manifests_dir
+                mock_p = MagicMock()
+                mock_p.mkdir = MagicMock()
+                return mock_p
+
+            mock_path_cls.side_effect = path_side_effect
+
+            cfg = _cfg()
+            handle_second_run(cfg)
 
         # Verify all three guards were called
         mock_ensure_bt.assert_called_once()
         mock_ensure_kp.assert_called_once_with(cfg)
         mock_ensure_dns.assert_called_once_with(cfg)
+
+        # Verify reconstruction was NOT called (API server was already running)
+        mock_dns.assert_called_once_with("10.0.1.42", cfg)
+
