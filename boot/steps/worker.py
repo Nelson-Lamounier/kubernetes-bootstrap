@@ -11,9 +11,8 @@ Steps (in order):
     1. validate_ami         — Verify Golden AMI binaries and kernel settings
     2. join_cluster         — Join kubeadm cluster via SSM discovery
     3. install_cw_agent     — CloudWatch Agent for log streaming
-    4. associate_eip        — Associate Elastic IP (app-worker only)
-    5. clean_stale_pvs      — Remove stale PVs/PVCs from dead nodes (mon-worker only)
-    6. verify_membership    — Verify cluster registration and correct labels
+    4. clean_stale_pvs      — Remove stale PVs/PVCs from dead nodes (mon-worker only)
+    5. verify_membership    — Verify cluster registration and correct labels
 
 Idempotent: each step uses marker files or existence checks to skip
 if already completed. Safe to re-run on instance replacement.
@@ -429,84 +428,7 @@ def step_join_cluster() -> None:
 # Imported from common: step_install_cloudwatch_agent()
 
 
-# =============================================================================
-# Step 4 — Associate Elastic IP (app-worker only)
-#
-# On Day-1 and Day-2+ SSM Automation re-runs, self-associates the EIP
-# to this instance. The EipFailover Lambda handles ASG replacement
-# events independently — this step covers initial/manual bootstrap.
-#
-# Gated to app-worker nodes only via NODE_LABEL check. The monitoring
-# worker does not need an EIP (no external ingress traffic).
-#
-# Idempotent: re-associating an already-associated EIP is a no-op.
-# =============================================================================
 
-EIP_SSM_PATH = f"{SSM_PREFIX}/elastic-ip-allocation-id"
-# The CDK config sets NODE_LABEL='workload=frontend,environment=<env>'.
-# Use a prefix check since the label string is compound (comma-separated).
-APP_WORKER_LABEL_PREFIX = "workload=frontend"
-
-
-def step_associate_eip() -> None:
-    """Step 4: Associate Elastic IP to this instance (app-worker only)."""
-    with StepRunner("associate-eip") as step:
-        if step.skipped:
-            return
-
-        # Gate: only app-worker (frontend) nodes get the EIP
-        if not NODE_LABEL.startswith(APP_WORKER_LABEL_PREFIX):
-            log_info(
-                f"Skipping EIP association — NODE_LABEL={NODE_LABEL} "
-                f"(only {APP_WORKER_LABEL_PREFIX}* receives the EIP)"
-            )
-            step.details["skipped_reason"] = f"not an app-worker (label={NODE_LABEL})"
-            return
-
-        # 1. Resolve own instance ID from IMDS
-        instance_id = get_imds_value("instance-id")
-        if not instance_id:
-            log_warn("Could not resolve instance ID from IMDS — skipping EIP association")
-            step.details["skipped_reason"] = "IMDS unavailable"
-            return
-        log_info(f"Instance ID: {instance_id}")
-        step.details["instance_id"] = instance_id
-
-        # 2. Resolve EIP allocation ID from SSM
-        alloc_id = ssm_get(EIP_SSM_PATH)
-        if not alloc_id:
-            log_warn(f"EIP allocation ID not found at {EIP_SSM_PATH} — skipping")
-            step.details["skipped_reason"] = f"SSM param missing: {EIP_SSM_PATH}"
-            return
-        log_info(f"EIP Allocation ID: {alloc_id}")
-        step.details["allocation_id"] = alloc_id
-
-        # 3. Associate EIP to this instance
-        log_info(f"Associating EIP {alloc_id} to instance {instance_id}...")
-        result = run_cmd(
-            [
-                "aws", "ec2", "associate-address",
-                "--allocation-id", alloc_id,
-                "--instance-id", instance_id,
-                "--allow-reassociation",
-                "--region", AWS_REGION,
-            ],
-            check=False,
-            timeout=30,
-        )
-
-        if result.returncode == 0:
-            log_info(f"✓ EIP {alloc_id} associated to {instance_id}")
-            step.details["status"] = "associated"
-        else:
-            log_error(
-                f"EIP association failed (exit {result.returncode}): "
-                f"{result.stderr.strip() or result.stdout.strip()}"
-            )
-            raise RuntimeError(
-                f"Failed to associate EIP {alloc_id} to {instance_id}. "
-                f"Ensure the instance role has ec2:AssociateAddress permission."
-            )
 
 
 # =============================================================================
@@ -725,7 +647,6 @@ def main() -> None:
         step_validate_ami,
         step_join_cluster,
         step_install_cloudwatch_agent,
-        step_associate_eip,
         step_clean_stale_pvs,
         # step_verify_cluster_membership — only in wk/ refactored package
     ]

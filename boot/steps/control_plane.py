@@ -333,11 +333,13 @@ def _ensure_bootstrap_token() -> None:
     # Phase 1: Upload kubeadm + kubelet config ConfigMaps to kube-system.
     # Without these, kubeadm join fails at preflight with RBAC errors
     # reading kubeadm-config and kubelet-config.
+    # NOTE: --pod-network-cidr was removed in kubeadm v1.35.
+    # The pod CIDR is read from the existing ClusterConfiguration
+    # (networking.podSubnet) automatically — no CLI flag needed.
     run_cmd([
         "kubeadm", "init", "phase", "upload-config", "kubeadm",
-        f"--pod-network-cidr={POD_CIDR}",
     ])
-    log_info("✓ kubeadm-config ConfigMap restored (with podSubnet)")
+    log_info("✓ kubeadm-config ConfigMap restored")
 
     run_cmd(["kubeadm", "init", "phase", "upload-config", "kubelet"])
     log_info("✓ kubelet-config ConfigMap restored")
