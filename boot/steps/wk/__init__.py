@@ -16,12 +16,14 @@ from boot_helpers.config import BootConfig
 from wk.eip import step_associate_eip
 from wk.join_cluster import step_join_cluster
 from wk.stale_pvs import step_clean_stale_pvs
+from wk.verify_membership import step_verify_cluster_membership
 
 __all__ = [
     "main",
     "step_join_cluster",
     "step_associate_eip",
     "step_clean_stale_pvs",
+    "step_verify_cluster_membership",
 ]
 
 
@@ -32,8 +34,9 @@ def main() -> None:
     """
     cfg = BootConfig.from_env()
 
-    step_validate_ami()              # Step 1 (from common)
-    step_join_cluster(cfg)           # Step 2
-    step_install_cloudwatch_agent()  # Step 3 (from common)
-    step_associate_eip(cfg)          # Step 4
-    step_clean_stale_pvs(cfg)        # Step 5
+    step_validate_ami()                    # Step 1 (from common)
+    step_join_cluster(cfg)                 # Step 2
+    step_install_cloudwatch_agent()        # Step 3 (from common)
+    step_associate_eip(cfg)                # Step 4
+    step_clean_stale_pvs(cfg)              # Step 5
+    step_verify_cluster_membership(cfg)    # Step 6
