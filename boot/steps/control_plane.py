@@ -47,6 +47,7 @@ import re
 import shutil
 import sys
 import time
+import yaml
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -94,6 +95,13 @@ SUPER_ADMIN_CONF = "/etc/kubernetes/super-admin.conf"
 HEALTHZ_PATH = "/healthz"
 ROOT_KUBECONFIG = "/root/.kube/config"
 ROOT_SUPER_ADMIN_KUBECONFIG = "/root/.kube/super-admin.conf"
+
+_ENV_FILE = "/etc/kubernetes/bootstrap-env"
+if Path(_ENV_FILE).exists():
+    for line in Path(_ENV_FILE).read_text().splitlines():
+        if "=" in line and not line.startswith("#"):
+            k, _, v = line.partition("=")
+            os.environ.setdefault(k.strip(), v.strip())
 
 
 def _bootstrap_kubeconfig_env() -> dict[str, str]:
@@ -300,6 +308,52 @@ def _renew_apiserver_cert(private_ip: str, public_ip: str) -> None:
 # These guards detect and repair all missing components.
 
 
+def _patch_pod_subnet_in_kubeadm_config() -> None:
+    """Patch podSubnet into the kubeadm-config ClusterConfiguration ConfigMap.
+
+    kubeadm v1.35 removed --pod-network-cidr from ``kubeadm init``, so the
+    pod CIDR is no longer stored in the ConfigMap automatically.  The Tigera
+    operator reads ``networking.podSubnet`` from this ConfigMap to configure
+    Calico IP pools — if it is absent the operator fails with:
+        "kubeadm configuration is missing required podSubnet field"
+    and calico-node never deploys.
+
+    This function is idempotent: if podSubnet is already set to the correct
+    value it is a no-op.  A missing or incorrect value is treated as fatal
+    because Calico cannot recover without it.
+    """
+    result = run_cmd(
+        ["kubectl", "get", "cm", "kubeadm-config", "-n", "kube-system",
+         "-o", "jsonpath={.data.ClusterConfiguration}"],
+        check=False, env=_bootstrap_kubeconfig_env(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Could not read kubeadm-config ConfigMap: {result.stderr.strip()}"
+        )
+
+    cfg = yaml.safe_load(result.stdout)
+    current_subnet = cfg.get("networking", {}).get("podSubnet")
+    if current_subnet == POD_CIDR:
+        log_info(f"podSubnet already set to {POD_CIDR} — no patch needed")
+        return
+
+    cfg.setdefault("networking", {})["podSubnet"] = POD_CIDR
+    patch_json = json.dumps({"data": {"ClusterConfiguration": yaml.dump(cfg, default_flow_style=False)}})
+
+    patch_result = run_cmd(
+        ["kubectl", "patch", "cm", "kubeadm-config", "-n", "kube-system",
+         "--type", "merge", "-p", patch_json],
+        check=False, env=_bootstrap_kubeconfig_env(),
+    )
+    if patch_result.returncode != 0:
+        raise RuntimeError(
+            f"Failed to patch podSubnet into kubeadm-config: "
+            f"{patch_result.stderr.strip()}"
+        )
+    log_info(f"✓ podSubnet={POD_CIDR} patched into kubeadm-config ConfigMap")
+
+
 def _ensure_bootstrap_token() -> None:
     """Verify bootstrap resources and restore any missing after DR.
 
@@ -345,33 +399,7 @@ def _ensure_bootstrap_token() -> None:
     # Patch podSubnet into the ClusterConfiguration (kubeadm v1.35+).
     # Tigera operator fails with "kubeadm configuration is missing required
     # podSubnet field" if this is absent → calico-node never deploys.
-    _patch_script = (
-        "import json, subprocess, sys, yaml; "
-        "raw = subprocess.check_output("
-        "['kubectl', 'get', 'cm', 'kubeadm-config', '-n', 'kube-system', "
-        "'-o', 'jsonpath={.data.ClusterConfiguration}'], "
-        f"env={{'KUBECONFIG': '/etc/kubernetes/super-admin.conf', 'PATH': '/usr/local/bin:/usr/bin:/bin'}}); "
-        "cfg = yaml.safe_load(raw); "
-        f"cfg.setdefault('networking', dict())['podSubnet'] = '{POD_CIDR}'; "
-        "patched = yaml.dump(cfg, default_flow_style=False); "
-        "patch_json = json.dumps({'data': {'ClusterConfiguration': patched}}); "
-        "subprocess.check_call("
-        "['kubectl', 'patch', 'cm', 'kubeadm-config', '-n', 'kube-system', "
-        "'--type', 'merge', '-p', patch_json], "
-        f"env={{'KUBECONFIG': '/etc/kubernetes/super-admin.conf', 'PATH': '/usr/local/bin:/usr/bin:/bin'}})"
-    )
-    result = run_cmd(
-        ["python3", "-c", _patch_script],
-        check=False,
-    )
-    if result.returncode == 0:
-        log_info(f"✓ podSubnet={POD_CIDR} patched into kubeadm-config ConfigMap")
-    else:
-        log_warn(
-            "Could not patch podSubnet into kubeadm-config — "
-            "Calico may fail to resolve IP pool defaults. "
-            f"stderr: {result.stderr.strip()}"
-        )
+    _patch_pod_subnet_in_kubeadm_config()
 
     run_cmd(["kubeadm", "init", "phase", "upload-config", "kubelet"])
     log_info("✓ kubelet-config ConfigMap restored")
@@ -876,6 +904,15 @@ def _publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> No
     ssm_put(f"{SSM_PREFIX}/ca-hash", f"sha256:{ca_hash}")
     ssm_put(f"{SSM_PREFIX}/control-plane-endpoint", api_endpoint)
     ssm_put(f"{SSM_PREFIX}/instance-id", instance_id)
+    ssm_put(f"{SSM_PREFIX}/private-ip", private_ip)
+    
+    if public_ip:
+        ssm_put(f"{SSM_PREFIX}/public-ip", public_ip)
+    ssm_put(f"{SSM_PREFIX}/kubernetes-version", K8S_VERSION)
+    # ami-id requires an IMDS call:
+    ami_id = get_imds_value("ami-id")
+    if ami_id:
+        ssm_put(f"{SSM_PREFIX}/ami-id", ami_id)
 
     log_info("Cluster credentials published to SSM successfully")
     run_cmd(["kubectl", "get", "nodes", "-o", "wide"], check=False, env=_bootstrap_kubeconfig_env())
