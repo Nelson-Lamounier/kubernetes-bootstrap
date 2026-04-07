@@ -121,6 +121,15 @@ data:
         static_configs:
           - targets: ["nextjs.nextjs-app.svc.cluster.local:3000"]
 
+      # Preview scrape target — active only during Blue/Green rollouts.
+      # Scrapes the same /api/metrics endpoint via the preview Service,
+      # giving visibility into the new version's application metrics
+      # before promotion. Returns no data when no rollout is in progress.
+      - job_name: nextjs-app-preview
+        metrics_path: /api/metrics
+        static_configs:
+          - targets: ["nextjs-preview.nextjs-app.svc.cluster.local:3000"]
+
       - job_name: alloy
         metrics_path: /metrics
         static_configs:
