@@ -643,22 +643,8 @@ def step_clean_stale_pvs() -> None:
 
 def main() -> None:
     """Execute all worker node bootstrap steps in order."""
-    steps = [
-        step_validate_ami,
-        step_join_cluster,
-        step_install_cloudwatch_agent,
-        step_clean_stale_pvs,
-        # step_verify_cluster_membership — only in wk/ refactored package
-    ]
-
-    log_info(f"Worker node bootstrap starting ({len(steps)} steps)")
-    for i, step_fn in enumerate(steps, 1):
-        log_info(f"\n{'='*60}")
-        log_info(f"Step {i}/{len(steps)}: {step_fn.__name__}")
-        log_info(f"{'='*60}")
-        step_fn()
-
-    log_info("Worker node bootstrap complete")
+    from wk import main as wk_main
+    wk_main()
 
 
 if __name__ == "__main__":
