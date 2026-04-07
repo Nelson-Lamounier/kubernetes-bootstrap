@@ -16,6 +16,8 @@ spec:
       {{- if .Values.adminAccess.enabled }}
       middlewares:
         - name: admin-ip-allowlist
+        - name: rate-limit
+        - name: basic-auth
       {{- end }}
       services:
         - name: prometheus

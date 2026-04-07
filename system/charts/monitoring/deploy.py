@@ -50,6 +50,7 @@ SSM_SECRET_MAP: dict[str, str] = {
     "github-token": "GITHUB_TOKEN",
     "github-webhook-token": "GITHUB_WEBHOOK_TOKEN",
     "github-org": "GITHUB_ORG",
+    "prometheus-basic-auth": "PROMETHEUS_BASIC_AUTH",
 }
 
 
@@ -134,6 +135,20 @@ def create_monitoring_k8s_secrets(v1: object, cfg: MonitoringConfig) -> None:
             data=exporter_data,
         )
         log_info("github-actions-exporter-credentials created/updated")
+
+    # Prometheus Basic Auth credentials
+    prometheus_auth = secrets.get("PROMETHEUS_BASIC_AUTH")
+    if prometheus_auth:
+        import base64
+        # Traefik requires basic auth string to be formatted like user:password_hash
+        upsert_secret(
+            v1,
+            name="prometheus-basic-auth-secret",
+            namespace=cfg.namespace,
+            # For traefik basicAuth middleware, secret should contain "users" key
+            data={"users": prometheus_auth},
+        )
+        log_info("prometheus-basic-auth-secret created/updated")
 
 
 # ---------------------------------------------------------------------------
