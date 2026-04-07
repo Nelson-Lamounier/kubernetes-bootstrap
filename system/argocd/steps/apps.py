@@ -122,6 +122,90 @@ def inject_monitoring_helm_params(cfg: Config) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 5b-auth: Seed Prometheus basic auth secret from SSM
+# ---------------------------------------------------------------------------
+def seed_prometheus_basic_auth(cfg: Config) -> None:
+    """Seed the Prometheus basic auth K8s Secret from SSM SecureString.
+
+    The monitoring Helm chart deploys a placeholder ``prometheus-basic-auth-secret``
+    with an unusable bcrypt hash. This step overwrites it with the real htpasswd
+    entry stored in SSM at ``{ssm_prefix}/monitoring/prometheus-basic-auth``.
+
+    The SSM parameter value must be a single htpasswd line using bcrypt, e.g.::
+
+        admin:$2y$05$xxxx...
+
+    Generated via: ``htpasswd -nbB admin <password>``
+    """
+    log("=== Step 5b-auth: Seeding Prometheus Basic Auth Secret ===")
+
+    ssm_path = f"{cfg.ssm_prefix}/monitoring/prometheus-basic-auth"
+    log(f"  → Reading htpasswd from SSM: {ssm_path}")
+
+    if cfg.dry_run:
+        log(f"  [DRY-RUN] Would patch prometheus-basic-auth-secret from {ssm_path}\n")
+        return
+
+    try:
+        ssm = get_ssm_client(cfg)
+        resp = ssm.get_parameter(Name=ssm_path, WithDecryption=True)
+        htpasswd_line = resp["Parameter"]["Value"].strip()
+
+        if not htpasswd_line or ":" not in htpasswd_line:
+            log("  ⚠ SSM value is not a valid htpasswd entry — skipping")
+            log("    Expected format: 'admin:$2y$05$...'\n")
+            return
+
+        log("  ✓ htpasswd entry retrieved from SSM")
+    except Exception as e:
+        log(f"  ⚠ SSM parameter not found ({ssm_path}) — {e}")
+        log("    Prometheus basic auth remains locked with placeholder hash.")
+        log("    Store the htpasswd in SSM:")
+        log(f"      aws ssm put-parameter --name '{ssm_path}' \\")
+        log("        --type SecureString --value \"$(htpasswd -nbB admin <password>)\"\n")
+        return
+
+    # Patch the K8s Secret with the real htpasswd entry
+    try:
+        from kubernetes import client
+        from kubernetes import config as k8s_config
+
+        k8s_config.load_kube_config(config_file=cfg.kubeconfig)
+        v1 = client.CoreV1Api()
+
+        secret = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name="prometheus-basic-auth-secret",
+                namespace="monitoring",
+                labels={
+                    "app.kubernetes.io/managed-by": "bootstrap",
+                    "app.kubernetes.io/part-of": "monitoring",
+                },
+            ),
+            string_data={"users": htpasswd_line},
+            type="Opaque",
+        )
+
+        try:
+            v1.create_namespaced_secret("monitoring", secret)
+            log("  ✓ prometheus-basic-auth-secret created with real credentials")
+        except client.exceptions.ApiException as e:
+            if e.status == 409:
+                v1.replace_namespaced_secret(
+                    "prometheus-basic-auth-secret", "monitoring", secret,
+                )
+                log("  ✓ prometheus-basic-auth-secret updated with real credentials")
+            else:
+                raise
+
+    except Exception as e:
+        log(f"  ⚠ Failed to patch prometheus-basic-auth-secret: {e}")
+        log("    Prometheus basic auth remains locked with placeholder hash.")
+
+    log("")
+
+
+# ---------------------------------------------------------------------------
 # Step 5c: Seed ECR credentials (Day-1 bootstrap)
 # ---------------------------------------------------------------------------
 def seed_ecr_credentials(cfg: Config) -> None:

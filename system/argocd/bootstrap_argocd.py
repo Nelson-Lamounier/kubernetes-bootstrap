@@ -70,6 +70,7 @@ from steps.apps import (
     provision_crossplane_credentials,
     restore_tls_cert,
     seed_ecr_credentials,
+    seed_prometheus_basic_auth,
 )
 from steps.auth import (
     backup_argocd_secret_key,
@@ -155,6 +156,9 @@ def main() -> None:
 
     with logger.step("inject_monitoring_helm_params"):
         inject_monitoring_helm_params(cfg)
+
+    with logger.step("seed_prometheus_basic_auth"):
+        seed_prometheus_basic_auth(cfg)
 
     with logger.step("seed_ecr_credentials"):
         seed_ecr_credentials(cfg)
