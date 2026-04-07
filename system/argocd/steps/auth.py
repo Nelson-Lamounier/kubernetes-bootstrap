@@ -12,6 +12,7 @@ from pathlib import Path
 from helpers.config import Config
 from helpers.runner import get_secrets_client, get_ssm_client, log, run
 
+_ARGOCD_SERVER_DEPLOYMENT = "deployment/argocd-server"
 
 # ---------------------------------------------------------------------------
 # Step 8: Install ArgoCD CLI
@@ -100,7 +101,7 @@ def create_ci_bot(cfg: Config) -> None:
     # the account to accept it when the CI pipeline queries the API.
     log("  → Restarting argocd-server to load ci-bot account...")
     result = run(
-        ["kubectl", "rollout", "restart", "deployment/argocd-server",
+        ["kubectl", "rollout", "restart", _ARGOCD_SERVER_DEPLOYMENT,
          "-n", "argocd"],
         cfg=cfg, check=False,
     )
@@ -108,7 +109,7 @@ def create_ci_bot(cfg: Config) -> None:
         log("  ✓ argocd-server restart triggered")
         # Wait for the new pods to be ready before generating the token
         result = run(
-            ["kubectl", "rollout", "status", "deployment/argocd-server",
+            ["kubectl", "rollout", "status", _ARGOCD_SERVER_DEPLOYMENT,
              "-n", "argocd", f"--timeout={cfg.argo_timeout}s"],
             cfg=cfg, check=False,
         )
@@ -177,11 +178,19 @@ def generate_ci_token(cfg: Config) -> None:
     to have ``list services`` permission in the argocd namespace, which
     the node's kubeconfig may not grant in all deployment scenarios.
 
+    Hardened with:
+      - Retry with backoff (3 attempts): covers the timing window where
+        argocd-server is still rolling out after Step 3b-restore
+      - Token validation: curls the ArgoCD API with the new token to
+        confirm HTTP 200 before writing to Secrets Manager
+      - Safe store: never overwrites a working token with a broken one
+
     Flow:
       1. Resolve admin password (SSM → initial-admin-secret fallback)
-      2. Login to ArgoCD API via in-cluster service endpoint
+      2. Login to ArgoCD API via in-cluster service endpoint (with retry)
       3. Generate CI bot API token via ArgoCD API
-      4. Store token in Secrets Manager
+      4. Validate token against ArgoCD API
+      5. Store token in Secrets Manager (only if validated)
     """
     log("=== Step 10: Generating CI bot token ===")
 
@@ -198,39 +207,72 @@ def generate_ci_token(cfg: Config) -> None:
         log("  ⚠ Cannot generate CI bot token without admin credentials\n")
         return
 
-    # 2. Login to ArgoCD API (not --core mode)
-    #    Uses the in-cluster service endpoint with --plaintext since
-    #    TLS termination is handled by Traefik, not the ArgoCD server.
-    log(f"  → Logging into ArgoCD API ({_ARGOCD_API_ENDPOINT})...")
-    login_result = run(
-        ["argocd", "login", _ARGOCD_API_ENDPOINT,
-         "--username", "admin", "--password", admin_password, "--plaintext"],
-        cfg=cfg, check=False,
-    )
+    # 2-3. Login + generate token with retry
+    retry_delays = [15, 30, 60]  # seconds between retries
+    ci_token = ""
 
-    if login_result.returncode != 0:
-        log("  ⚠ ArgoCD API login failed — cannot generate CI bot token")
-        log("  ⚠ Verify the admin password in SSM or argocd-initial-admin-secret\n")
-        return
+    for attempt, delay in enumerate(retry_delays, start=1):
+        log(f"  → Attempt {attempt}/{len(retry_delays)}: login + token generation...")
 
-    log("  ✓ ArgoCD API login successful")
+        # Login to ArgoCD API (not --core mode)
+        login_result = run(
+            ["argocd", "login", _ARGOCD_API_ENDPOINT,
+             "--username", "admin", "--password", admin_password, "--plaintext"],
+            cfg=cfg, check=False,
+        )
 
-    # 3. Generate token via ArgoCD API (no --core, no --grpc-web)
-    log("  → Generating API token for ci-bot...")
-    result = run(
-        ["argocd", "account", "generate-token", "--account", "ci-bot"],
-        cfg=cfg, check=False, capture=True,
-    )
+        if login_result.returncode != 0:
+            log(f"    ⚠ ArgoCD API login failed (attempt {attempt})")
+            if attempt < len(retry_delays):
+                log(f"    → Retrying in {delay}s (server may still be starting)...")
+                time.sleep(delay)
+            continue
 
-    ci_token = result.stdout.strip() if result.returncode == 0 else ""
+        log("    ✓ ArgoCD API login successful")
+
+        # Generate token via ArgoCD API
+        result = run(
+            ["argocd", "account", "generate-token", "--account", "ci-bot"],
+            cfg=cfg, check=False, capture=True,
+        )
+
+        ci_token = result.stdout.strip() if result.returncode == 0 else ""
+
+        if ci_token:
+            log("    ✓ API token generated")
+            break
+
+        log(f"    ⚠ Token generation failed (attempt {attempt})")
+        if attempt < len(retry_delays):
+            log(f"    → Retrying in {delay}s...")
+            time.sleep(delay)
 
     if not ci_token:
-        log("  ⚠ Token generation failed — CI pipeline will skip ArgoCD verification\n")
+        log("  ✗ Token generation failed after all attempts")
+        log("    CI pipeline will use existing token in Secrets Manager\n")
         return
 
-    log("  ✓ API token generated")
+    # 4. Validate the token before storing
+    log("  → Validating token against ArgoCD API...")
+    validate_result = subprocess.run(
+        ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+         "--max-time", "10",
+         "-H", f"Authorization: Bearer {ci_token}",
+         f"http://{_ARGOCD_API_ENDPOINT}/argocd/api/v1/applications"],
+        env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+        capture_output=True, text=True,
+    )
 
-    # 4. Store token in Secrets Manager
+    http_code = validate_result.stdout.strip() if validate_result.returncode == 0 else "000"
+
+    if http_code != "200":
+        log(f"  ✗ Token validation failed (HTTP {http_code})")
+        log("    Will NOT overwrite Secrets Manager — existing token may still be valid\n")
+        return
+
+    log("  ✓ Token validated (HTTP 200)")
+
+    # 5. Store token in Secrets Manager
     log(f"  → Pushing token to Secrets Manager: {secret_name}")
 
     try:
@@ -351,7 +393,7 @@ def set_admin_password(cfg: Config) -> None:
 
     # 4. Restart argocd-server to pick up the new password immediately
     result = run(
-        ["kubectl", "rollout", "restart", "deployment/argocd-server",
+        ["kubectl", "rollout", "restart", _ARGOCD_SERVER_DEPLOYMENT,
          "-n", "argocd"],
         cfg=cfg, check=False,
     )

@@ -1,8 +1,10 @@
-"""Unit tests for ArgoCD DR recovery fixes.
+"""Unit tests for ArgoCD DR recovery and self-healing token fixes.
 
 Tests cover:
   - preserve_argocd_secret() — SSM fallback when in-cluster secret is absent
   - apply_ingress() — extended CRD wait timeout and post-apply verification
+  - restore_argocd_secret() — post-patch verification and rollout wait
+  - generate_ci_token() — retry with backoff and pre-store validation
 """
 from __future__ import annotations
 
@@ -284,3 +286,277 @@ class TestApplyIngressDryRun:
 
         mock_sub.assert_not_called()
         mock_run.assert_not_called()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# restore_argocd_secret() — Post-patch verification and rollout wait
+# ══════════════════════════════════════════════════════════════════════════
+
+
+from steps.install import restore_argocd_secret
+
+
+class TestRestoreArgocdSecretVerification:
+    """Post-patch verification: read back key and confirm match."""
+
+    @patch("steps.install.subprocess.run")
+    def test_success_when_key_matches(self, mock_run: MagicMock, cfg: Config) -> None:
+        """Should succeed when read-back key matches the patched key."""
+        signing_key = "dGVzdC1rZXk="
+
+        # patch → success, verify → matches, restart → ok, rollout → ok
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),       # patch
+            subprocess.CompletedProcess(args=[], returncode=0, stdout=signing_key, stderr=""),  # verify
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),       # restart
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),       # rollout
+        ]
+
+        restore_argocd_secret(cfg, signing_key)
+
+        assert mock_run.call_count == 4
+
+    @patch("steps.install.subprocess.run")
+    def test_fails_when_key_mismatch(self, mock_run: MagicMock, cfg: Config) -> None:
+        """Should abort when read-back key does not match."""
+        signing_key = "dGVzdC1rZXk="
+        wrong_key = "d3Jvbmcta2V5"
+
+        # patch → success, verify → mismatch
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),       # patch
+            subprocess.CompletedProcess(args=[], returncode=0, stdout=wrong_key, stderr=""),  # verify → mismatch
+        ]
+
+        restore_argocd_secret(cfg, signing_key)
+
+        # Should NOT restart since verification failed
+        assert mock_run.call_count == 2
+
+    @patch("steps.install.subprocess.run")
+    def test_fails_when_patch_fails(self, mock_run: MagicMock, cfg: Config) -> None:
+        """Should abort without verification when patch returns non-zero."""
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="error patching",
+        )
+
+        restore_argocd_secret(cfg, "dGVzdC1rZXk=")
+
+        # Only 1 call (the patch), no verification or restart
+        assert mock_run.call_count == 1
+
+
+class TestRestoreArgocdSecretRolloutWait:
+    """Rollout wait: blocks until argocd-server is ready."""
+
+    @patch("steps.install.subprocess.run")
+    def test_waits_for_rollout_completion(self, mock_run: MagicMock, cfg: Config) -> None:
+        """Should call rollout status with timeout after restart."""
+        signing_key = "dGVzdC1rZXk="
+
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),       # patch
+            subprocess.CompletedProcess(args=[], returncode=0, stdout=signing_key, stderr=""),  # verify
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),       # restart
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),       # rollout status
+        ]
+
+        restore_argocd_secret(cfg, signing_key)
+
+        # Verify the 4th call is rollout status with timeout
+        rollout_call = mock_run.call_args_list[3]
+        cmd = rollout_call[0][0] if rollout_call[0] else rollout_call[1].get("args", [])
+        assert "rollout" in cmd
+        assert "status" in cmd
+
+    @patch("steps.install.subprocess.run")
+    def test_continues_when_rollout_times_out(self, mock_run: MagicMock, cfg: Config) -> None:
+        """Should log warning but not crash when rollout times out."""
+        signing_key = "dGVzdC1rZXk="
+
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),       # patch
+            subprocess.CompletedProcess(args=[], returncode=0, stdout=signing_key, stderr=""),  # verify
+            subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),       # restart
+            subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="timed out"),  # rollout timeout
+        ]
+
+        # Should not raise
+        restore_argocd_secret(cfg, signing_key)
+        assert mock_run.call_count == 4
+
+    def test_dry_run_skips_all(self) -> None:
+        """Should return immediately without any kubectl calls."""
+        cfg = Config(dry_run=True)
+
+        with patch("steps.install.subprocess.run") as mock_run:
+            restore_argocd_secret(cfg, "dGVzdC1rZXk=")
+
+        mock_run.assert_not_called()
+
+    def test_none_key_returns_early(self, cfg: Config) -> None:
+        """Should return immediately when signing_key is None."""
+        with patch("steps.install.subprocess.run") as mock_run:
+            restore_argocd_secret(cfg, None)
+
+        mock_run.assert_not_called()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# generate_ci_token() — Retry with backoff and validation
+# ══════════════════════════════════════════════════════════════════════════
+
+
+from steps.auth import generate_ci_token
+
+
+class TestGenerateCiTokenRetry:
+    """Retry logic: 3 attempts with backoff."""
+
+    @patch("steps.auth.time.sleep")
+    @patch("steps.auth.subprocess.run")
+    @patch("steps.auth.get_secrets_client")
+    @patch("steps.auth.run")
+    @patch("steps.auth._resolve_admin_password")
+    def test_retries_on_login_failure(
+        self,
+        mock_admin: MagicMock,
+        mock_run: MagicMock,
+        mock_sm: MagicMock,
+        mock_subprocess: MagicMock,
+        mock_sleep: MagicMock,
+        cfg: Config,
+    ) -> None:
+        """Should retry login when first attempt fails."""
+        mock_admin.return_value = "admin-password"
+
+        # Login fails twice, then succeeds; token generation succeeds
+        login_fail = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="error")
+        login_ok = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        token_ok = subprocess.CompletedProcess(args=[], returncode=0, stdout="test-jwt-token", stderr="")
+
+        mock_run.side_effect = [login_fail, login_ok, token_ok]
+
+        # Validation curl → HTTP 200
+        mock_subprocess.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="200", stderr="",
+        )
+
+        # Secrets Manager mock
+        sm_mock = MagicMock()
+        mock_sm.return_value = sm_mock
+
+        generate_ci_token(cfg)
+
+        # Should have slept once (after first failure)
+        assert mock_sleep.call_count == 1
+
+    @patch("steps.auth.time.sleep")
+    @patch("steps.auth.subprocess.run")
+    @patch("steps.auth.run")
+    @patch("steps.auth._resolve_admin_password")
+    def test_gives_up_after_all_attempts(
+        self,
+        mock_admin: MagicMock,
+        mock_run: MagicMock,
+        mock_subprocess: MagicMock,
+        mock_sleep: MagicMock,
+        cfg: Config,
+    ) -> None:
+        """Should give up after 3 failed login attempts."""
+        mock_admin.return_value = "admin-password"
+
+        # All login attempts fail
+        login_fail = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="error")
+        mock_run.return_value = login_fail
+
+        generate_ci_token(cfg)
+
+        # 3 login attempts, 2 sleeps (no sleep after last failure)
+        assert mock_run.call_count == 3
+        assert mock_sleep.call_count == 2
+
+
+class TestGenerateCiTokenValidation:
+    """Token is validated against ArgoCD API before storing."""
+
+    @patch("steps.auth.time.sleep")
+    @patch("steps.auth.subprocess.run")
+    @patch("steps.auth.get_secrets_client")
+    @patch("steps.auth.run")
+    @patch("steps.auth._resolve_admin_password")
+    def test_stores_token_on_200(
+        self,
+        mock_admin: MagicMock,
+        mock_run: MagicMock,
+        mock_sm: MagicMock,
+        mock_subprocess: MagicMock,
+        mock_sleep: MagicMock,
+        cfg: Config,
+    ) -> None:
+        """Should store token when validation returns HTTP 200."""
+        mock_admin.return_value = "admin-password"
+
+        login_ok = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        token_ok = subprocess.CompletedProcess(args=[], returncode=0, stdout="valid-jwt-token", stderr="")
+        mock_run.side_effect = [login_ok, token_ok]
+
+        # curl validation → 200
+        mock_subprocess.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="200", stderr="",
+        )
+
+        sm_mock = MagicMock()
+        mock_sm.return_value = sm_mock
+
+        generate_ci_token(cfg)
+
+        # Should have attempted to create or update secret
+        assert sm_mock.create_secret.called or sm_mock.update_secret.called
+
+    @patch("steps.auth.time.sleep")
+    @patch("steps.auth.subprocess.run")
+    @patch("steps.auth.get_secrets_client")
+    @patch("steps.auth.run")
+    @patch("steps.auth._resolve_admin_password")
+    def test_does_not_store_on_401(
+        self,
+        mock_admin: MagicMock,
+        mock_run: MagicMock,
+        mock_sm: MagicMock,
+        mock_subprocess: MagicMock,
+        mock_sleep: MagicMock,
+        cfg: Config,
+    ) -> None:
+        """Should NOT store token when validation returns HTTP 401."""
+        mock_admin.return_value = "admin-password"
+
+        login_ok = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        token_ok = subprocess.CompletedProcess(args=[], returncode=0, stdout="bad-jwt-token", stderr="")
+        mock_run.side_effect = [login_ok, token_ok]
+
+        # curl validation → 401
+        mock_subprocess.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="401", stderr="",
+        )
+
+        sm_mock = MagicMock()
+        mock_sm.return_value = sm_mock
+
+        generate_ci_token(cfg)
+
+        # Should NOT have tried to store anything
+        sm_mock.create_secret.assert_not_called()
+        sm_mock.update_secret.assert_not_called()
+
+    def test_dry_run_skips_generation(self) -> None:
+        """Should return immediately in dry-run mode."""
+        cfg = Config(dry_run=True)
+
+        with patch("steps.auth.run") as mock_run:
+            with patch("steps.auth._resolve_admin_password") as mock_admin:
+                generate_ci_token(cfg)
+
+        mock_admin.assert_not_called()
+        mock_run.assert_not_called()
+

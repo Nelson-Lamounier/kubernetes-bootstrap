@@ -9,6 +9,8 @@ from pathlib import Path
 from helpers.config import Config
 from helpers.runner import log, run
 
+_ARGOCD_SERVER_DEPLOYMENT = "deployment/argocd-server"
+
 
 # ---------------------------------------------------------------------------
 # Step 3b-restore: Restore ArgoCD signing key (after install.yaml)
@@ -19,6 +21,12 @@ def restore_argocd_secret(cfg: Config, signing_key: str | None) -> None:
     Called immediately after install_argocd() to ensure the signing key
     is restored before any token validation occurs. This makes bootstrap
     re-runs non-disruptive to existing CI bot tokens.
+
+    Hardened with:
+      - Post-patch verification: reads back the key and confirms it matches
+      - Rollout wait: blocks until argocd-server pods are running with
+        the restored key (not fire-and-forget)
+      - Strong failure logging to surface issues in bootstrap logs
     """
     log("=== Step 3b-restore: Restoring ArgoCD JWT signing key ===")
 
@@ -30,26 +38,64 @@ def restore_argocd_secret(cfg: Config, signing_key: str | None) -> None:
         log("  [DRY-RUN] Would patch server.secretkey into argocd-secret\n")
         return
 
+    kube_env = {**os.environ, "KUBECONFIG": cfg.kubeconfig}
+
+    # 1. Patch the signing key back into argocd-secret
     patch = json.dumps({"data": {"server.secretkey": signing_key}})
     result = subprocess.run(
         ["kubectl", "patch", "secret", "argocd-secret", "-n", "argocd",
          "--type", "merge", "-p", patch],
-        env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
-        capture_output=True, text=True,
+        env=kube_env, capture_output=True, text=True,
     )
 
-    if result.returncode == 0:
-        log("  ✓ JWT signing key restored — existing tokens remain valid")
-        # Restart argocd-server so it picks up the restored key
-        subprocess.run(
-            ["kubectl", "rollout", "restart", "deployment/argocd-server", "-n", "argocd"],
-            env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
-            check=False,
-        )
-        log("  ✓ argocd-server restarted to load restored key\n")
+    if result.returncode != 0:
+        log(f"  ✗ Failed to restore signing key — {result.stderr}")
+        log("    CI bot tokens WILL be invalidated on next verification")
+        log("    Manual fix: just argocd-ci-token\n")
+        return
+
+    log("  ✓ JWT signing key patched")
+
+    # 2. Verify the patch stuck — read back and confirm match
+    verify = subprocess.run(
+        ["kubectl", "get", "secret", "argocd-secret", "-n", "argocd",
+         "-o", "jsonpath={.data.server\\.secretkey}"],
+        env=kube_env, capture_output=True, text=True,
+    )
+
+    if verify.returncode == 0 and verify.stdout.strip() == signing_key:
+        log("  ✓ Post-patch verification passed — key matches")
     else:
-        log(f"  ⚠ Failed to restore signing key — {result.stderr}")
-        log("    CI bot tokens will need to be regenerated: just argocd-ci-token\n")
+        actual = verify.stdout.strip() if verify.returncode == 0 else "(read failed)"
+        log(f"  ✗ Post-patch verification FAILED — expected key but got: {actual[:20]}...")
+        log("    CI bot tokens may be invalidated\n")
+        return
+
+    # 3. Restart argocd-server so it picks up the restored key
+    restart = subprocess.run(
+        ["kubectl", "rollout", "restart", _ARGOCD_SERVER_DEPLOYMENT,
+         "-n", "argocd"],
+        env=kube_env, capture_output=True, text=True,
+    )
+
+    if restart.returncode != 0:
+        log("  ⚠ Failed to trigger argocd-server restart")
+        log("    Server will pick up the key on next natural restart\n")
+        return
+
+    # 4. Wait for rollout to complete (not fire-and-forget)
+    log(f"  → Waiting for argocd-server rollout (timeout: {cfg.argo_timeout}s)...")
+    rollout = subprocess.run(
+        ["kubectl", "rollout", "status", _ARGOCD_SERVER_DEPLOYMENT,
+         "-n", "argocd", f"--timeout={cfg.argo_timeout}s"],
+        env=kube_env, capture_output=True, text=True,
+    )
+
+    if rollout.returncode == 0:
+        log("  ✓ argocd-server rollout complete — restored key is active\n")
+    else:
+        log(f"  ⚠ Rollout not ready within {cfg.argo_timeout}s — server may still be starting")
+        log("    Token validation will proceed; key is patched correctly\n")
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +197,7 @@ def configure_argocd_server(cfg: Config) -> None:
 
     # Restart argocd-server so pods pick up the new ConfigMap values
     result = run(
-        ["kubectl", "rollout", "restart", "deployment/argocd-server",
+        ["kubectl", "rollout", "restart", _ARGOCD_SERVER_DEPLOYMENT,
          "-n", "argocd"],
         cfg=cfg, check=False,
     )
