@@ -28,7 +28,7 @@ spec:
       priority: 100
       middlewares:
         - name: admin-ip-allowlist
-        - name: monitoring-rate-limit@kubernetescrd
+        - name: rate-limit
       services:
         - name: argocd-server
           port: 80

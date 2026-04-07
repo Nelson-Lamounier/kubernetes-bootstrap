@@ -136,6 +136,7 @@ def apply_ingress(cfg: Config) -> None:
     actually exists in the cluster.
 
     Applied manifests:
+      - rate-limit-middleware.yaml — ArgoCD-local rate-limit (avoids cross-namespace ref)
       - ingress.yaml — ArgoCD UI IngressRoute (``/argocd``)
       - webhook-ingress.yaml — GitHub webhook IngressRoute
     """
@@ -148,6 +149,7 @@ def apply_ingress(cfg: Config) -> None:
 
     # Collect all ingress manifests to apply
     ingress_files = [
+        ("rate-limit-middleware.yaml", "ArgoCD rate-limit middleware"),
         ("ingress.yaml", "Main ArgoCD ingress"),
         ("webhook-ingress.yaml", "GitHub webhook ingress"),
     ]

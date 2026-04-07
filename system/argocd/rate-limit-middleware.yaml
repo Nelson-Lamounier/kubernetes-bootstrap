@@ -1,0 +1,18 @@
+# @format
+# ArgoCD-local rate-limit middleware.
+#
+# Traefik v3 blocks cross-namespace middleware references by default.
+# Instead of enabling allowCrossNamespace (which weakens security),
+# we duplicate the rate-limit middleware into the argocd namespace.
+# This keeps the argocd IngressRoute self-contained.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  rateLimit:
+    average: 100
+    burst: 50
