@@ -55,7 +55,21 @@ spec:
               cpu: 25m
               memory: 64Mi
         dashboard:
-          enabled: false  # Not needed — use kubectl or ArgoCD UI
+          enabled: true  # Web UI for managing rollouts (promote/abort)
+          nodeSelector:
+            workload: argocd
+          tolerations:
+            - key: workload
+              operator: Equal
+              value: argocd
+              effect: NoSchedule
+          resources:
+            limits:
+              cpu: 50m
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
 
   destination:
     server: https://kubernetes.default.svc
