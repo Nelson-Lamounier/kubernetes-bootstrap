@@ -254,6 +254,7 @@ return hs"""
         "resource.customizations.health.apps_Deployment": deployment_health_lua,
         "resource.customizations.health._ConfigMap": configmap_health_lua,
         "resource.customizations.health.argoproj.io_Rollout": rollout_health_lua,
+        "timeout.session": "24h",
     }})
 
     result = run(

@@ -20,6 +20,11 @@ metadata:
     app.kubernetes.io/component: app-of-apps
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Application
+      jsonPointers:
+        - /spec/source/helm/parameters
 spec:
   project: default
 
