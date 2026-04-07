@@ -91,7 +91,7 @@ class TestIsNodeRegistered:
             stdout="ip-10-0-0-245.eu-west-1.compute.internal   Ready   <none>   5m"
         )
 
-        assert _is_node_registered("ip-10-0-0-245.eu-west-1.compute.internal") is True
+        assert _is_node_registered("ip-10-0-0-245.eu-west-1.compute.internal", {}) is True
 
     @patch("wk.verify_membership.run_cmd")
     def test_returns_false_when_not_found(self, mock_run: MagicMock) -> None:
@@ -100,7 +100,7 @@ class TestIsNodeRegistered:
 
         mock_run.return_value = _fail(stderr="Error from server (NotFound)")
 
-        assert _is_node_registered("ip-10-0-0-245.eu-west-1.compute.internal") is False
+        assert _is_node_registered("ip-10-0-0-245.eu-west-1.compute.internal", {}) is False
 
 
 # ── Tests: _fix_labels ─────────────────────────────────────────────────────
@@ -119,6 +119,7 @@ class TestFixLabels:
             "test-node",
             expected={"workload": "frontend", "environment": "development"},
             actual={"workload": "monitoring", "environment": "development"},
+            kc_env={},
         )
 
         assert corrected == ["workload=frontend"]
@@ -133,6 +134,7 @@ class TestFixLabels:
             "test-node",
             expected={"workload": "frontend"},
             actual={"workload": "frontend"},
+            kc_env={},
         )
 
         assert corrected == []
@@ -149,6 +151,7 @@ class TestFixLabels:
             "test-node",
             expected={"workload": "frontend"},
             actual={},
+            kc_env={},
         )
 
         assert corrected == ["workload=frontend"]
