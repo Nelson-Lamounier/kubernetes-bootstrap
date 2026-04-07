@@ -20,13 +20,17 @@ metadata:
     app.kubernetes.io/component: app-of-apps
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  # Preserve bootstrap-injected Helm parameters (IP allowlists from SSM).
+  # Without this, selfHeal overwrites the patched parameters back to the
+  # Git-declared state (no parameters), breaking the Traefik middleware.
   ignoreDifferences:
     - group: argoproj.io
       kind: Application
       jsonPointers:
         - /spec/source/helm/parameters
-spec:
-  project: default
 
   source:
     repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
