@@ -5,9 +5,17 @@ Handles:
 - Patient retry loop for kubeadm join with token refresh
 - Kubelet health check after join
 - AWS CCM providerID patching
+
+Token resolution order (first non-empty value wins):
+1. ``KUBEADM_JOIN_TOKEN`` environment variable — set by user data at instance
+   launch time by fetching from SSM. This is the normal path for ASG-managed
+   nodes: the token is fetched once at boot and reused across all join attempts.
+2. SSM ``GetParameter`` — fallback for nodes bootstrapped via SSM Automation
+   (CI-triggered path) where the env var is not set.
 """
 from __future__ import annotations
 
+import os
 import socket
 import subprocess
 import time
@@ -263,7 +271,23 @@ def join_cluster(endpoint: str, cfg: BootConfig) -> None:
     for attempt in range(1, cfg.join_max_retries + 1):
         log_info(f"=== kubeadm join attempt {attempt}/{cfg.join_max_retries} ===")
 
-        raw_token = ssm_get(token_ssm, decrypt=True)
+        # ── Token resolution: env var (user data) → SSM fallback ──────────
+        # User data fetches KUBEADM_JOIN_TOKEN from SSM at instance launch time
+        # so ASG nodes launched days later always have a valid token without
+        # an extra SSM round-trip on each retry.
+        env_token = os.environ.get("KUBEADM_JOIN_TOKEN", "").strip()
+        if env_token:
+            raw_token = env_token
+            log_info(
+                f"Join token sourced from KUBEADM_JOIN_TOKEN env var "
+                f"(set by user data at launch, attempt {attempt})"
+            )
+        else:
+            raw_token = ssm_get(token_ssm, decrypt=True)
+            log_info(
+                f"Join token sourced from SSM ({token_ssm}, attempt {attempt})"
+            )
+
         if not raw_token:
             log_warn(f"Join token not available (attempt {attempt}/{cfg.join_max_retries})")
             if attempt < cfg.join_max_retries:
@@ -359,7 +383,46 @@ def join_cluster(endpoint: str, cfg: BootConfig) -> None:
             log_info(f"kubeadm join succeeded on attempt {attempt}")
             return
 
-        log_warn(f"kubeadm join failed on attempt {attempt}/{cfg.join_max_retries}")
+        # ── Token-expiry detection ────────────────────────────────────────
+        # An expired token presents as a generic returncode 1 with the message
+        # "token has expired" or "unknown bootstrap token" in stderr. Without
+        # this check, the retry loop burns all attempts against a token that
+        # will never succeed — an ASG node launched days after bootstrap silently
+        # exhausts retries with no actionable log message.
+        #
+        # On expiry: log the root cause clearly, reset join state, then wait
+        # for the control-plane token rotator (kubeadm-token-rotator.timer,
+        # runs every 12h) to push a fresh token to SSM. The next loop iteration
+        # re-calls ssm_get() so it picks up the refreshed value.
+        stderr_text = getattr(result, "stderr", "") or ""
+        stdout_text = getattr(result, "stdout", "") or ""
+        combined = (stderr_text + stdout_text).lower()
+        token_expired = (
+            "token" in combined
+            and (
+                "expired" in combined
+                or "not found" in combined
+                or "unknown bootstrap token" in combined
+            )
+        )
+        if token_expired:
+            log_warn(
+                f"Join token from SSM is EXPIRED or unknown on attempt "
+                f"{attempt}/{cfg.join_max_retries}. "
+                f"The control plane token rotator refreshes SSM every 12h. "
+                f"Waiting {cfg.join_retry_interval}s for a fresh token..."
+            )
+            run_cmd(["kubeadm", "reset", "-f"], check=False)
+            if attempt < cfg.join_max_retries:
+                time.sleep(cfg.join_retry_interval)
+                # Next iteration re-reads SSM — no explicit cache to clear
+                continue
+            raise RuntimeError(
+                f"Join token expired and no fresh token appeared in SSM after "
+                f"{cfg.join_max_retries} attempts. "
+                f"Verify the token rotator is running on the control plane: "
+                f"systemctl status kubeadm-token-rotator.timer"
+            )
 
         if attempt < cfg.join_max_retries:
             log_info("Running kubeadm reset before retry...")

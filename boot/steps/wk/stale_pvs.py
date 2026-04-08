@@ -1,4 +1,4 @@
-"""Step 5 — Clean stale PVs/PVCs pinned to dead nodes (monitoring worker only).
+"""Step 5 — Clean stale PVs/PVCs pinned to dead nodes (monitoring workers only).
 
 When a monitoring worker is replaced by ASG, the old node's EBS CSI
 PersistentVolumes may remain in the cluster, pinned via ``nodeAffinity`` to
@@ -14,6 +14,8 @@ ArgoCD or Helm will recreate the PVCs on the next sync, and
 the ``aws-ebs-csi-driver`` will provision fresh EBS volumes on the new node.
 
 Gated to monitoring workers only via ``NODE_LABEL`` check.
+Accepts both the legacy ``workload=monitoring`` label (MonitoringWorker CDK stack)
+and the new ``node-pool=monitoring`` label (Kubernetes-MonitoringPool ASG stack).
 Idempotent: if no stale PVs exist, this step is a no-op.
 """
 from __future__ import annotations
@@ -33,14 +35,41 @@ from common import (
 )
 from boot_helpers.config import BootConfig
 
-# ── Constants ──────────────────────────────────────────────────────────────
+# ── Constants ────────────────────────────────────────────────
 
-MONITORING_WORKER_LABEL = "workload=monitoring"
+# MIGRATION: During the K8s-native worker migration, monitoring pool nodes carry
+# the new label `node-pool=monitoring` instead of the legacy `workload=monitoring`.
+# Both are accepted here so PV cleanup runs for either generation of monitoring node.
+# Once the legacy MonitoringWorker stack is decommissioned, simplify to:
+#   MONITORING_NODE_LABEL = "node-pool=monitoring"
+
+_MONITORING_LABELS: frozenset[str] = frozenset({
+    "workload=monitoring",  # legacy — MonitoringWorker CDK stack
+    "node-pool=monitoring",  # new    — Kubernetes-MonitoringPool ASG stack
+})
+
 MONITORING_NAMESPACE = "monitoring"
 STALE_PV_CLEANUP_MARKER = "/tmp/.stale-pv-cleanup-done"
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────
+
+def is_monitoring_worker(label: str) -> bool:
+    """Return True if this node is a monitoring worker (any generation).
+
+    Accepts both the legacy ``workload=monitoring`` label (single-node
+    MonitoringWorker CDK stack) and the new ``node-pool=monitoring`` label
+    (generic ASG monitoring pool). Simplify to a direct equality check once
+    the legacy stack is decommissioned.
+
+    Args:
+        label: The value of the ``NODE_LABEL`` / ``cfg.node_label`` field.
+
+    Returns:
+        True if the label denotes a monitoring worker.
+    """
+    return label in _MONITORING_LABELS
+
 
 def get_cluster_node_names() -> set[str]:
     """Get the set of node hostnames currently registered in the cluster."""
@@ -138,10 +167,10 @@ def step_clean_stale_pvs(cfg: BootConfig) -> None:
         if step.skipped:
             return
 
-        if cfg.node_label != MONITORING_WORKER_LABEL:
+        if not is_monitoring_worker(cfg.node_label):
             log_info(
                 f"Skipping stale PV cleanup — NODE_LABEL={cfg.node_label} "
-                f"(only {MONITORING_WORKER_LABEL} triggers PV cleanup)"
+                f"(only monitoring workers trigger PV cleanup: {sorted(_MONITORING_LABELS)})"
             )
             step.details["skipped_reason"] = f"not a monitoring worker (label={cfg.node_label})"
             return

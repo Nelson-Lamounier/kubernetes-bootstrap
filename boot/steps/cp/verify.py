@@ -37,11 +37,43 @@ API_SERVER_PORT = 6443
 
 # ── Step ───────────────────────────────────────────────────────────────────
 
+def _count_ready_nodes_in_pool(pool: str) -> int:
+    """Count Ready nodes with a given node-pool label.
+
+    Uses a label selector query so this scales correctly with dynamic ASGs —
+    there is no fixed expected count. Returns 0 on any kubectl failure.
+
+    Args:
+        pool: The ``node-pool`` label value to filter by (e.g. ``general``).
+
+    Returns:
+        Number of nodes in the pool that are Ready and not NotReady.
+    """
+    result = run_cmd(
+        ["kubectl", "get", "nodes",
+         "-l", f"node-pool={pool}",
+         "--no-headers"],
+        check=False, env=KUBECONFIG_ENV,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return 0
+    return sum(
+        1 for line in result.stdout.strip().splitlines()
+        if "Ready" in line and "NotReady" not in line
+    )
+
+
 def step_verify_cluster(cfg: BootConfig) -> None:
     """Step 8: Comprehensive post-boot health checks.
 
     Validates node readiness, core namespace pods, ArgoCD health,
     ArgoCD Application sync status, and outside-in API connectivity.
+
+    Node readiness uses pool-label selectors (``node-pool=<pool>``) rather
+    than a fixed count, so the check scales correctly with dynamic ASGs.
+    Worker pools (general, monitoring) are **non-blocking** — this step runs
+    at the end of ``kubeadm init``, before workers have joined, so a missing
+    worker pool is expected and only warrants a log warning, not a failure.
 
     Args:
         cfg: Bootstrap configuration.
@@ -52,22 +84,24 @@ def step_verify_cluster(cfg: BootConfig) -> None:
 
         results: dict[str, bool] = {}
 
-        # ── 1. Node readiness ──────────────────────────────────────────
-        log_info("Checking node readiness...")
-        result = run_cmd(
-            ["kubectl", "get", "nodes", "--no-headers"],
-            check=False, env=KUBECONFIG_ENV,
-        )
-        node_ready = False
-        if result.returncode == 0:
-            for line in result.stdout.strip().splitlines():
-                if "Ready" in line and "NotReady" not in line:
-                    log_info(f"  ✓ Node ready: {line.split()[0]}")
-                    node_ready = True
-                    break
-        if not node_ready:
-            log_error("Node is not in Ready state")
-        results["node_ready"] = node_ready
+        # ── 1. Pool-aware node readiness ───────────────────────────────
+        log_info("Checking pool-aware node readiness...")
+        pool_counts: dict[str, int] = {}
+        for pool in ("control-plane", "general", "monitoring"):
+            count = _count_ready_nodes_in_pool(pool)
+            pool_counts[pool] = count
+            if count > 0:
+                log_info(f"  ✓ node-pool={pool}: {count} Ready node(s)")
+            else:
+                log_warn(f"  ⚠ node-pool={pool}: 0 Ready nodes")
+
+        # Control plane must have at least 1 ready node — this is a hard gate.
+        # Worker pools are non-blocking: they are absent at kubeadm init time.
+        cp_ready = pool_counts.get("control-plane", 0) > 0
+        if not cp_ready:
+            log_error("Control plane node is not in Ready state")
+        results["node_ready"] = cp_ready
+        step.details["pool_node_counts"] = pool_counts
 
         # ── 2. Core namespaces ─────────────────────────────────────────
         log_info("Checking namespace pods...")

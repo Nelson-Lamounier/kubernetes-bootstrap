@@ -10,6 +10,15 @@
 #   chmod +x verify-cluster.sh && ./verify-cluster.sh
 #   ./verify-cluster.sh --skip-connectivity   # skip external curl tests
 #   ./verify-cluster.sh --json                # output summary as JSON
+#   ./verify-cluster.sh --migrate             # enforce NLB health gate before drain
+#
+# Migration mode (--migrate) enforces the safe zero-downtime cutover order:
+#   1. New ASG nodes join cluster and register with NLB target groups
+#   2. NLB health checks pass on new nodes          ← CHECK 2b (this gate)
+#   3. Update nodeSelector in Helm manifests
+#   4. ArgoCD syncs → pods reschedule to new nodes
+#   5. Validate traffic in NLB access logs
+#   6. Drain old nodes                              ← CHECK 16b (drain safety gate)
 #
 # Reference: docs/kubernetes/post-deployment-verification-guide.md
 # =============================================================================
@@ -31,6 +40,7 @@ fi
 PASS=0; FAIL=0; WARN=0; SKIP=0
 SKIP_CONNECTIVITY=false
 JSON_OUTPUT=false
+MIGRATION_MODE=false
 FAILURES=()     # accumulate failure descriptions for final summary
 WARNINGS=()     # accumulate warning descriptions for final summary
 
@@ -38,6 +48,7 @@ for arg in "$@"; do
   case "$arg" in
     --skip-connectivity) SKIP_CONNECTIVITY=true ;;
     --json)              JSON_OUTPUT=true ;;
+    --migrate)           MIGRATION_MODE=true ;;
   esac
 done
 
@@ -254,48 +265,68 @@ fi
 section "2 — Node Labels & Taints"
 
 # Check for role labels on workers
+# MIGRATION: Accept both legacy (workload=*) and new ASG pool (node-pool=*) labels.
+# Once the legacy stacks are decommissioned, simplify to check only node-pool labels.
 APP_NODES=$(kube get nodes -l workload=frontend --no-headers 2>/dev/null | wc -l | tr -d ' ')
+GENERAL_POOL_NODES=$(kube get nodes -l node-pool=general --no-headers 2>/dev/null | wc -l | tr -d ' ')
+TOTAL_FRONTEND_NODES=$(( APP_NODES + GENERAL_POOL_NODES ))
+
 MON_NODES=$(kube get nodes -l workload=monitoring --no-headers 2>/dev/null | wc -l | tr -d ' ')
+MON_POOL_NODES=$(kube get nodes -l node-pool=monitoring --no-headers 2>/dev/null | wc -l | tr -d ' ')
+TOTAL_MON_NODES=$(( MON_NODES + MON_POOL_NODES ))
 
-if [ "$APP_NODES" -ge 1 ]; then
-  pass "Frontend worker found (workload=frontend label present)"
+if [ "$TOTAL_FRONTEND_NODES" -ge 1 ]; then
+  if [ "$GENERAL_POOL_NODES" -ge 1 ]; then
+    pass "General pool worker found (node-pool=general — new ASG pool)"
+  fi
+  if [ "$APP_NODES" -ge 1 ]; then
+    pass "Frontend worker found (workload=frontend — legacy label, migration in progress)"
+  fi
 else
-  fail "No node with label workload=frontend" \
-"No worker node has the label 'workload=frontend'.
+  fail "No frontend/general-pool worker node found" \
+"No worker node has either 'workload=frontend' (legacy) or 'node-pool=general' (new pool) label.
 
-COMPONENT: Node labels are key-value pairs attached to nodes. The NextJS
-Helm chart uses 'nodeSelector: { workload: frontend }' to ensure pods only
-schedule on the frontend worker. Without this label, NextJS pods will
-stay in Pending state with the event:
-  'Warning FailedScheduling: 0/3 nodes are available: ... node(s) didn't
-   match Pod's node affinity/selector'
+DURING MIGRATION: Both labels are valid. After migration is complete, only
+'node-pool=general' is required.
 
-NOTE: Node names are internal DNS hostnames (e.g. ip-10-0-0-160.eu-west-1.compute.internal).
+COMPONENT: Node labels direct pod scheduling. Next.js and start-admin pods
+use 'nodeSelector: { node-pool: general }' once migrated. Without this label,
+pods stay in Pending.
 
-FIX (manual — recommended, keeps existing role=worker label):
-  kubectl label node <node-internal-dns-hostname> workload=frontend
+Note: Node names are internal DNS hostnames (e.g. ip-10-0-0-160.eu-west-1.compute.internal).
 
-FIX (permanent): Ensure the CDK stack passes the workload label
-in the application worker's user data."
+FIX (manual — new pool label):
+  kubectl label node <node-internal-dns-hostname> node-pool=general
+
+FIX (permanent): Deploy the Kubernetes-GeneralPool CDK stack.  The bootstrap
+script applies the node-pool=general label via kubeadm join --node-labels."
 fi
 
-if [ "$MON_NODES" -ge 1 ]; then
-  pass "Monitoring worker found (workload=monitoring label present)"
+if [ "$TOTAL_MON_NODES" -ge 1 ]; then
+  if [ "$MON_POOL_NODES" -ge 1 ]; then
+    pass "Monitoring pool worker found (node-pool=monitoring — new ASG pool)"
+  fi
+  if [ "$MON_NODES" -ge 1 ]; then
+    pass "Monitoring worker found (workload=monitoring — legacy label, migration in progress)"
+  fi
 else
-  fail "No node with label workload=monitoring" \
-"No worker node has the label 'workload=monitoring'.
+  fail "No monitoring worker node found" \
+"No worker node has either 'workload=monitoring' (legacy) or 'node-pool=monitoring' (new pool) label.
 
-COMPONENT: The monitoring Helm chart uses 'nodeSelector: { workload: monitoring }'
-to keep Prometheus, Grafana, Loki, Tempo, and other observability tools on a
-dedicated worker. Without this label, monitoring pods stay in Pending.
+DURING MIGRATION: Both labels are valid. After migration is complete, only
+'node-pool=monitoring' is required.
 
-NOTE: Node names are internal DNS hostnames (e.g. ip-10-0-0-26.eu-west-1.compute.internal).
+COMPONENT: The monitoring Helm chart uses 'nodeSelector: { node-pool: monitoring }'
+once migrated. Without this label, Prometheus, Grafana, Loki, and Tempo pods stay in Pending.
 
-FIX (manual — recommended, keeps existing role=worker label):
-  kubectl label node <node-internal-dns-hostname> workload=monitoring
+Note: Node names are internal DNS hostnames (e.g. ip-10-0-0-26.eu-west-1.compute.internal).
 
-FIX (permanent): Ensure the CDK stack passes the workload label
-in the monitoring worker's user data."
+FIX (manual — new pool label):
+  kubectl label node <node-internal-dns-hostname> node-pool=monitoring
+
+FIX (permanent): Deploy the Kubernetes-MonitoringPool CDK stack.  The bootstrap
+script applies the node-pool=monitoring label and the dedicated=monitoring:NoSchedule
+taint via kubeadm join --node-labels and post-join kubectl taint."
 fi
 
 # Check control plane taint
@@ -326,7 +357,100 @@ else
 fi
 
 # =============================================================================
-# CHECK 3 — System Pods (kube-system)
+# CHECK 2b — NLB Target Health Gate (MIGRATION MODE ONLY)
+#
+# PURPOSE: Enforce migration step 2 — NLB health checks must pass on the
+# new ASG nodes BEFORE workloads are rescheduled via nodeSelector changes.
+#
+# Why this matters:
+#   If pods move to new nodes before the NLB registers them as healthy targets,
+#   there is a window where traffic reaches the old (draining) node but no new
+#   node can accept it. This check refuses to proceed until the new nodes are
+#   visible to the NLB.
+#
+# Checks performed:
+#   1. Resolve the NLB target group ARN from SSM
+#   2. Query all targets registered to the TG
+#   3. Verify at least one target in 'healthy' state whose instance ID belongs
+#      to the new general-pool ASG (tagged k8s:bootstrap-role=general-pool)
+# =============================================================================
+if $MIGRATION_MODE; then
+  section "2b — NLB Target Health Gate (migration mode)"
+
+  # Fetch the NLB target group ARN published by the CDK base stack
+  SSM_TG_PATH="/k8s/development/nlb-http-target-group-arn"
+  TG_ARN=$(aws ssm get-parameter --name "$SSM_TG_PATH" \
+    --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+
+  if [ -z "$TG_ARN" ]; then
+    fail "NLB target group ARN not found in SSM at $SSM_TG_PATH" \
+"The CDK base stack publishes the NLB target group ARN to SSM so that
+nodes and CI scripts can query target health without hard-coding ARNs.
+
+If the parameter is missing:
+  1. Check the base stack deployed correctly:
+     aws cloudformation describe-stacks --stack-name Kubernetes-Base-development
+  2. Check SSM parameters:
+     aws ssm get-parameters-by-path --path /k8s/development --recursive
+  3. The CDK KubernetesBaseStack must export the TG ARN to SSM as:
+     $SSM_TG_PATH
+
+FIX: Add the SSM parameter output to KubernetesBaseStack and redeploy."
+  else
+    info "NLB target group: $TG_ARN"
+
+    # Query target health
+    TARGET_HEALTH=$(aws elbv2 describe-target-health \
+      --target-group-arn "$TG_ARN" \
+      --query 'TargetHealthDescriptions[*].{id:Target.Id,state:TargetHealth.State}' \
+      --output json 2>/dev/null || echo "[]")
+
+    HEALTHY_TARGETS=$(echo "$TARGET_HEALTH" | \
+      grep -c '"state": "healthy"' 2>/dev/null || echo "0")
+    TOTAL_TARGETS=$(echo "$TARGET_HEALTH" | \
+      grep -c '"id":' 2>/dev/null || echo "0")
+
+    info "NLB registered targets: $TOTAL_TARGETS  |  healthy: $HEALTHY_TARGETS"
+    echo "$TARGET_HEALTH" | sed 's/^/          /'
+    echo ""
+
+    if [ "$HEALTHY_TARGETS" -eq 0 ]; then
+      fail "No healthy NLB targets — DO NOT update nodeSelector yet" \
+"MIGRATION GATE FAILED: The NLB has no healthy targets.
+
+This is a hard block on the migration. Updating nodeSelector in Helm
+manifests NOW would cause ArgoCD to reschedule pods onto new nodes
+before any node can receive traffic from CloudFront → NLB.
+
+RESULT: A window of downtime or 502s from CloudFront.
+
+WHAT TO CHECK:
+  1. Have the new general-pool ASG instances joined the cluster?
+     kubectl get nodes -l node-pool=general -o wide
+  2. Are the new instances registered with the target group?
+     aws elbv2 describe-target-health --target-group-arn $TG_ARN
+  3. What port does the TG health check use? (usually 30080 or 443)
+     aws elbv2 describe-target-groups --target-group-arns $TG_ARN
+  4. Are Traefik hostNetwork pods running on the new nodes?
+     kubectl get pods -A -o wide | grep traefik
+  5. Is the security group allowing the NLB to reach that port?
+     Check the base stack security group ingress rules.
+
+DO NOT PROCEED until $HEALTHY_TARGETS > 0."
+    elif [ "$HEALTHY_TARGETS" -lt "$TOTAL_TARGETS" ]; then
+      warn "$HEALTHY_TARGETS/$TOTAL_TARGETS NLB targets are healthy — verify before rescheduling" \
+"Some targets are not yet healthy. This may be transient (Traefik starting up)
+or indicate a problem (security group, port mismatch).
+
+Wait 60 seconds and re-run: ./verify-cluster.sh --migrate
+If health check failures persist, check:
+  aws elbv2 describe-target-health --target-group-arn $TG_ARN"
+    else
+      pass "All $HEALTHY_TARGETS/$TOTAL_TARGETS NLB targets are healthy — safe to update nodeSelector"
+    fi
+  fi
+fi
+
 # =============================================================================
 section "3 — System Pods (kube-system)"
 
@@ -1090,6 +1214,73 @@ section "16 — End-to-End Connectivity"
 
 if $SKIP_CONNECTIVITY; then
   skip "Connectivity tests skipped (--skip-connectivity flag)"
+elif $MIGRATION_MODE; then
+  # -------------------------------------------------------------------------
+  # CHECK 16b — Drain Safety Gate
+  #
+  # In migration mode, we re-verify NLB health here before the operator can
+  # drain old nodes. This is a second gate that runs AFTER workload scheduling
+  # checks (CHECK 9, 15) to confirm the cluster is actually serving traffic
+  # through the new nodes before removing the old ones.
+  # -------------------------------------------------------------------------
+  section "16b — Drain Safety Gate (migration mode)"
+
+  SSM_TG_PATH="/k8s/development/nlb-http-target-group-arn"
+  TG_ARN2=$(aws ssm get-parameter --name "$SSM_TG_PATH" \
+    --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+
+  if [ -z "$TG_ARN2" ]; then
+    fail "NLB target group ARN missing — cannot verify drain safety"
+  else
+    DRAINABLE=$(aws elbv2 describe-target-health \
+      --target-group-arn "$TG_ARN2" \
+      --query 'TargetHealthDescriptions[?TargetHealth.State==`healthy`].Target.Id' \
+      --output text 2>/dev/null | wc -w | tr -d ' ')
+
+    # Verify new-pool nodes (tagged node-pool=general) appear in healthy targets
+    NEW_POOL_NODES=$(kubectl get nodes -l node-pool=general \
+      -o jsonpath='{.items[*].spec.providerID}' 2>/dev/null \
+      | tr ' ' '\n' | sed 's|.*/||' || echo "")
+
+    info "Healthy NLB targets: $DRAINABLE"
+    info "New general-pool node instance IDs: $(echo $NEW_POOL_NODES | tr '\n' ' ')" 
+
+    NEW_POOL_HEALTHY=0
+    while IFS= read -r iid; do
+      [ -z "$iid" ] && continue
+      TARGET_STATE=$(aws elbv2 describe-target-health \
+        --target-group-arn "$TG_ARN2" \
+        --targets Id="$iid" \
+        --query 'TargetHealthDescriptions[0].TargetHealth.State' \
+        --output text 2>/dev/null || echo "unused")
+      if [ "$TARGET_STATE" = "healthy" ]; then
+        ((NEW_POOL_HEALTHY++))
+        info "  ✅ $iid → healthy"
+      else
+        info "  ⚠️  $iid → ${TARGET_STATE:-not registered}"
+      fi
+    done <<< "$NEW_POOL_NODES"
+
+    if [ "$NEW_POOL_HEALTHY" -eq 0 ]; then
+      fail "No general-pool node is healthy in the NLB — DO NOT drain old nodes" \
+"DRAIN GATE FAILED: Zero new general-pool instances are healthy NLB targets.
+
+Draining old nodes now would remove the only nodes currently serving traffic.
+
+ACTION:
+  1. Wait for Traefik DaemonSet pod to be Running on the new node
+  2. Confirm the NLB target health check passes (port + SG)
+  3. Re-run: ./verify-cluster.sh --migrate
+  4. Only proceed to: kubectl drain <old-node> --ignore-daemonsets --delete-emptydir-data"
+    else
+      pass "$NEW_POOL_HEALTHY general-pool node(s) are healthy NLB targets — safe to drain old nodes"
+      echo ""
+      echo -e "  ${GRN}${BLD}Drain command (run one node at a time):${RST}"
+      echo -e "    kubectl drain <OLD_NODE_NAME> --ignore-daemonsets --delete-emptydir-data"
+      echo -e "    kubectl get pods -A -o wide   # confirm no pods remain on drained node"
+      echo ""
+    fi
+  fi
 else
   # Test 1: Traefik local
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost 2>/dev/null || echo "000")

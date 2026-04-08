@@ -41,6 +41,10 @@ class BootConfig:
         calico_version: Calico CNI version.
         environment: Deployment environment name.
         node_label: Kubernetes node label (worker nodes only).
+        node_pool: ASG pool identity — ``general``, ``monitoring``, or empty
+            string for legacy statically-provisioned workers.  Set by the EC2
+            user-data block in ``worker-asg-stack.ts``.  Used to gate the SSM
+            instance-id registration step and drive pool-aware verification.
         log_group_name: CloudWatch log group name.
         join_max_retries: Maximum retries for kubeadm join.
         join_retry_interval: Seconds between join retries.
@@ -84,6 +88,12 @@ class BootConfig:
     )
     node_label: str = field(
         default_factory=lambda: os.environ.get("NODE_LABEL", "role=worker"),
+    )
+    node_pool: str = field(
+        # Exported by worker-asg-stack.ts user-data as ``general`` or
+        # ``monitoring``.  Empty string for legacy statically-provisioned
+        # workers that do not carry the NODE_POOL variable.
+        default_factory=lambda: os.environ.get("NODE_POOL", ""),
     )
     log_group_name: str = field(
         default_factory=lambda: os.environ.get("LOG_GROUP_NAME", ""),

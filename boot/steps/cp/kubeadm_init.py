@@ -37,7 +37,15 @@ DR_BACKUP_PREFIX = "dr-backups"
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def label_control_plane_node(cfg: BootConfig) -> None:
-    """Apply workload and environment labels to the control plane node."""
+    """Apply pool, workload, and environment labels to the control plane node.
+
+    Labels applied:
+    - ``node-pool=control-plane``  — pool identity for the pool-aware verify
+      check and to prevent the Cluster Autoscaler from ever targeting the CP.
+    - ``workload=control-plane``   — kept for backward compatibility during
+      the K8s-native worker migration; remove once legacy stacks are gone.
+    - ``environment=<env>``        — deployment environment tag.
+    """
     hostname = run_cmd(
         ["kubectl", "get", "nodes",
          "-l", "node-role.kubernetes.io/control-plane=",
@@ -50,7 +58,8 @@ def label_control_plane_node(cfg: BootConfig) -> None:
         return
 
     labels = {
-        "workload": "control-plane",
+        "node-pool": "control-plane",   # pool identity — CA exclusion gate
+        "workload": "control-plane",    # legacy — remove post-migration
         "environment": cfg.environment,
     }
     label_args = [f"{k}={v}" for k, v in labels.items()]
@@ -111,8 +120,13 @@ def publish_ssm_params(
     """Publish join token, CA hash, and endpoint to SSM."""
     log_info("Publishing cluster credentials to SSM...")
 
+    # First-boot token is permanent (--ttl 0) so ASG worker nodes that launch
+    # days or weeks later can still join. The on-control-plane token rotator
+    # (kubeadm-token-rotator.timer) creates 24h rolling tokens every 12 hours,
+    # replacing this permanently once the CP is running. If the rotator has not
+    # fired yet and a worker joins hours after init, this token is still valid.
     token_result = run_cmd(
-        ["kubeadm", "token", "create", "--ttl", "24h"],
+        ["kubeadm", "token", "create", "--ttl", "0"],
         env=KUBECONFIG_ENV,
     )
     # Validate token format before writing to SSM — catches corruption at source

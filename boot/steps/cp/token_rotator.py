@@ -88,7 +88,11 @@ def step_install_token_rotator(cfg: BootConfig) -> None:
             "[Unit]\n"
             "Description=Run kubeadm token rotator every 12 hours\n\n"
             "[Timer]\n"
-            "OnBootSec=1h\n"
+            # Fire early after boot so a fresh 24h rolling token is in SSM
+            # quickly after any control plane restart. The initial bootstrap
+            # token uses --ttl 0 (permanent) as a safety net, but the rotator
+            # should take over shortly after startup.
+            "OnBootSec=10min\n"
             "OnUnitActiveSec=12h\n"
             "RandomizedDelaySec=5m\n\n"
             "[Install]\n"

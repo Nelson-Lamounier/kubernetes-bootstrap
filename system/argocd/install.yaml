@@ -1,4 +1,8 @@
-# This is an auto-generated file. DO NOT EDIT
+# CUSTOMISED: nodeSelector values changed from workload=argocd to node-pool=general
+# This file is a vendored copy of ArgoCD install.yaml with cluster-specific modifications.
+# When upgrading ArgoCD, re-apply this sed replacement:
+#   sed -i 's/workload: argocd/node-pool: general/g' install.yaml
+# Last modified: 2026-04-08 | ArgoCD version: v3.3.2
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -31719,7 +31723,7 @@ spec:
           name: argocd-cmd-params-cm
       nodeSelector:
         kubernetes.io/os: linux
-        workload: argocd
+        node-pool: general
       tolerations:
         - key: workload
           value: argocd
@@ -31861,7 +31865,7 @@ spec:
           name: dexconfig
       nodeSelector:
         kubernetes.io/os: linux
-        workload: argocd
+        node-pool: general
       tolerations:
         - key: workload
           value: argocd
@@ -31963,7 +31967,7 @@ spec:
         workingDir: /app
       nodeSelector:
         kubernetes.io/os: linux
-        workload: argocd
+        node-pool: general
       tolerations:
         - key: workload
           value: argocd
@@ -32064,7 +32068,7 @@ spec:
             type: RuntimeDefault
       nodeSelector:
         kubernetes.io/os: linux
-        workload: argocd
+        node-pool: general
       tolerations:
         - key: workload
           value: argocd
@@ -32421,7 +32425,7 @@ spec:
           name: var-files
       nodeSelector:
         kubernetes.io/os: linux
-        workload: argocd
+        node-pool: general
       tolerations:
         - key: workload
           value: argocd
@@ -32827,7 +32831,7 @@ spec:
           name: argocd-cmd-params-cm
       nodeSelector:
         kubernetes.io/os: linux
-        workload: argocd
+        node-pool: general
       tolerations:
         - key: workload
           value: argocd
@@ -33203,7 +33207,7 @@ spec:
         workingDir: /home/argocd
       nodeSelector:
         kubernetes.io/os: linux
-        workload: argocd
+        node-pool: general
       tolerations:
         - key: workload
           value: argocd

@@ -11,7 +11,8 @@ Steps (in order):
     1. validate_ami         — Verify Golden AMI binaries and kernel settings
     2. join_cluster         — Join kubeadm cluster via SSM discovery
     3. install_cw_agent     — CloudWatch Agent for log streaming
-    4. clean_stale_pvs      — Remove stale PVs/PVCs from dead nodes (mon-worker only)
+    4. clean_stale_pvs      — Remove stale PVs/PVCs from dead nodes
+                              (monitoring workers only: workload=monitoring | node-pool=monitoring)
     5. verify_membership    — Verify cluster registration and correct labels
 
 Idempotent: each step uses marker files or existence checks to skip
@@ -451,7 +452,33 @@ def step_join_cluster() -> None:
 # Idempotent: if no stale PVs exist, this step is a no-op.
 # =============================================================================
 
-MONITORING_WORKER_LABEL = "workload=monitoring"
+# ─── Monitoring worker gate ──────────────────────────────────────────────────
+# MIGRATION: During the K8s-native worker migration, monitoring pool nodes carry
+# the new label `node-pool=monitoring` instead of the legacy `workload=monitoring`.
+# Both are accepted here so PV cleanup runs for either generation of monitoring node.
+# Once the legacy MonitoringWorker stack is decommissioned, simplify to:
+#   MONITORING_NODE_LABEL = "node-pool=monitoring"
+
+_MONITORING_LABELS: frozenset[str] = frozenset({
+    "workload=monitoring",  # legacy — MonitoringWorker CDK stack
+    "node-pool=monitoring",  # new    — Kubernetes-MonitoringPool ASG stack
+})
+
+
+def _is_monitoring_worker(label: str) -> bool:
+    """Return True if this node is a monitoring worker (any generation).
+
+    Accepts both the legacy ``workload=monitoring`` label (single-node
+    MonitoringWorker CDK stack) and the new ``node-pool=monitoring`` label
+    (generic ASG monitoring pool). Simplify to a direct equality check once
+    the legacy stack is decommissioned.
+
+    @param label: The value of the ``NODE_LABEL`` environment variable.
+    @returns True if the label denotes a monitoring worker.
+    """
+    return label in _MONITORING_LABELS
+
+
 MONITORING_NAMESPACE = "monitoring"
 STALE_PV_CLEANUP_MARKER = "/tmp/.stale-pv-cleanup-done"
 
@@ -534,10 +561,10 @@ def step_clean_stale_pvs() -> None:
             return
 
         # Gate: only monitoring workers need PV cleanup
-        if NODE_LABEL != MONITORING_WORKER_LABEL:
+        if not _is_monitoring_worker(NODE_LABEL):
             log_info(
                 f"Skipping stale PV cleanup — NODE_LABEL={NODE_LABEL} "
-                f"(only {MONITORING_WORKER_LABEL} triggers PV cleanup)"
+                f"(only monitoring workers trigger PV cleanup: {sorted(_MONITORING_LABELS)})"
             )
             step.details["skipped_reason"] = f"not a monitoring worker (label={NODE_LABEL})"
             return
