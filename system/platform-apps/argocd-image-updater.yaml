@@ -66,13 +66,9 @@ spec:
             cpu: 100m
             memory: 128Mi
 
-        # --- Node placement (dedicated ArgoCD Spot node) ---
+        # --- Node placement (general pool, Spot — no taint) ---
         nodeSelector:
-          workload: argocd
-        tolerations:
-          - key: workload
-            value: argocd
-            effect: NoSchedule
+          node-pool: general
 
         # --- Metrics ---
         metrics:

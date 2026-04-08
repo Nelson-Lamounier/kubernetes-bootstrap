@@ -39,7 +39,7 @@ spec:
 #
 # Replaces the deprecated ControllerConfig (v1alpha1) with the stable
 # DeploymentRuntimeConfig (v1beta1). Required for Crossplane >= 1.14.
-# Constrains memory/CPU to fit a t3.medium monitoring node.
+# Constrains memory/CPU to fit a t3.medium monitoring pool node.
 # Both providers share this config to enforce consistent limits.
 apiVersion: pkg.crossplane.io/v1beta1
 kind: DeploymentRuntimeConfig
@@ -53,9 +53,9 @@ spec:
       template:
         spec:
           nodeSelector:
-            workload: monitoring
+            node-pool: monitoring
           tolerations:
-            - key: workload
+            - key: dedicated
               operator: Equal
               value: monitoring
               effect: NoSchedule

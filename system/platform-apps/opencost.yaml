@@ -77,12 +77,16 @@ spec:
           ui:
             enabled: false  # Use Grafana dashboards instead
 
-        # Node selector — run on monitoring worker
+        # Node selector — run on monitoring pool (new ASG tier)
         nodeSelector:
-          workload: monitoring
+          node-pool: monitoring
 
-        # Tolerations (if monitoring node has taints)
-        tolerations: []
+        # Tolerate the dedicated=monitoring:NoSchedule taint on the monitoring pool
+        tolerations:
+          - key: dedicated
+            operator: Equal
+            value: monitoring
+            effect: NoSchedule
 
         # ServiceMonitor for Prometheus scraping
         serviceMonitor:

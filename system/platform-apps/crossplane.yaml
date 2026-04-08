@@ -57,13 +57,13 @@ spec:
             memory: 64Mi
 
         # ---------------------------------------------------------------
-        # Node placement — run on monitoring worker
+        # Node placement — run on monitoring pool (new ASG tier)
         # ---------------------------------------------------------------
         nodeSelector:
-          workload: monitoring
+          node-pool: monitoring
 
         tolerations:
-          - key: workload
+          - key: dedicated
             operator: Equal
             value: monitoring
             effect: NoSchedule

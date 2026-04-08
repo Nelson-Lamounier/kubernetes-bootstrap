@@ -39,14 +39,9 @@ spec:
         installCRDs: true
         controller:
           replicas: 1
-          # Schedule on the ArgoCD worker node (Spot)
+          # Schedule on the general pool (Spot) — no taint, no toleration needed
           nodeSelector:
-            workload: argocd
-          tolerations:
-            - key: workload
-              operator: Equal
-              value: argocd
-              effect: NoSchedule
+            node-pool: general
           resources:
             limits:
               cpu: 100m
@@ -57,12 +52,7 @@ spec:
         dashboard:
           enabled: true  # Web UI for managing rollouts (promote/abort)
           nodeSelector:
-            workload: argocd
-          tolerations:
-            - key: workload
-              operator: Equal
-              value: argocd
-              effect: NoSchedule
+            node-pool: general
           resources:
             limits:
               cpu: 50m
