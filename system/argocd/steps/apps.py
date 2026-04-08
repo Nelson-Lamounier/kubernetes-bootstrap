@@ -54,21 +54,28 @@ def inject_monitoring_helm_params(cfg: Config) -> None:
     parameters: list[dict[str, str]] = []
 
     # --- SNS Topic ARN ---
-    ssm_path = f"{cfg.ssm_prefix}/monitoring/alerts-topic-arn"
-    log(f"  → Reading SNS ARN from SSM: {ssm_path}")
+    pool_ssm_path = f"{cfg.ssm_prefix}/monitoring/alerts-topic-arn-pool"
+    legacy_ssm_path = f"{cfg.ssm_prefix}/monitoring/alerts-topic-arn"
+    log(f"  → Reading SNS ARN from SSM (trying {pool_ssm_path} then legacy)")
 
     if not cfg.dry_run:
         try:
             ssm = get_ssm_client(cfg)
-            resp = ssm.get_parameter(Name=ssm_path)
-            topic_arn = resp["Parameter"]["Value"]
-            log(f"  ✓ SNS Topic ARN: {topic_arn}")
+            try:
+                resp = ssm.get_parameter(Name=pool_ssm_path)
+                topic_arn = resp["Parameter"]["Value"]
+                log(f"  ✓ SNS Topic ARN (pool): {topic_arn}")
+            except Exception:
+                resp = ssm.get_parameter(Name=legacy_ssm_path)
+                topic_arn = resp["Parameter"]["Value"]
+                log(f"  ✓ SNS Topic ARN (legacy): {topic_arn}")
+
             parameters.append({
                 "name": "grafana.alerting.snsTopicArn",
                 "value": topic_arn,
             })
         except Exception as e:
-            log(f"  ⚠ SNS topic ARN not found in SSM — {e}")
+            log(f"  ⚠ SNS topic ARN not found in SSM (tried pool and legacy) — {e}")
 
     # --- Admin IP Allowlist ---
     ip_ssm_paths = [
