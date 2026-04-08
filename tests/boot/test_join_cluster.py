@@ -218,3 +218,88 @@ class TestWaitForKubelet:
 
         assert mock_sleep.call_count == 2
 
+
+# ── Tests: _build_node_labels ──────────────────────────────────────────────
+
+class TestBuildNodeLabels:
+    """Tests for _build_node_labels — the function that synthesises node-pool.
+
+    This function is the single source-of-truth for the kubelet --node-labels
+    flag.  All four paths through the resolution rules are tested:
+
+    1. Legacy (NODE_LABEL only, no NODE_POOL) — passthrough
+    2. New ASG pool path (NODE_POOL set, NODE_LABEL is the default 'role=worker')
+    3. Combined (both set, no duplication)
+    4. Idempotency (node-pool already in NODE_LABEL — must not be appended again)
+    """
+
+    def test_legacy_path_returns_node_label_unchanged(self) -> None:
+        """When NODE_POOL is empty, should return NODE_LABEL verbatim."""
+        from wk.join_cluster import _build_node_labels
+
+        cfg = _make_cfg(NODE_LABEL="workload=frontend,environment=development")
+        # NODE_POOL defaults to "" when not in the env dict
+        result = _build_node_labels(cfg)
+
+        assert result == "workload=frontend,environment=development"
+
+    def test_appends_node_pool_when_set(self) -> None:
+        """When NODE_POOL is set, should append node-pool=<pool> to labels."""
+        from wk.join_cluster import _build_node_labels
+
+        cfg = _make_cfg(
+            NODE_LABEL="workload=frontend,environment=development",
+            NODE_POOL="general",
+        )
+        result = _build_node_labels(cfg)
+
+        assert "node-pool=general" in result
+        assert result == "workload=frontend,environment=development,node-pool=general"
+
+    def test_pool_only_when_node_label_is_default(self) -> None:
+        """When only NODE_POOL is set (NODE_LABEL absent / default), result
+        should contain both the default role label and node-pool."""
+        from wk.join_cluster import _build_node_labels
+
+        # Simulate new worker-asg-stack.ts node: NODE_POOL=general, no NODE_LABEL
+        env: dict[str, str] = {
+            "AWS_REGION": "eu-west-1",
+            "SSM_PREFIX": "/k8s/development",
+            "NODE_POOL": "general",
+            "JOIN_MAX_RETRIES": "3",
+            "JOIN_RETRY_INTERVAL": "0",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            cfg = BootConfig.from_env()
+
+        result = _build_node_labels(cfg)
+
+        # Default NODE_LABEL is "role=worker"; pool label appended
+        assert "node-pool=general" in result
+        assert "role=worker" in result
+
+    def test_does_not_duplicate_node_pool(self) -> None:
+        """When node-pool is already in NODE_LABEL, must not append it again."""
+        from wk.join_cluster import _build_node_labels
+
+        cfg = _make_cfg(
+            NODE_LABEL="workload=frontend,node-pool=general",
+            NODE_POOL="general",
+        )
+        result = _build_node_labels(cfg)
+
+        # Exactly one occurrence of node-pool=general
+        assert result.count("node-pool=general") == 1
+        assert result == "workload=frontend,node-pool=general"
+
+    def test_monitoring_pool(self) -> None:
+        """Should synthesise node-pool=monitoring for the monitoring pool."""
+        from wk.join_cluster import _build_node_labels
+
+        cfg = _make_cfg(
+            NODE_LABEL="role=worker",
+            NODE_POOL="monitoring",
+        )
+        result = _build_node_labels(cfg)
+
+        assert result == "role=worker,node-pool=monitoring"

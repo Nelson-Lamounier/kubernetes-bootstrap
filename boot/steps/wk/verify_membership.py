@@ -5,7 +5,9 @@ being relaunched by ASG. On each SSM Automation cycle, this step
 verifies:
 
 1. The node is registered in the API server (``kubectl get node``)
-2. Node labels match the ``NODE_LABEL`` env var
+2. Node labels match the effective label set built by ``_build_node_labels``,
+   which combines ``NODE_LABEL`` with the ``node-pool`` derived from
+   ``NODE_POOL`` (the new worker-asg-stack.ts convention).
 3. If not registered, triggers CA mismatch check + re-join
 
 This step runs WITHOUT a ``skip_if`` marker so it executes on every
@@ -41,6 +43,7 @@ from boot_helpers.config import BootConfig
 
 from wk.join_cluster import (
     KUBELET_CONF,
+    _build_node_labels,
     check_ca_mismatch,
     join_cluster,
     resolve_control_plane_endpoint,
@@ -299,7 +302,9 @@ def step_verify_cluster_membership(cfg: BootConfig) -> None:
             step.details["registered"] = True
 
             # ── Check 2: Are labels correct? ───────────────────────────
-            expected_labels = _parse_label_string(cfg.node_label)
+            # Build the full expected label set: NODE_LABEL + node-pool
+            # synthesised from NODE_POOL when set (new worker-asg-stack.ts).
+            expected_labels = _parse_label_string(_build_node_labels(cfg))
             actual_labels = _get_current_labels(hostname, kc_env)
 
             mismatched = {

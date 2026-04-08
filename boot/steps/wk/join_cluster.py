@@ -235,9 +235,43 @@ def wait_for_api_server_reachable(endpoint: str) -> None:
     )
 
 
+def _build_node_labels(cfg: BootConfig) -> str:
+    """Build the complete ``--node-labels`` value for the kubelet sysconfig.
+
+    When the new worker-asg-stack.ts path is used, ``NODE_POOL`` is set
+    (e.g. ``general``) but ``NODE_LABEL`` is absent / carries only the
+    legacy ``role=worker`` default.  This function ensures the scheduling
+    label ``node-pool=<pool>`` is always present so Helm ``nodeSelector``
+    entries such as ``node-pool: general`` can be satisfied.
+
+    Resolution rules:
+    - ``node_label`` from ``NODE_LABEL`` env var is always included.
+    - If ``node_pool`` (``NODE_POOL``) is non-empty **and** ``node-pool``
+      is not already present in ``node_label``, append ``node-pool=<pool>``.
+
+    Args:
+        cfg: Bootstrap configuration.
+
+    Returns:
+        Comma-separated label string suitable for ``--node-labels``.
+    """
+    labels = cfg.node_label
+
+    if cfg.node_pool and "node-pool" not in labels:
+        # Synthesise the pool label required by Helm nodeSelectors
+        labels = f"{labels},node-pool={cfg.node_pool}" if labels else f"node-pool={cfg.node_pool}"
+        log_info(
+            f"NODE_POOL={cfg.node_pool!r} set — appended 'node-pool={cfg.node_pool}' "
+            f"to node labels (scheduling gate for Helm nodeSelectors)"
+        )
+
+    return labels
+
+
 def join_cluster(endpoint: str, cfg: BootConfig) -> None:
     """Join the cluster with retry logic."""
-    log_info(f"Joining kubeadm cluster as worker node (label={cfg.node_label})")
+    node_labels = _build_node_labels(cfg)
+    log_info(f"Joining kubeadm cluster as worker node (labels={node_labels})")
     log_info(
         f"Join config: max_retries={cfg.join_max_retries}, "
         f"retry_interval={cfg.join_retry_interval}s"
@@ -255,12 +289,14 @@ def join_cluster(endpoint: str, cfg: BootConfig) -> None:
             "cannot configure kubelet --node-ip"
         )
 
-    log_info(f"Configuring kubelet with node label: {cfg.node_label}, node-ip: {private_ip}")
+    log_info(
+        f"Configuring kubelet with node labels: {node_labels}, node-ip: {private_ip}"
+    )
     Path("/etc/sysconfig").mkdir(parents=True, exist_ok=True)
     Path("/etc/sysconfig/kubelet").write_text(
         f"KUBELET_EXTRA_ARGS=--cloud-provider=external"
         f" --node-ip={private_ip}"
-        f" --node-labels={cfg.node_label}"
+        f" --node-labels={node_labels}"
         f" --image-credential-provider-config={ECR_PROVIDER_CONFIG}"
         " --image-credential-provider-bin-dir=/usr/local/bin\n"
     )
@@ -504,6 +540,8 @@ def step_join_cluster(cfg: BootConfig) -> None:
             ["kubelet", "--version"], check=False
         ).stdout.strip()
         step.details["node_label"] = cfg.node_label
+        step.details["node_pool"] = cfg.node_pool
+        step.details["effective_node_labels"] = _build_node_labels(cfg)
         step.details["kubelet_version"] = kubelet_version
         step.details["control_plane_endpoint"] = endpoint
         log_info(f"Worker node joined cluster successfully: {kubelet_version}")

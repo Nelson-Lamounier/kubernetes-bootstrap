@@ -262,3 +262,82 @@ class TestStepVerifyClusterMembership:
         mock_ca_check.assert_called_once_with(cfg)
         mock_resolve.assert_called_once_with(cfg)
         mock_join.assert_called_once()
+
+
+# ── Tests: node-pool label drift detection ─────────────────────────────────
+
+class TestNodePoolLabelDrift:
+    """Verify that node-pool drift is detected when NODE_POOL is set.
+
+    Regression test for the ProgressDeadlineExceeded bug where nodes
+    joined with only ``workload=frontend`` but pods required ``node-pool=general``.
+    """
+
+    @patch("wk.verify_membership._fix_labels")
+    @patch("wk.verify_membership._get_current_labels")
+    @patch("wk.verify_membership._is_node_registered")
+    @patch("wk.verify_membership._get_hostname")
+    def test_detects_missing_node_pool_label(
+        self,
+        mock_hostname: MagicMock,
+        mock_registered: MagicMock,
+        mock_labels: MagicMock,
+        mock_fix: MagicMock,
+    ) -> None:
+        """Should detect drift when node-pool is absent but NODE_POOL is set."""
+        from wk.verify_membership import step_verify_cluster_membership
+
+        mock_hostname.return_value = "ip-10-0-0-245.eu-west-1.compute.internal"
+        mock_registered.return_value = True
+        # Node has workload labels but is missing node-pool entirely
+        mock_labels.return_value = {
+            "workload": "frontend",
+            "environment": "development",
+        }
+        mock_fix.return_value = ["node-pool=general"]
+
+        cfg = _make_cfg(
+            NODE_LABEL="workload=frontend,environment=development",
+            NODE_POOL="general",
+        )
+        step_verify_cluster_membership(cfg)
+
+        # _fix_labels must be invoked to correct the missing node-pool label
+        mock_fix.assert_called_once()
+        call_kwargs = mock_fix.call_args
+        expected_labels = call_kwargs[1]["expected"] if call_kwargs[1] else call_kwargs[0][1]
+        assert "node-pool" in expected_labels, (
+            "_build_node_labels must include node-pool in the expected label set"
+        )
+        assert expected_labels["node-pool"] == "general"
+
+    @patch("wk.verify_membership._fix_labels")
+    @patch("wk.verify_membership._get_current_labels")
+    @patch("wk.verify_membership._is_node_registered")
+    @patch("wk.verify_membership._get_hostname")
+    def test_no_action_when_node_pool_already_correct(
+        self,
+        mock_hostname: MagicMock,
+        mock_registered: MagicMock,
+        mock_labels: MagicMock,
+        mock_fix: MagicMock,
+    ) -> None:
+        """Should not call _fix_labels when node-pool is already correct."""
+        from wk.verify_membership import step_verify_cluster_membership
+
+        mock_hostname.return_value = "ip-10-0-0-245.eu-west-1.compute.internal"
+        mock_registered.return_value = True
+        # Node already has the correct node-pool label
+        mock_labels.return_value = {
+            "workload": "frontend",
+            "environment": "development",
+            "node-pool": "general",
+        }
+
+        cfg = _make_cfg(
+            NODE_LABEL="workload=frontend,environment=development",
+            NODE_POOL="general",
+        )
+        step_verify_cluster_membership(cfg)
+
+        mock_fix.assert_not_called()
