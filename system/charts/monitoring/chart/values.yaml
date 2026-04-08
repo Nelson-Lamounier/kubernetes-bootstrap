@@ -17,7 +17,19 @@ adminAccess:
 # Node Placement (applies to Deployments, NOT DaemonSets)
 # ---------------------------------------------------------------------------
 nodeSelector:
-  workload: "monitoring"
+  node-pool: monitoring
+
+# ---------------------------------------------------------------------------
+# Tolerations (applies to Deployments — NOT DaemonSets)
+# The monitoring pool is tainted `dedicated=monitoring:NoSchedule` by the
+# bootstrap script. All Deployment workloads must tolerate this taint.
+# DaemonSet pods (Promtail, node-exporter) tolerate all taints by default.
+# ---------------------------------------------------------------------------
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: monitoring
+    effect: NoSchedule
 
 # ---------------------------------------------------------------------------
 # Prometheus

@@ -835,11 +835,205 @@
       ],
       "title": "CA Mismatch Detection — Worker Bootstrap Logs",
       "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 },
+      "id": 600,
+      "title": "ASG Pool Bootstrap — General & Monitoring",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 61 },
+      "id": 601,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| filter @message like /register.instance|node_pool|step_join|Bootstrap complete|Bootstrap FAILED|kubeadm join/\n| sort @timestamp desc\n| limit 200",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/ec2/k8s-dev-general-pool/instances", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "General Pool — Bootstrap Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 61 },
+      "id": 602,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| filter @message like /register.instance|node_pool|step_join|Bootstrap complete|Bootstrap FAILED|kubeadm join/\n| sort @timestamp desc\n| limit 200",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/ec2/k8s-dev-monitoring-pool/instances", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Monitoring Pool — Bootstrap Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 70 },
+      "id": 603,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| filter @message like /register.instance|node_pool=general|node_pool=monitoring|SSM.*registered|Registered instance/\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "SSM Pool Registration Trace (general + monitoring)",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "General Pool" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Monitoring Pool" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 70 },
+      "id": 604,
+      "options": {
+        "legend": { "calcs": ["last", "min", "max"], "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "AutoScalingGroupName": ["${general_asg_name}"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "GroupInServiceInstances",
+          "namespace": "AWS/AutoScaling",
+          "period": "60",
+          "queryMode": "Metrics",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statistic": "Average",
+          "label": "General Pool"
+        },
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "dimensions": { "AutoScalingGroupName": ["${monitoring_asg_name}"] },
+          "expression": "",
+          "id": "",
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricName": "GroupInServiceInstances",
+          "namespace": "AWS/AutoScaling",
+          "period": "60",
+          "queryMode": "Metrics",
+          "refId": "B",
+          "region": "eu-west-1",
+          "statistic": "Average",
+          "label": "Monitoring Pool"
+        }
+      ],
+      "title": "Pool In-Service Node Count (General vs Monitoring)",
+      "type": "timeseries"
     }
   ],
   "refresh": "",
   "schemaVersion": 39,
-  "tags": ["aws", "auto-bootstrap", "step-functions", "ssm", "eventbridge"],
+  "tags": ["aws", "auto-bootstrap", "step-functions", "ssm", "eventbridge", "asg-pools"],
   "templating": {
     "list": [
       {
@@ -866,6 +1060,56 @@
         "skipUrlSync": false,
         "sort": 0,
         "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+        "definition": "",
+        "description": "General pool ASG name (auto-discovered from AWS/AutoScaling)",
+        "hide": 2,
+        "includeAll": false,
+        "multi": false,
+        "name": "general_asg_name",
+        "options": [],
+        "query": {
+          "dimensionKey": "AutoScalingGroupName",
+          "dimensionFilters": {},
+          "metricName": "GroupInServiceInstances",
+          "namespace": "AWS/AutoScaling",
+          "queryType": "dimensionValues",
+          "refId": "CloudWatchVariableQueryEditor-VariableQuery",
+          "region": "eu-west-1"
+        },
+        "refresh": 1,
+        "regex": ".*general-pool.*",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+        "definition": "",
+        "description": "Monitoring pool ASG name (auto-discovered from AWS/AutoScaling)",
+        "hide": 2,
+        "includeAll": false,
+        "multi": false,
+        "name": "monitoring_asg_name",
+        "options": [],
+        "query": {
+          "dimensionKey": "AutoScalingGroupName",
+          "dimensionFilters": {},
+          "metricName": "GroupInServiceInstances",
+          "namespace": "AWS/AutoScaling",
+          "queryType": "dimensionValues",
+          "refId": "CloudWatchVariableQueryEditor-VariableQuery",
+          "region": "eu-west-1"
+        },
+        "refresh": 1,
+        "regex": ".*monitoring-pool.*",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
       }
     ]
   },
@@ -874,5 +1118,5 @@
   "timezone": "browser",
   "title": "Auto-Bootstrap Trace",
   "uid": "auto-bootstrap-trace",
-  "version": 2
+  "version": 3
 }
