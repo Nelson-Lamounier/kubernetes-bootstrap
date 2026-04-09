@@ -947,6 +947,19 @@ def _publish_kubeconfig_to_ssm() -> None:
     log_info(f"Publishing tunnel-ready kubeconfig to SSM: {ssm_path}")
     ssm_put(ssm_path, tunnel_kubeconfig, param_type="SecureString", tier="Advanced")
 
+    # Publish the raw admin.conf as base64 for worker nodes.
+    #
+    # verify_membership.py on each worker fetches this parameter to obtain
+    # a full-RBAC kubeconfig for label self-healing. The path is a
+    # SecureString so the admin credentials are encrypted at rest.
+    # Workers fall back to kubelet.conf (read-only) if this is absent, so
+    # label correction silently fails — publishing here ensures the happy path.
+    import base64  # noqa: PLC0415 — local import keeps module-level imports clean
+    admin_kc_b64 = base64.b64encode(kubeconfig_content.encode()).decode()
+    kc_b64_path = f"{SSM_PREFIX}/admin-kubeconfig-b64"
+    log_info(f"Publishing admin kubeconfig (base64) to SSM: {kc_b64_path}")
+    ssm_put(kc_b64_path, admin_kc_b64, param_type="SecureString", tier="Advanced")
+
 
 def _backup_certificates() -> None:
     """Archive /etc/kubernetes/pki/ to S3 for disaster recovery.
