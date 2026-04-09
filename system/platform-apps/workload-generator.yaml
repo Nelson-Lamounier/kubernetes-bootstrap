@@ -52,6 +52,13 @@ spec:
           # The manually committed workloads/argocd-apps/nextjs.yaml is used instead.
           - path: kubernetes-app/workloads/charts/nextjs
             exclude: true
+          # start-admin is excluded for the same reason as nextjs:
+          # it requires ArgoCD Image Updater annotations (ECR SHA tag tracking,
+          # git write-back to .argocd-source-start-admin.yaml) that the generic
+          # ApplicationSet template cannot inject.
+          # The manually committed workloads/argocd-apps/start-admin.yaml is used instead.
+          - path: kubernetes-app/workloads/charts/start-admin
+            exclude: true
 
   template:
     metadata:
