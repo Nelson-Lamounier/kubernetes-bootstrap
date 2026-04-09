@@ -83,7 +83,10 @@ def _resolve_worker_kubeconfig(cfg: BootConfig) -> dict[str, str]:
 
     # ── Option 1: admin kubeconfig from SSM ───────────────────────────────
     admin_kc_param = f"{cfg.ssm_prefix}/admin-kubeconfig-b64"
-    admin_kc_b64 = ssm_get(admin_kc_param)
+    # decrypt=True is required: the parameter is a SecureString (KMS-encrypted).
+    # Without it, ssm_get returns the raw ciphertext (binary), causing a UTF-8
+    # decode error when base64.b64decode() is called on it downstream.
+    admin_kc_b64 = ssm_get(admin_kc_param, decrypt=True)
     if admin_kc_b64:
         try:
             kc_path = Path(_ADMIN_KUBECONFIG_TMP)
