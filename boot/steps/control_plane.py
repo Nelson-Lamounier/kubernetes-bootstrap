@@ -1584,10 +1584,57 @@ def step_sync_manifests() -> None:
 # Step 7 — Bootstrap ArgoCD
 # =============================================================================
 
+def _argocd_already_healthy(min_running: int = 5) -> bool:
+    """Return True if at least ``min_running`` ArgoCD pods are already Running.
+
+    Used as a fast idempotency guard in :func:`step_bootstrap_argocd` to
+    skip the heavyweight bootstrap shell script when ArgoCD is already
+    operational.  Five is the baseline pod count for a stock ArgoCD install
+    (server, repo-server, application-controller, dex-server, redis).
+
+    Args:
+        min_running: Minimum number of Running pods required. Defaults to 5.
+
+    Returns:
+        ``True`` if the ArgoCD namespace has at least ``min_running`` Running
+        pods, ``False`` otherwise.
+    """
+    result = run_cmd(
+        [
+            "kubectl", "get", "pods", "-n", "argocd",
+            "--field-selector=status.phase=Running",
+            "--no-headers",
+        ],
+        check=False,
+        env=_bootstrap_kubeconfig_env(),
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return False
+    running = len(result.stdout.strip().splitlines())
+    log_info(f"ArgoCD health check: {running} Running pods (threshold: {min_running})")
+    return running >= min_running
+
+
 def step_bootstrap_argocd() -> None:
-    """Step 7: Install ArgoCD and apply App-of-Apps root application."""
+    """Step 7: Install ArgoCD and apply App-of-Apps root application.
+
+    Skips the bootstrap script entirely when ArgoCD is already healthy
+    (>= 5 Running pods).  This prevents unnecessary pod restarts on
+    day-2 automation runs, which would otherwise cause a 3-5 minute
+    traffic gap while images are pulled on rescheduled pods.
+    """
     with StepRunner("bootstrap-argocd") as step:
         if step.skipped:
+            return
+
+        # ── Idempotency guard: skip re-install if already healthy ───────────
+        if _argocd_already_healthy():
+            log_info(
+                "[SKIP] ArgoCD is already healthy — skipping re-install "
+                "to prevent unnecessary pod restarts and traffic disruption."
+            )
+            step.details["argocd_skipped"] = True
+            step.details["reason"] = "already_healthy"
             return
 
         bootstrap_dir = Path(MOUNT_POINT) / "k8s-bootstrap"
