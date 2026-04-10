@@ -1,18 +1,19 @@
-"""Kubernetes namespace and secret helpers.
+"""Kubernetes namespace, secret, and ConfigMap helpers.
 
 Provides lazy-loading of the ``kubernetes`` Python client and
-idempotent upsert operations for namespaces and secrets.
+idempotent upsert operations for namespaces, secrets, and ConfigMaps.
 
 The ``kubernetes`` library is imported lazily so that ``--dry-run``
 works on developer machines without the package installed.
 
 Usage::
 
-    from deploy_helpers.k8s import load_k8s, ensure_namespace, upsert_secret
+    from deploy_helpers.k8s import load_k8s, ensure_namespace, upsert_secret, upsert_configmap
 
     v1 = load_k8s("/etc/kubernetes/admin.conf")
     ensure_namespace(v1, "nextjs-app")
-    upsert_secret(v1, "nextjs-secrets", "nextjs-app", {"KEY": "value"})
+    upsert_secret(v1, "nextjs-secrets", "nextjs-app", {"NEXTAUTH_SECRET": "value"})
+    upsert_configmap(v1, "nextjs-config", "nextjs-app", {"DYNAMODB_TABLE_NAME": "my-table"})
 """
 
 from __future__ import annotations
@@ -113,5 +114,47 @@ def upsert_secret(
                 name=name, namespace=namespace, body=secret,
             )
             log_info("Secret replaced", name=name, namespace=namespace, keys=len(data))
+        else:
+            raise
+
+
+def upsert_configmap(
+    v1: Any,
+    name: str,
+    namespace: str,
+    data: dict[str, str],
+) -> None:
+    """Create or replace a Kubernetes ConfigMap.
+
+    Uses an idempotent upsert pattern: attempts ``create``, and on
+    ``409 Conflict`` falls back to ``replace``.
+
+    Only use this for non-sensitive configuration values (e.g. table names,
+    S3 bucket names, ARNs, region strings). Sensitive values (API keys,
+    auth tokens) must always use :func:`upsert_secret` instead.
+
+    Args:
+        v1: A ``CoreV1Api`` instance.
+        name: ConfigMap name.
+        namespace: Target namespace.
+        data: Plain-text key-value pairs (stored as-is, no encoding).
+    """
+    configmap = _k8s_client.V1ConfigMap(
+        metadata=_k8s_client.V1ObjectMeta(
+            name=name,
+            namespace=namespace,
+            labels={"managed-by": "deploy.py"},
+        ),
+        data=data,
+    )
+    try:
+        v1.create_namespaced_config_map(namespace=namespace, body=configmap)
+        log_info("ConfigMap created", name=name, namespace=namespace, keys=len(data))
+    except _k8s_client.ApiException as exc:
+        if exc.status == 409:
+            v1.replace_namespaced_config_map(
+                name=name, namespace=namespace, body=configmap,
+            )
+            log_info("ConfigMap replaced", name=name, namespace=namespace, keys=len(data))
         else:
             raise
