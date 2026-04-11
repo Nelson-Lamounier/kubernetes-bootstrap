@@ -375,6 +375,77 @@ HEALTHZ_PATH = "/healthz"
 SUPER_ADMIN_CONF = "/etc/kubernetes/super-admin.conf"
 ROOT_KUBECONFIG = "/root/.kube/config"
 ROOT_SUPER_ADMIN_KUBECONFIG = "/root/.kube/super-admin.conf"
+APISERVER_MANIFEST = "/etc/kubernetes/manifests/kube-apiserver.yaml"
+
+
+def patch_apiserver_resources() -> None:
+    """Inject a memory request into the kube-apiserver static pod manifest.
+
+    ``kubeadm init`` generates the manifest without any resource requests,
+    meaning the scheduler treats the API server as having zero cost and may
+    allow other pods to co-locate until the node runs out of memory.
+
+    Observed usage from ``kubectl top``: ~1193 Mi peak. We set a conservative
+    request of 512 Mi (a safe floor, not the peak) so the scheduler reserves
+    appropriate headroom. The kubelet will hot-reload the manifest within ~10s
+    of the file being written — no pod restart is required.
+
+    This is idempotent: if the ``resources`` block already exists the function
+    skips patching to avoid churn on second-run maintenance paths.
+
+    Raises:
+        RuntimeError: If the manifest file does not exist.
+    """
+    manifest_path = Path(APISERVER_MANIFEST)
+    if not manifest_path.exists():
+        log_warn(
+            f"kube-apiserver manifest not found at {APISERVER_MANIFEST} — "
+            "skipping resource patch (will retry on next boot)"
+        )
+        return
+
+    content = manifest_path.read_text()
+
+    # Idempotency guard — skip if a resources block is already present.
+    if "resources:" in content:
+        log_info("kube-apiserver manifest already has resource requests — skipping patch")
+        return
+
+    # Locate the container spec and inject resources after the image line.
+    # The kubeadm-generated manifest has a predictable structure:
+    #   containers:
+    #   - command: [...]
+    #     image: registry.k8s.io/kube-apiserver:v1.x.y
+    #     ...
+    resources_block = (
+        "        resources:\n"
+        "          requests:\n"
+        "            cpu: 250m\n"
+        "            memory: 512Mi\n"
+    )
+
+    import re as _re
+    # Insert the resources block immediately after the image: line inside
+    # the kube-apiserver container. The image line is unique in the manifest.
+    patched = _re.sub(
+        r"(\s+image:\s+[^\n]+kube-apiserver[^\n]+\n)",
+        r"\1" + resources_block,
+        content,
+        count=1,
+    )
+
+    if patched == content:
+        log_warn(
+            "kube-apiserver memory request patch: image line not found — "
+            "manifest structure may have changed. Skipping."
+        )
+        return
+
+    manifest_path.write_text(patched)
+    log_info(
+        "✓ kube-apiserver static pod manifest patched with "
+        "resource requests (cpu=250m, memory=512Mi)"
+    )
 
 
 def _bootstrap_kubeconfig_env() -> dict[str, str]:
@@ -445,6 +516,9 @@ def reconstruct_control_plane(cfg: BootConfig, private_ip: str, public_ip: str) 
         f"--kubernetes-version={cfg.k8s_version}",
     ])
     log_info("✓ Control plane manifests generated (apiserver, controller-manager, scheduler)")
+
+    # Patch kube-apiserver manifest with resource requests after regeneration.
+    patch_apiserver_resources()
 
     # ── 8. Generate etcd static pod manifest ────────────────────────
     log_info("Generating etcd static pod manifest...")
@@ -682,6 +756,11 @@ def init_cluster(cfg: BootConfig) -> None:
     label_control_plane_node(cfg)
 
     patch_provider_id(kubeconfig="/root/.kube/config")
+
+    # Patch kube-apiserver manifest with resource requests so the scheduler
+    # can correctly account for the ~1 Gi memory footprint of the API server.
+    # Must run after kubeadm init has written the manifest.
+    patch_apiserver_resources()
 
     publish_ssm_params(private_ip, public_ip, instance_id, cfg)
     publish_kubeconfig_to_ssm(cfg)

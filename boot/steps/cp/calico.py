@@ -19,9 +19,20 @@ CALICO_MARKER = "/etc/kubernetes/.calico-installed"
 CACHED_OPERATOR = "/opt/calico/tigera-operator.yaml"
 KUBECONFIG_ENV = {"KUBECONFIG": "/etc/kubernetes/admin.conf"}
 
+# PDB manifest, vendored in the same repo under system/.
+# Path is relative to the k8s-bootstrap root (where this script is invoked from)
+# or resolved from the repo checkout mounted at /opt/bootstrap.
+CALICO_PDB_MANIFEST = "/opt/bootstrap/kubernetes-app/k8s-bootstrap/system/calico-pdbs.yaml"
+
 
 def _calico_installation_yaml(pod_cidr: str) -> str:
-    """Generate the Calico Installation custom resource YAML."""
+    """Generate the Calico Installation custom resource YAML.
+
+    Resource requests for calico-node are set based on observed ``kubectl top``
+    values (15 m CPU, 124 Mi memory). Without requests, the scheduler treats
+    the DaemonSet as zero-cost and may pack other workloads aggressively into
+    the same node, causing memory pressure and OOM kills.
+    """
     return f"""apiVersion: operator.tigera.io/v1
 kind: Installation
 metadata:
@@ -35,7 +46,21 @@ spec:
         natOutgoing: Enabled
         nodeSelector: all()
     linuxDataplane: Iptables
+  # Set resource requests for calico-node based on observed usage.
+  # These inform the scheduler so it can reserve capacity on each node
+  # and prevent calico-node from being OOM-killed during pressure events.
+  calicoNodeDaemonSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: calico-node
+              resources:
+                requests:
+                  cpu: "25m"
+                  memory: "160Mi"
 """
+
 
 
 # ── Step ───────────────────────────────────────────────────────────────────
@@ -138,4 +163,23 @@ data:
 
         step.details["calico_version"] = cfg.calico_version
         step.details["pod_cidr"] = cfg.pod_cidr
+
+        # Apply PodDisruptionBudget for calico-kube-controllers.
+        # The Tigera operator does not ship a PDB for this Deployment.
+        # Without it, a CA scale-down or node drain can silently evict the
+        # kube-controllers pod, interrupting NetworkPolicy reconciliation.
+        pdb_path = Path(CALICO_PDB_MANIFEST)
+        if pdb_path.exists():
+            log_info("Applying Calico kube-controllers PodDisruptionBudget...")
+            run_cmd(
+                ["kubectl", "apply", "--server-side", "-f", str(pdb_path)],
+                env=KUBECONFIG_ENV,
+            )
+        else:
+            log_warn(
+                f"Calico PDB manifest not found at {CALICO_PDB_MANIFEST} — "
+                "calico-kube-controllers will have no disruption budget. "
+                "Apply manually: kubectl apply -f kubernetes-app/k8s-bootstrap/system/calico-pdbs.yaml"
+            )
+
         log_info("Calico CNI installed successfully")

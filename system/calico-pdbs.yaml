@@ -1,0 +1,48 @@
+# @format
+# Calico PodDisruptionBudgets
+#
+# Calico is deployed via the Tigera operator (calico.py bootstrap step).
+# The operator manages DaemonSets (calico-node) and Deployments
+# (calico-kube-controllers, calico-typha).
+#
+# DaemonSets: PDBs do not apply meaningfully — the scheduler guarantees
+#   1 pod per node. calico-node has no PDB here.
+#
+# calico-typha: The Tigera operator already ships with a built-in PDB for
+#   calico-typha when replica count > 1. No additional PDB needed.
+#
+# calico-kube-controllers: The Tigera operator does NOT include a PDB for
+#   this Deployment. It is the control loop for Calico NetworkPolicy enforcement.
+#   Without it, NetworkPolicies are not reconciled and existing connections
+#   may be accepted or dropped inconsistently until the pod recovers.
+#
+# Application:
+#   kubectl apply -f kubernetes-app/k8s-bootstrap/system/calico-pdbs.yaml
+#   (also applied automatically by the bootstrap orchestrator after Calico install)
+#
+---
+# PodDisruptionBudget — calico-kube-controllers
+#
+# The kube-controllers pod enforces NetworkPolicy, IPAM block GC,
+# and node cleanup. A single replica Deployment with no PDB means
+# a drain or CA scale-down can evict it silently.
+#
+# The Tigera operator label selector for this Deployment is:
+#   k8s-app=calico-kube-controllers
+# Namespace: calico-system (Tigera operator default).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: calico-kube-controllers-pdb
+  namespace: calico-system
+  labels:
+    app.kubernetes.io/component: kube-controllers
+    app.kubernetes.io/part-of: calico
+    managed-by: bootstrap
+spec:
+  # minAvailable: 1 — prevents simultaneous eviction of all kube-controller
+  # replicas during a node drain or CA scale-down event.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      k8s-app: calico-kube-controllers

@@ -1,4 +1,4 @@
-# CUSTOMISED: nodeSelector values changed from workload=argocd to node-pool=general
+# CUSTOMISED: ArgoCD migrated from node-pool=general to node-pool=monitoring (2025-04); ArgoCD decoupled from application pool
 # This file is a vendored copy of ArgoCD install.yaml with cluster-specific modifications.
 # When upgrading ArgoCD, re-apply this sed replacement:
 #   sed -i 's/workload: argocd/node-pool: general/g' install.yaml
@@ -31692,6 +31692,14 @@ spec:
         image: quay.io/argoproj/argocd:v3.3.2
         imagePullPolicy: Always
         name: argocd-applicationset-controller
+        resources:
+          # CUSTOMISED: resource requests from kubectl top (observed p50 × 1.5)
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
         ports:
         - containerPort: 7000
           name: webhook
@@ -31723,10 +31731,10 @@ spec:
           name: argocd-cmd-params-cm
       nodeSelector:
         kubernetes.io/os: linux
-        node-pool: general
+        node-pool: monitoring
       tolerations:
-        - key: workload
-          value: argocd
+        - key: dedicated
+          value: monitoring
           effect: NoSchedule
       serviceAccountName: argocd-applicationset-controller
       volumes:
@@ -31820,6 +31828,14 @@ spec:
         image: ghcr.io/dexidp/dex:v2.43.0
         imagePullPolicy: Always
         name: dex
+        resources:
+          # CUSTOMISED: resource requests from kubectl top (observed p50 × 1.5)
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
         ports:
         - containerPort: 5556
         - containerPort: 5557
@@ -31865,10 +31881,10 @@ spec:
           name: dexconfig
       nodeSelector:
         kubernetes.io/os: linux
-        node-pool: general
+        node-pool: monitoring
       tolerations:
-        - key: workload
-          value: argocd
+        - key: dedicated
+          value: monitoring
           effect: NoSchedule
       serviceAccountName: argocd-dex-server
       volumes:
@@ -31953,6 +31969,14 @@ spec:
           tcpSocket:
             port: 9001
         name: argocd-notifications-controller
+        resources:
+          # CUSTOMISED: resource requests from kubectl top (observed p50 × 1.5)
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -31967,10 +31991,10 @@ spec:
         workingDir: /app
       nodeSelector:
         kubernetes.io/os: linux
-        node-pool: general
+        node-pool: monitoring
       tolerations:
-        - key: workload
-          value: argocd
+        - key: dedicated
+          value: monitoring
           effect: NoSchedule
       securityContext:
         runAsNonRoot: true
@@ -32041,6 +32065,14 @@ spec:
         image: public.ecr.aws/docker/library/redis:8.2.3-alpine
         imagePullPolicy: Always
         name: redis
+        resources:
+          # CUSTOMISED: resource requests from kubectl top (observed p50 × 1.5)
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
         ports:
         - containerPort: 6379
         securityContext:
@@ -32068,10 +32100,10 @@ spec:
             type: RuntimeDefault
       nodeSelector:
         kubernetes.io/os: linux
-        node-pool: general
+        node-pool: monitoring
       tolerations:
-        - key: workload
-          value: argocd
+        - key: dedicated
+          value: monitoring
           effect: NoSchedule
       securityContext:
         runAsNonRoot: true
@@ -32367,6 +32399,14 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 5
         name: argocd-repo-server
+        resources:
+          # CUSTOMISED: resource requests from kubectl top (observed p50 × 1.5)
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
         ports:
         - containerPort: 8081
         - containerPort: 8084
@@ -32425,10 +32465,10 @@ spec:
           name: var-files
       nodeSelector:
         kubernetes.io/os: linux
-        node-pool: general
+        node-pool: monitoring
       tolerations:
-        - key: workload
-          value: argocd
+        - key: dedicated
+          value: monitoring
           effect: NoSchedule
       serviceAccountName: argocd-repo-server
       volumes:
@@ -32796,6 +32836,14 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 5
         name: argocd-server
+        resources:
+          # CUSTOMISED: resource requests from kubectl top (observed p50 × 1.5)
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
         ports:
         - containerPort: 8080
         - containerPort: 8083
@@ -32831,10 +32879,10 @@ spec:
           name: argocd-cmd-params-cm
       nodeSelector:
         kubernetes.io/os: linux
-        node-pool: general
+        node-pool: monitoring
       tolerations:
-        - key: workload
-          value: argocd
+        - key: dedicated
+          value: monitoring
           effect: NoSchedule
       serviceAccountName: argocd-server
       volumes:
@@ -33178,6 +33226,14 @@ spec:
         image: quay.io/argoproj/argocd:v3.3.2
         imagePullPolicy: Always
         name: argocd-application-controller
+        resources:
+          # CUSTOMISED: resource requests from kubectl top (observed p50 × 1.5)
+          requests:
+            cpu: 50m
+            memory: 384Mi
+          limits:
+            cpu: 500m
+            memory: 768Mi
         ports:
         - containerPort: 8082
         readinessProbe:
@@ -33207,10 +33263,10 @@ spec:
         workingDir: /home/argocd
       nodeSelector:
         kubernetes.io/os: linux
-        node-pool: general
+        node-pool: monitoring
       tolerations:
-        - key: workload
-          value: argocd
+        - key: dedicated
+          value: monitoring
           effect: NoSchedule
       serviceAccountName: argocd-application-controller
       volumes:
@@ -33412,3 +33468,124 @@ spec:
       app.kubernetes.io/name: argocd-server
   policyTypes:
   - Ingress
+---
+# CUSTOMISED: PodDisruptionBudgets for argocd-server and argocd-repo-server.
+# Prevents eviction of both pods simultaneously during CA scale-down or node drains.
+# minAvailable: 1 ensures at least one replica is always available.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argocd-server-pdb
+  namespace: argocd
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/part-of: argocd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-server
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argocd-repo-server-pdb
+  namespace: argocd
+  labels:
+    app.kubernetes.io/component: repo-server
+    app.kubernetes.io/name: argocd-repo-server
+    app.kubernetes.io/part-of: argocd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-repo-server
+---
+# CUSTOMISED: PodDisruptionBudgets for all remaining ArgoCD components.
+# argocd-application-controller is a StatefulSet — the brain of ArgoCD.
+# Without it, no apps reconcile. minAvailable: 1 prevents eviction before a
+# replacement is scheduled.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argocd-application-controller-pdb
+  namespace: argocd
+  labels:
+    app.kubernetes.io/component: application-controller
+    app.kubernetes.io/name: argocd-application-controller
+    app.kubernetes.io/part-of: argocd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-application-controller
+---
+# argocd-redis is a dependency for every other ArgoCD component.
+# If redis is evicted, the entire control plane loses its cache layer
+# and all components begin failing health checks simultaneously.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argocd-redis-pdb
+  namespace: argocd
+  labels:
+    app.kubernetes.io/component: redis
+    app.kubernetes.io/name: argocd-redis
+    app.kubernetes.io/part-of: argocd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-redis
+---
+# argocd-dex-server handles OIDC/SSO authentication.
+# Eviction  breaks login for all operators and CI tokens.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argocd-dex-server-pdb
+  namespace: argocd
+  labels:
+    app.kubernetes.io/component: dex-server
+    app.kubernetes.io/name: argocd-dex-server
+    app.kubernetes.io/part-of: argocd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-dex-server
+---
+# argocd-notifications-controller sends deployment alerts and sync events.
+# Not in the critical reconciliation path, but protects against alert gaps.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argocd-notifications-controller-pdb
+  namespace: argocd
+  labels:
+    app.kubernetes.io/component: notifications-controller
+    app.kubernetes.io/name: argocd-notifications-controller
+    app.kubernetes.io/part-of: argocd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-notifications-controller
+---
+# argocd-applicationset-controller manages ApplicationSet resources.
+# Eviction during an active rollout can leave ApplicationSets stale.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argocd-applicationset-controller-pdb
+  namespace: argocd
+  labels:
+    app.kubernetes.io/component: applicationset-controller
+    app.kubernetes.io/name: argocd-applicationset-controller
+    app.kubernetes.io/part-of: argocd
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-applicationset-controller
