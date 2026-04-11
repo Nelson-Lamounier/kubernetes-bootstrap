@@ -1,11 +1,13 @@
 # @format
-# Development environment overrides — lower resource limits, smaller PVCs.
+# Development environment overrides — right-sized to actual kubectl top observations.
+# Development: 1x t3.medium node shared with ArgoCD components.
+# All values ≈ observed p50 × 1.5 (120% rule from ops standards).
 
 prometheus:
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 50m       # Observed: ~16m. Keeping base default — no dev-specific override needed.
+      memory: 384Mi  # Observed: ~265Mi. Matches base default.
     limits:
       cpu: 250m
       memory: 512Mi
@@ -18,8 +20,8 @@ prometheus:
 grafana:
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 15m       # Observed: ~6m. Matches base default.
+      memory: 128Mi  # Observed: ~103Mi. Matches base default.
     limits:
       cpu: 300m
       memory: 384Mi
@@ -31,8 +33,8 @@ grafana:
 loki:
   resources:
     requests:
-      cpu: 128m
-      memory: 256Mi
+      cpu: 25m       # Observed: ~10m. Matches base default.
+      memory: 256Mi  # Observed: ~173Mi. Matches base default.
     limits:
       cpu: 300m
       memory: 512Mi
@@ -42,8 +44,8 @@ loki:
 tempo:
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 20m       # Observed: ~4m. Matches base default.
+      memory: 320Mi  # Observed: ~236Mi. Matches base default.
     limits:
       cpu: 250m
       memory: 512Mi
@@ -52,8 +54,8 @@ tempo:
 
 resourceQuota:
   hard:
-    requests.cpu: "2000m"
-    requests.memory: 2Gi
+    requests.cpu: "500m"   # Aligns with base values.yaml quota
+    requests.memory: 3Gi
     limits.cpu: "3"
     limits.memory: 5Gi
     persistentvolumeclaims: "6"

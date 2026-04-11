@@ -28,6 +28,17 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      # Spread prometheus replicas across nodes to prevent both pods
+      # landing on the same node after a restart or rolling update.
+      # ScheduleAnyway is used (not DoNotSchedule) so scheduling is never
+      # hard-blocked on a 2-node cluster where maxSkew may already be violated.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "monitoring.selectorLabels" "prometheus" | nindent 14}}
       containers:
         - name: prometheus
           image: {{.Values.prometheus.image}}

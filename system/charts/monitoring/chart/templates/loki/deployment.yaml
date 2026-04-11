@@ -27,6 +27,16 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      # Spread loki replicas across nodes to prevent both pods landing on the
+      # same node. A single node failure would otherwise take down the entire
+      # log ingestion pipeline. ScheduleAnyway avoids hard scheduling blocks.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "monitoring.selectorLabels" "loki" | nindent 14}}
       containers:
         - name: loki
           image: {{.Values.loki.image}}

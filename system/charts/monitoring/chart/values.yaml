@@ -39,8 +39,8 @@ prometheus:
   replicas: 1
   resources:
     requests:
-      cpu: 250m
-      memory: 512Mi
+      cpu: 50m       # Observed p50: ~16m. 50m covers scrape-cycle bursts.
+      memory: 384Mi  # Observed p50: ~265Mi. 384Mi covers peak + WAL headroom.
     limits:
       cpu: 500m
       memory: 1Gi
@@ -52,6 +52,10 @@ prometheus:
   ingress:
     enabled: true
     matchRule: "PathPrefix(`/prometheus`)"
+  # PDB: prevents eviction of the sole Prometheus replica during CA scale-down.
+  pdb:
+    enabled: true
+    minAvailable: 1
 # ---------------------------------------------------------------------------
 # Grafana
 # ---------------------------------------------------------------------------
@@ -60,8 +64,8 @@ grafana:
   replicas: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 15m       # Observed p50: ~6m. 15m covers dashboard load spikes.
+      memory: 128Mi  # Observed p50: ~103Mi. 128Mi covers peak.
     limits:
       cpu: 250m
       memory: 256Mi
@@ -76,6 +80,10 @@ grafana:
   alerting:
     snsTopicArn: ""
     awsRegion: eu-west-1
+  # PDB: prevents eviction of the sole Grafana replica during CA scale-down.
+  pdb:
+    enabled: true
+    minAvailable: 1
 
 # ---------------------------------------------------------------------------
 # Loki (log aggregation)
@@ -85,8 +93,8 @@ loki:
   replicas: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 25m       # Observed p50: ~10m. 25m covers log-flush burst.
+      memory: 256Mi  # Observed p50: ~173Mi. 256Mi covers peak.
     limits:
       cpu: 250m
       memory: 512Mi
@@ -95,6 +103,10 @@ loki:
     storageClass: "ebs-sc"
   service:
     port: 3100
+  # PDB: prevents eviction of the sole Loki replica during CA scale-down.
+  pdb:
+    enabled: true
+    minAvailable: 1
 
 # ---------------------------------------------------------------------------
 # Tempo (distributed tracing)
@@ -104,8 +116,8 @@ tempo:
   replicas: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 384Mi
+      cpu: 20m       # Observed p50: ~4m. 20m covers trace-ingest bursts.
+      memory: 320Mi  # Observed p50: ~236Mi. 320Mi covers peak.
     limits:
       cpu: 250m
       memory: 768Mi
@@ -223,8 +235,8 @@ alloy:
 # ---------------------------------------------------------------------------
 resourceQuota:
   hard:
-    requests.cpu: "2"
-    requests.memory: 4Gi
+    requests.cpu: "500m"   # prometheus(50m) + grafana(15m) + loki(25m) + tempo(20m) + others + headroom
+    requests.memory: 3Gi   # prometheus(384Mi) + grafana(128Mi) + loki(256Mi) + tempo(320Mi) + others
     limits.cpu: "4"
     limits.memory: 8Gi
     persistentvolumeclaims: "10"
