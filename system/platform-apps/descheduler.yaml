@@ -1,0 +1,165 @@
+# @format
+# ArgoCD Application: Kubernetes Descheduler
+#
+# The Descheduler actively evicts over-packed pods so the scheduler can
+# re-place them on newly CA-added nodes. Without it, a freshly scaled node
+# sits empty while the original node remains overloaded.
+#
+# Runs as a CronJob every 5 minutes (matches CA scale-up latency).
+#
+# Policies:
+#   RemovePodsViolatingTopologySpreadConstraint — evicts pods violating spread rules
+#   LowNodeUtilization                          — evict from nodes >70% util targeting <20%
+#   RemovePodsHavingTooManyRestarts             — evict crashlooping pods (>5 restarts)
+#
+# Key Design Decisions:
+#   - CronJob mode (not Deployment) — avoids a long-running pod paging policy
+#   - nodeSelector: node-pool=monitoring — Descheduler must NOT run on the general
+#     pool it evicts from (evicting itself would terminate mid-cycle)
+#   - Requires toleration for dedicated=monitoring:NoSchedule taint
+#   - DefaultEvictor with PDB respect — will not evict pods protected by a PDB
+#     with zero disruptions budget remaining (minAvailable already at floor)
+#   - PriorityFilter: skip kube-system system-critical pods (never evict control plane)
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: descheduler
+  annotations:
+    kubernetes.io/description: "Kubernetes Descheduler — evicts over-packed pods to enable CA-driven rebalancing"
+    argocd.argoproj.io/sync-wave: "1"  # Wave 1: Infrastructure — companion to Cluster Autoscaler
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://kubernetes-sigs.github.io/descheduler
+    chart: descheduler
+    targetRevision: "0.31.*"
+    helm:
+      values: |
+        # ── Schedule ───────────────────────────────────────────────────────────
+        # Run every 5 minutes as a CronJob.
+        # CronJob mode is preferred over Deployment for solo-developer clusters
+        # where we want periodic rebalancing, not continuous eviction.
+        schedule: "*/5 * * * *"
+        kind: CronJob
+
+        # ── Node Placement ─────────────────────────────────────────────────────
+        # Descheduler MUST NOT run on the general pool it evicts from.
+        # If the CronJob pod is itself evicted mid-cycle, the descheduler
+        # terminates without completing its run — leaving nodes unbalanced.
+        # The monitoring pool (stable, never touched by CA) is the correct home.
+        nodeSelector:
+          node-pool: monitoring
+
+        # The monitoring pool is tainted dedicated=monitoring:NoSchedule.
+        tolerations:
+          - key: dedicated
+            value: monitoring
+            operator: Equal
+            effect: NoSchedule
+
+        # ── Resources ──────────────────────────────────────────────────────────
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+
+        # ── Descheduler Policy ─────────────────────────────────────────────────
+        deschedulerPolicy:
+          profiles:
+            - name: default
+              pluginConfig:
+                # ── LowNodeUtilization ──────────────────────────────────────────
+                # Evict pods from nodes with utilisation >70% (CPU or memory),
+                # targeting underutilised nodes (<20%) as eviction destinations.
+                - name: LowNodeUtilization
+                  args:
+                    thresholds:
+                      cpu: 20
+                      memory: 20
+                    targetThresholds:
+                      cpu: 70
+                      memory: 70
+
+                # ── RemovePodsHavingTooManyRestarts ─────────────────────────────
+                # Evict pods with >5 restarts. Targets current Traefik
+                # CrashLoopBackOffs and any other crashlooping workloads.
+                - name: RemovePodsHavingTooManyRestarts
+                  args:
+                    podRestartThreshold: 5
+                    includingInitContainers: true
+
+                # ── RemovePodsViolatingTopologySpreadConstraint ──────────────────
+                # Evict pods that violate the topologySpreadConstraints we apply
+                # in Pillar 5, so they can reschedule across the new CA-added node.
+                - name: RemovePodsViolatingTopologySpreadConstraint
+                  args:
+                    constraints:
+                      - DoNotSchedule
+                      - ScheduleAnyway
+
+              plugins:
+                balance:
+                  enabled:
+                    - LowNodeUtilization
+                    - RemovePodsViolatingTopologySpreadConstraint
+                deschedule:
+                  enabled:
+                    - RemovePodsHavingTooManyRestarts
+
+                # ── DefaultEvictor ─────────────────────────────────
+                # Enabled by default — explicitly declaring args here to make
+                # PDB awareness and priority skipping auditable in Git.
+                #
+                # ignorePvcPods: false — allow evicting PVC-backed pods
+                #   (Prometheus/Loki have PVCs but MUST be evictable during
+                #   rebalancing; their PDB minAvailable stops them being
+                #   evicted if it would drop below the floor).
+                #
+                # evictSystemCriticalPods: false — NEVER evict control-plane
+                #   or system-critical pods (priority class: system-critical).
+                evictor:
+                  enabled:
+                    - DefaultEvictor
+              pluginConfig:
+                - name: DefaultEvictor
+                  args:
+                    # Honour PodDisruptionBudgets — will not evict if disruption
+                    # budget is already at minAvailable floor.
+                    ignorePdbPods: false
+                    # Do not skip PVC-backed pods (their PDB protects them).
+                    ignorePvcPods: false
+                    # Do not evict system-critical pods (kube-system control plane).
+                    evictSystemCriticalPods: false
+                    # Do not evict DaemonSet pods — they cannot be rescheduled
+                    # on a different node and eviction is pointless.
+                    evictDaemonSetPods: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

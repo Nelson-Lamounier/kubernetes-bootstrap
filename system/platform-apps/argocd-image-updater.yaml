@@ -66,9 +66,21 @@ spec:
             cpu: 100m
             memory: 128Mi
 
-        # --- Node placement (general pool, Spot — no taint) ---
+        # --- Node placement (general pool — no taint, no toleration needed) ---
+        # Image Updater is a lightweight controller that talks to the ArgoCD API.
+        # It does not need to be on the monitoring pool — it is not involved in
+        # eviction decisions (that is CA + Descheduler's job). General pool is fine.
         nodeSelector:
           node-pool: general
+
+        # --- PodDisruptionBudget ---
+        # Image Updater is a single-replica Deployment. Without a PDB, CA scale-down
+        # or a node drain can evict it, halting automated ECR image tag updates.
+        # minAvailable: 1 ensures at least one replica is always running during
+        # voluntary disruptions.
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
 
         # --- Metrics ---
         metrics:

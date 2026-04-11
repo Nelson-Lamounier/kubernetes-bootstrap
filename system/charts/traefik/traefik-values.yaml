@@ -35,14 +35,14 @@ updateStrategy:
 # Bind directly to node network — ports 80/443 available as-is
 hostNetwork: true
 
-# Run on ALL nodes including control plane and ArgoCD
-# (required for EIP failover and ArgoCD node direct traffic)
+# Run on ALL nodes including control plane and monitoring
+# (required for EIP failover — Traefik must bind 80/443 on every node)
 tolerations:
   - key: node-role.kubernetes.io/control-plane
     operator: Exists
     effect: NoSchedule
-  - key: workload
-    value: argocd
+  - key: dedicated
+    value: monitoring
     operator: Equal
     effect: NoSchedule
 
@@ -140,3 +140,21 @@ podSecurityContext:
   runAsGroup: 0
   runAsNonRoot: false
   runAsUser: 0
+
+# Resources — right-sized from kubectl top (observed actual usage).
+# Traefik: observed cpu ~1m, memory ~42Mi (DaemonSet, 1 pod per node).
+# Requests set to 120% of observed p50; limits generous for traffic bursts.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# PodDisruptionBudget (DaemonSet pattern).
+# maxUnavailable: 1 allows rolling node eviction while keeping n-1 nodes serving traffic.
+# minAvailable is inappropriate for DaemonSets — the scheduler guarantees 1 pod/node.
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1

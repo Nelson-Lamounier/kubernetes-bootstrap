@@ -1,0 +1,121 @@
+# @format
+# ArgoCD Application: Cluster Autoscaler (CA)
+#
+# Deploys the Kubernetes Cluster Autoscaler from the official Helm chart.
+# CA manages the desiredCapacity of the general pool ASG based on pending
+# pod counts — replacing CloudWatch CPU target tracking for the general pool.
+#
+# IAM Permissions (already in worker-asg-stack.ts / general pool):
+#   - autoscaling:SetDesiredCapacity
+#   - autoscaling:TerminateInstanceInAutoScalingGroup
+#   - autoscaling:Describe*
+#   - ec2:DescribeLaunchTemplateVersions, DescribeInstanceTypes, DescribeImages
+#
+# ASG Discovery Tags (already applied by worker-asg-stack.ts):
+#   - k8s.io/cluster-autoscaler/enabled: "true"
+#   - k8s.io/cluster-autoscaler/k8s-development: "owned"
+#
+# Key Design Decisions:
+#   - Runs on node-pool=monitoring (MUST NOT run on the general pool it manages —
+#     if CA itself is evicted during a scale-down it cannot issue scale-up calls)
+#   - Requires a toleration for the dedicated=monitoring:NoSchedule taint
+#   - CPU target tracking is disabled on the general ASG (disableScalingPolicy: true)
+#   - skipNodesWithSystemPods: false — prevents control-plane pods blocking scale-down
+#   - scaleDownDelayAfterAdd: 5m — avoids premature scale-down after burst
+#   - expander: least-waste — picks the ASG that wastes least CPU/memory
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-autoscaler
+  annotations:
+    kubernetes.io/description: "Kubernetes Cluster Autoscaler — manages general pool ASG desiredCapacity"
+    argocd.argoproj.io/sync-wave: "1"  # Wave 1: Infrastructure — must be up before workloads
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://kubernetes.github.io/autoscaler
+    chart: cluster-autoscaler
+    targetRevision: "9.*"
+    helm:
+      values: |
+        # ── Auto-discovery ─────────────────────────────────────────────────────
+        autoDiscovery:
+          clusterName: k8s-development
+
+        # ── AWS Region ─────────────────────────────────────────────────────────
+        awsRegion: eu-west-1
+
+        # ── Node Placement ─────────────────────────────────────────────────────
+        # CA MUST NOT run on the general pool it manages.
+        # If a scale-down evicts the CA pod itself it can no longer issue scale-up
+        # calls — a self-defeating failure mode.
+        # The monitoring pool (t3.medium, dedicated=monitoring:NoSchedule) is
+        # stable and never scaled by CA, making it the correct home.
+        nodeSelector:
+          node-pool: monitoring
+
+        # The monitoring pool is tainted dedicated=monitoring:NoSchedule.
+        # CA needs this toleration to land on the node.
+        tolerations:
+          - key: dedicated
+            value: monitoring
+            operator: Equal
+            effect: NoSchedule
+
+        # ── Scale-Down Behaviour ────────────────────────────────────────────────
+        extraArgs:
+          # Delay after scale-up before scale-down is evaluated (prevents thrash)
+          scale-down-delay-after-add: 5m
+          # Node must be underutilised for this long before eviction
+          scale-down-unneeded-time: 5m
+          # Node utilisation threshold for scale-down (< 50% = candidate)
+          scale-down-utilization-threshold: "0.5"
+          # Do NOT skip system pods — prevents control-plane from blocking scale-down
+          skip-nodes-with-system-pods: "false"
+          # Prefer the ASG that wastes least CPU/memory per pending pod
+          expander: least-waste
+          # Emit Prometheus metrics on :8085/metrics
+          metrics-port: "8085"
+
+        # ── Resources ──────────────────────────────────────────────────────────
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+
+        # ── Prometheus metrics ─────────────────────────────────────────────────
+        # CA exposes metrics on port 8085 by default.
+        # Prometheus scrapes via annotation-based discovery.
+        podAnnotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "8085"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false  # kube-system already exists
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
