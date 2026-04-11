@@ -2,18 +2,20 @@
 
 Verifies that:
 - Both URLs are resolved via the shared resolve_secrets() path (no raw calls).
+- Resolution always targets us-east-1 via _make_edge_ssm_client() (KubernetesEdgeStack region).
 - In-cluster fallbacks are applied when SSM parameters are missing.
 - One URL can be resolved while the other falls back independently.
 - Environment variable overrides are honoured (inherited from resolve_secrets).
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from deploy_helpers.bff import (
     BffUrls,
+    _EDGE_REGION,
     _FALLBACK_ADMIN_API,
     _FALLBACK_PUBLIC_API,
     resolve_bff_urls,
@@ -55,6 +57,22 @@ def _ssm_returning(values: dict[str, str]) -> MagicMock:
     return client
 
 
+def _patch_edge_client(ssm_mock: MagicMock):
+    """Return a context manager that patches _make_edge_ssm_client to return *ssm_mock*.
+
+    ``resolve_bff_urls`` always calls :func:`deploy_helpers.bff._make_edge_ssm_client`
+    to obtain a ``us-east-1`` SSM client.  Patching this factory function lets
+    tests inject a mock without requiring real AWS credentials.
+
+    Args:
+        ssm_mock: The mock SSM client to return from the factory.
+
+    Returns:
+        A ``patch`` context manager.
+    """
+    return patch("deploy_helpers.bff._make_edge_ssm_client", return_value=ssm_mock)
+
+
 # ---------------------------------------------------------------------------
 # Happy-path tests
 # ---------------------------------------------------------------------------
@@ -70,7 +88,8 @@ class TestResolveBffUrls:
             "/bedrock-dev/public-api-url": "https://api.example.com",
         })
 
-        result = resolve_bff_urls(ssm, "dev", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "dev", MockClientError)
 
         assert isinstance(result, BffUrls)
 
@@ -81,7 +100,8 @@ class TestResolveBffUrls:
             "/bedrock-dev/public-api-url": "https://api.example.com",
         })
 
-        result = resolve_bff_urls(ssm, "dev", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "dev", MockClientError)
 
         assert result.admin_api_url == "https://admin.example.com"
         assert result.public_api_url == "https://api.example.com"
@@ -93,7 +113,8 @@ class TestResolveBffUrls:
             "/bedrock-prd/public-api-url": "https://api.nelsonlamounier.com",
         })
 
-        result = resolve_bff_urls(ssm, "prd", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "prd", MockClientError)
 
         assert result.admin_api_url == "https://admin.nelsonlamounier.com"
         assert result.public_api_url == "https://api.nelsonlamounier.com"
@@ -105,10 +126,32 @@ class TestResolveBffUrls:
             "/bedrock-dev/public-api-url": "https://api.example.com",
         })
 
-        result = resolve_bff_urls(ssm, "dev", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "dev", MockClientError)
 
         with pytest.raises(Exception):  # noqa: PT011 — FrozenInstanceError
             result.admin_api_url = "https://other.example.com"  # type: ignore[misc]
+
+    def test_always_uses_us_east_1_region(self) -> None:
+        """_make_edge_ssm_client must be called (always targets us-east-1).
+
+        KubernetesEdgeStack is deployed to us-east-1 for CloudFront WAF. All
+        /bedrock-*/admin-api-url and /bedrock-*/public-api-url parameters live
+        in that region, regardless of the cluster's primary AWS region.
+        The _EDGE_REGION constant must equal 'us-east-1'.
+        """
+        assert _EDGE_REGION == "us-east-1", (
+            "_EDGE_REGION must be 'us-east-1' — update only if KubernetesEdgeStack "
+            "is moved to a different region."
+        )
+
+        ssm = _ssm_returning({})
+        factory_mock = MagicMock(return_value=ssm)
+
+        with patch("deploy_helpers.bff._make_edge_ssm_client", factory_mock):
+            resolve_bff_urls(ssm, "dev", MockClientError)
+
+        factory_mock.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +166,8 @@ class TestResolveBffUrlsFallbacks:
         """When neither parameter exists, both in-cluster fallbacks are used."""
         ssm = _ssm_returning({})
 
-        result = resolve_bff_urls(ssm, "dev", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "dev", MockClientError)
 
         assert result.admin_api_url == _FALLBACK_ADMIN_API
         assert result.public_api_url == _FALLBACK_PUBLIC_API
@@ -134,7 +178,8 @@ class TestResolveBffUrlsFallbacks:
             "/bedrock-dev/public-api-url": "https://api.example.com",
         })
 
-        result = resolve_bff_urls(ssm, "dev", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "dev", MockClientError)
 
         assert result.admin_api_url == _FALLBACK_ADMIN_API
         assert result.public_api_url == "https://api.example.com"
@@ -145,7 +190,8 @@ class TestResolveBffUrlsFallbacks:
             "/bedrock-dev/admin-api-url": "https://admin.example.com",
         })
 
-        result = resolve_bff_urls(ssm, "dev", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "dev", MockClientError)
 
         assert result.admin_api_url == "https://admin.example.com"
         assert result.public_api_url == _FALLBACK_PUBLIC_API
@@ -155,7 +201,8 @@ class TestResolveBffUrlsFallbacks:
         ssm = MagicMock()
         ssm.get_parameter.side_effect = MockClientError("AccessDeniedException")
 
-        result = resolve_bff_urls(ssm, "dev", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "dev", MockClientError)
 
         assert result.admin_api_url == _FALLBACK_ADMIN_API
         assert result.public_api_url == _FALLBACK_PUBLIC_API
@@ -177,7 +224,8 @@ class TestResolveBffUrlsEnvOverride:
         """Both URLs use env overrides; SSM must not be called."""
         ssm = MagicMock()
 
-        result = resolve_bff_urls(ssm, "dev", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "dev", MockClientError)
 
         assert result.admin_api_url == "https://override-admin.example.com"
         assert result.public_api_url == "https://override-public.example.com"
@@ -191,6 +239,7 @@ class TestResolveBffUrlsEnvOverride:
             "/bedrock-dev/public-api-url": "https://api.example.com",
         })
 
-        result = resolve_bff_urls(ssm, "dev", MockClientError)
+        with _patch_edge_client(ssm):
+            result = resolve_bff_urls(ssm, "dev", MockClientError)
 
         assert result.admin_api_url == "https://admin.example.com"
