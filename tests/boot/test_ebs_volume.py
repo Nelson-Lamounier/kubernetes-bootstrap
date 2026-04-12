@@ -108,3 +108,36 @@ class TestEnsureDataDirectories:
         assert (tmp_path / "data" / "kubernetes").is_dir()
         assert (tmp_path / "data" / "k8s-bootstrap").is_dir()
         assert (tmp_path / "data" / "app-deploy").is_dir()
+
+    @patch("cp.ebs_volume.run_cmd")
+    def test_chown_and_chmod_applied_to_app_deploy(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        """Should chown root:ssm-user and chmod g+w on app-deploy subtree."""
+        from cp.ebs_volume import ensure_data_directories
+
+        mock_run.return_value = _ok()
+        mount_point = str(tmp_path / "data")
+
+        ensure_data_directories(mount_point)
+
+        app_deploy = str(tmp_path / "data" / "app-deploy")
+        calls = [list(c.args[0]) for c in mock_run.call_args_list]
+        assert ["chown", "-R", "root:ssm-user", app_deploy] in calls
+        assert ["chmod", "-R", "g+w", app_deploy] in calls
+
+    @patch("cp.ebs_volume.run_cmd")
+    def test_chown_failure_is_non_fatal(
+        self, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        """Permission fixup failures must not abort the bootstrap step."""
+        from cp.ebs_volume import ensure_data_directories
+
+        # Simulate chown failing (e.g. ssm-user not yet created on first boot)
+        mock_run.return_value = _fail(stderr="invalid group 'ssm-user'")
+        mount_point = str(tmp_path / "data")
+
+        # Must complete without raising
+        ensure_data_directories(mount_point)
+
+        assert (tmp_path / "data" / "app-deploy").is_dir()

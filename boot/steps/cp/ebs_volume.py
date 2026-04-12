@@ -135,11 +135,38 @@ def mount_volume(device: str, mount_point: str) -> None:
 
 
 def ensure_data_directories(mount_point: str) -> None:
-    """Create the required subdirectory structure on the data volume."""
+    """Create the required subdirectory structure on the data volume.
+
+    Grants group-write access to the ``app-deploy`` subtree so that
+    ``ssm-user`` (the SSM Session Manager user) can sync scripts directly
+    via ``aws s3 cp`` without needing ``sudo``.  The SSM Run Command
+    document runs as ``root``, so bootstrap writes are unaffected.
+    """
     subdirs = ["kubernetes", "k8s-bootstrap", "app-deploy"]
     for subdir in subdirs:
         path = Path(mount_point) / subdir
         path.mkdir(parents=True, exist_ok=True)
+
+    # Grant ssm-user write access to app-deploy so that interactive SSM
+    # sessions (ssm-shell) can sync deploy.py scripts without a password.
+    # SSM Run Command (root) is unaffected by this permission change.
+    app_deploy = Path(mount_point) / "app-deploy"
+    try:
+        run_cmd(
+            ["chown", "-R", "root:ssm-user", str(app_deploy)],
+            check=False,
+        )
+        run_cmd(
+            ["chmod", "-R", "g+w", str(app_deploy)],
+            check=False,
+        )
+        log_info(
+            f"✓ ssm-user granted group-write on {app_deploy} "
+            f"(interactive script deployment enabled)"
+        )
+    except Exception as err:  # noqa: BLE001 — non-fatal; instance may not have ssm-user yet
+        log_warn(f"Could not set group permissions on {app_deploy}: {err}")
+
     log_info(
         f"Data directories ensured: "
         f"{', '.join(str(Path(mount_point) / d) for d in subdirs)}"
