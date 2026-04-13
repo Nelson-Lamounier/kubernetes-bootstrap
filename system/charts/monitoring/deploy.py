@@ -184,6 +184,164 @@ spec:
     )
 
 
+def ensure_argocd_ingress(cfg: MonitoringConfig) -> None:
+    """Idempotently apply ArgoCD IngressRoutes and rate-limit middleware.
+
+    SM-B retry path for bootstrap_argocd.py Step 7, which runs before Traefik
+    CRDs are available and records 'failed' in SSM. By the time SM-B runs,
+    ArgoCD has synced Traefik and the CRD is guaranteed present.
+
+    Applies three resources to the argocd namespace:
+      - rate-limit Middleware
+      - argocd-ingress IngressRoute  (ops.nelsonlamounier.com/argocd)
+      - argocd-webhook-ingress IngressRoute  (/argocd/api/webhook)
+    """
+    import subprocess
+
+    log_info("=== Ensuring ArgoCD IngressRoutes ===")
+
+    kubeconfig = cfg.kubeconfig
+    env = {**os.environ, "KUBECONFIG": kubeconfig}
+
+    # Check if main IngressRoute already exists — no-op if present
+    check = subprocess.run(
+        ["kubectl", "get", "ingressroute", "argocd-ingress", "-n", "argocd"],
+        env=env, capture_output=True, text=True,
+    )
+    if check.returncode == 0:
+        log_info("ArgoCD IngressRoute already exists — skipping")
+        return
+
+    log_info("ArgoCD IngressRoute not found — applying ingress manifests")
+
+    manifests = [
+        ("rate-limit Middleware", """apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  rateLimit:
+    average: 100
+    burst: 50
+"""),
+        ("argocd-ingress IngressRoute", """apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-ingress
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`ops.nelsonlamounier.com`) && PathPrefix(`/argocd`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: admin-ip-allowlist
+        - name: rate-limit
+      services:
+        - name: argocd-server
+          port: 80
+  tls: {}
+"""),
+        ("argocd-webhook-ingress IngressRoute", """apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-webhook-ingress
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`ops.nelsonlamounier.com`) && PathPrefix(`/argocd/api/webhook`)
+      kind: Rule
+      priority: 200
+      services:
+        - name: argocd-server
+          port: 80
+  tls: {}
+"""),
+    ]
+
+    for label, manifest in manifests:
+        result = subprocess.run(
+            ["kubectl", "apply", "-f", "-"],
+            input=manifest, text=True, capture_output=True, env=env,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"kubectl apply {label} failed: {result.stderr.strip()}"
+            )
+        log_info(f"{label} applied")
+
+
+def ensure_argocd_ip_allowlist(cfg: MonitoringConfig) -> None:
+    """Idempotently create the admin-ip-allowlist Middleware in the argocd namespace.
+
+    SM-B retry path for bootstrap_argocd.py Step 7b, which had a missing
+    KUBECONFIG bug and ran before Traefik CRDs were available. Reads admin IPs
+    from SSM and applies the Traefik IPAllowList middleware. No-ops if the
+    middleware already exists with the correct IPs.
+    """
+    import subprocess
+
+    log_info("=== Ensuring ArgoCD IP allowlist middleware ===")
+
+    kubeconfig = cfg.kubeconfig
+    env = {**os.environ, "KUBECONFIG": kubeconfig}
+
+    boto3_mod, _ = _load_boto3()
+    ssm = boto3_mod.client("ssm", region_name=cfg.aws_region)
+
+    source_ranges: list[str] = []
+    for param in ["monitoring/allow-ipv4", "monitoring/allow-ipv6"]:
+        try:
+            value = ssm.get_parameter(
+                Name=f"{cfg.ssm_prefix}/{param}"
+            )["Parameter"]["Value"]
+            source_ranges.append(value)
+            log_info(f"  {param}: {value}")
+        except Exception as e:
+            log_warn(f"  {param} not found in SSM — {e}")
+
+    if not source_ranges:
+        raise RuntimeError(
+            "No admin IPs found in SSM — admin-ip-allowlist middleware not created. "
+            "Ensure ALLOW_IPV4/ALLOW_IPV6 are set and Phase 1 of the pipeline has run."
+        )
+
+    source_range_yaml = "\n".join(f'      - "{ip}"' for ip in source_ranges)
+    manifest = f"""apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: admin-ip-allowlist
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  ipAllowList:
+    sourceRange:
+{source_range_yaml}
+"""
+
+    result = subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=manifest, text=True, capture_output=True, env=env,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"kubectl apply admin-ip-allowlist failed: {result.stderr.strip()}"
+        )
+    log_info(f"admin-ip-allowlist middleware applied with {len(source_ranges)} IP(s)")
+
+
 def create_monitoring_k8s_secrets(v1: object, cfg: MonitoringConfig) -> None:
     """Create or update monitoring Kubernetes Secrets.
 
@@ -298,6 +456,16 @@ def main() -> None:
     # records 'failed' in SSM. This step retries idempotently now that ArgoCD
     # has cert-manager healthy. No-ops if the ClusterIssuer already exists.
     ensure_cluster_issuer(cfg)
+
+    # Step 6: Ensure ArgoCD IngressRoutes exist (SM-B retry path)
+    # bootstrap_argocd.py Step 7 runs before Traefik CRDs are available and
+    # records 'failed' in SSM. No-ops if argocd-ingress already exists.
+    ensure_argocd_ingress(cfg)
+
+    # Step 7: Ensure ArgoCD IP allowlist middleware exists (SM-B retry path)
+    # bootstrap_argocd.py Step 7b had a missing KUBECONFIG bug and ran before
+    # Traefik CRDs were available. No-ops handled per-resource by kubectl apply.
+    ensure_argocd_ip_allowlist(cfg)
 
     log_info("Monitoring secrets deployed successfully")
 
