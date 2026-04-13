@@ -135,7 +135,6 @@ spec:
                   args:
                     # Honour PodDisruptionBudgets — will not evict if disruption
                     # budget is already at minAvailable floor.
-                    ignorePdbPods: false
                     # Do not skip PVC-backed pods (their PDB protects them).
                     ignorePvcPods: false
                     # Do not evict system-critical pods (kube-system control plane).

@@ -82,7 +82,6 @@ spec:
           # Prefer the ASG that wastes least CPU/memory per pending pod
           expander: least-waste
           # Emit Prometheus metrics on :8085/metrics
-          metrics-port: "8085"
 
         # ── Resources ──────────────────────────────────────────────────────────
         resources:
