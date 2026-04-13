@@ -41,7 +41,7 @@ spec:
           replicas: 1
           # Schedule on the general pool (Spot) — no taint, no toleration needed
           nodeSelector:
-            node-pool: general
+            node-pool: monitoring
           resources:
             limits:
               cpu: 100m
@@ -52,7 +52,7 @@ spec:
         dashboard:
           enabled: true  # Web UI for managing rollouts (promote/abort)
           nodeSelector:
-            node-pool: general
+            node-pool: monitoring
           resources:
             limits:
               cpu: 50m
