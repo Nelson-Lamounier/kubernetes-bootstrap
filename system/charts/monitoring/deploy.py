@@ -89,6 +89,101 @@ def _load_boto3() -> tuple:
     return _boto3, _ClientError
 
 
+def ensure_cluster_issuer(cfg: MonitoringConfig) -> None:
+    """Idempotently apply the cert-manager ClusterIssuer (DNS-01 via Route 53).
+
+    This is the SM-B retry path for bootstrap_argocd.py Step 5d, which runs
+    before cert-manager CRDs are available and records 'failed' in SSM when it
+    can't complete. By the time SM-B runs, ArgoCD has synced cert-manager and
+    the CRD is guaranteed to be present.
+
+    Reads PUBLIC_HOSTED_ZONE_ID and CROSS_ACCOUNT_DNS_ROLE_ARN from SSM
+    (written by CDK control-plane-stack). No-ops if the ClusterIssuer already
+    exists so repeated SM-B runs are safe.
+    """
+    import subprocess
+
+    log_info("=== Ensuring cert-manager ClusterIssuer ===")
+
+    kubeconfig = cfg.kubeconfig
+
+    # Check if ClusterIssuer already exists — no-op if present
+    check = subprocess.run(
+        ["kubectl", "get", "clusterissuer", "letsencrypt"],
+        env={**os.environ, "KUBECONFIG": kubeconfig},
+        capture_output=True, text=True,
+    )
+    if check.returncode == 0:
+        log_info("ClusterIssuer 'letsencrypt' already exists — skipping")
+        return
+
+    log_info("ClusterIssuer not found — reading SSM params and applying")
+
+    boto3_mod, _ = _load_boto3()
+    ssm = boto3_mod.client("ssm", region_name=cfg.aws_region)
+
+    try:
+        public_hz_id = ssm.get_parameter(
+            Name=f"{cfg.ssm_prefix}/public-hosted-zone-id"
+        )["Parameter"]["Value"]
+    except Exception as e:
+        raise RuntimeError(
+            f"Cannot apply ClusterIssuer: SSM param "
+            f"'{cfg.ssm_prefix}/public-hosted-zone-id' not found — {e}"
+        ) from e
+
+    try:
+        dns_role_arn = ssm.get_parameter(
+            Name=f"{cfg.ssm_prefix}/cross-account-dns-role-arn"
+        )["Parameter"]["Value"]
+    except Exception as e:
+        raise RuntimeError(
+            f"Cannot apply ClusterIssuer: SSM param "
+            f"'{cfg.ssm_prefix}/cross-account-dns-role-arn' not found — {e}"
+        ) from e
+
+    manifest = f"""apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+  annotations:
+    kubernetes.io/description: "Let's Encrypt production issuer via DNS-01 challenge (Route 53)"
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: lamounierleao2025@outlook.com
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - dns01:
+          route53:
+            region: {cfg.aws_region}
+            hostedZoneID: {public_hz_id}
+            role: {dns_role_arn}
+"""
+
+    result = subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=manifest, text=True, capture_output=True,
+        env={**os.environ, "KUBECONFIG": kubeconfig},
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"kubectl apply ClusterIssuer failed: {result.stderr.strip()}"
+        )
+
+    log_info("ClusterIssuer 'letsencrypt' applied with DNS-01 Route 53 solver")
+
+    # Remove ArgoCD tracking annotation — the ClusterIssuer is bootstrap-managed,
+    # not ArgoCD-managed. Without this, selfHeal would overwrite or delete it.
+    subprocess.run(
+        ["kubectl", "annotate", "clusterissuer", "letsencrypt",
+         "argocd.argoproj.io/tracking-id-", "--overwrite"],
+        env={**os.environ, "KUBECONFIG": kubeconfig},
+        capture_output=True,
+    )
+
+
 def create_monitoring_k8s_secrets(v1: object, cfg: MonitoringConfig) -> None:
     """Create or update monitoring Kubernetes Secrets.
 
@@ -197,6 +292,12 @@ def main() -> None:
 
     # Step 4: Create Kubernetes secrets
     create_monitoring_k8s_secrets(v1, cfg)
+
+    # Step 5: Ensure cert-manager ClusterIssuer exists (SM-B retry path)
+    # bootstrap_argocd.py Step 5d runs before cert-manager CRDs are ready and
+    # records 'failed' in SSM. This step retries idempotently now that ArgoCD
+    # has cert-manager healthy. No-ops if the ClusterIssuer already exists.
+    ensure_cluster_issuer(cfg)
 
     log_info("Monitoring secrets deployed successfully")
 
