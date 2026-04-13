@@ -527,10 +527,16 @@ def apply_cert_manager_issuer(cfg: Config) -> None:
         log(f"  ⚠ Failed to read SSM parameters — {e}")
 
     if not public_hz_id or not dns_role_arn:
-        log("  ⚠ Missing DNS-01 config — falling back to template file")
-        log("    Ensure CDK deployed with HOSTED_ZONE_ID and CROSS_ACCOUNT_ROLE_ARN env vars")
-        log("    Then re-run bootstrap or apply ClusterIssuer manually\n")
-        return
+        missing = []
+        if not public_hz_id:
+            missing.append(f"{cfg.ssm_prefix}/public-hosted-zone-id")
+        if not dns_role_arn:
+            missing.append(f"{cfg.ssm_prefix}/cross-account-dns-role-arn")
+        raise RuntimeError(
+            f"Missing DNS-01 SSM params: {', '.join(missing)}. "
+            "Ensure CDK deployed with HOSTED_ZONE_ID and CROSS_ACCOUNT_ROLE_ARN env vars. "
+            "SM-B (monitoring deploy.py) will retry once params are present."
+        )
 
     # Wait for cert-manager CRDs to be installed by ArgoCD.
     # Step 5d runs BEFORE wait_for_argocd (Step 6), so ArgoCD may still be
@@ -553,9 +559,10 @@ def apply_cert_manager_issuer(cfg: Config) -> None:
     )
     running_pods = [p for p in argocd_running.stdout.strip().split("\n") if p]
     if not running_pods:
-        log(f"  ⚠ No ArgoCD pods Running — cert-manager will not sync yet")
-        log(f"    Skipping CRD wait — re-run bootstrap once ArgoCD is healthy\n")
-        return
+        raise RuntimeError(
+            "No ArgoCD pods Running — cert-manager will not sync yet. "
+            "SM-B (monitoring deploy.py) will retry once ArgoCD is healthy."
+        )
 
     crd_ready = False
     for attempt in range(1, crd_max_attempts + 1):
@@ -573,10 +580,10 @@ def apply_cert_manager_issuer(cfg: Config) -> None:
             time.sleep(5)
 
     if not crd_ready:
-        log(f"  ⚠ CRD '{crd_name}' not available after 60s")
-        log("    cert-manager may not be synced yet — ClusterIssuer will be missing")
-        log("    Re-run bootstrap after cert-manager is healthy\n")
-        return
+        raise RuntimeError(
+            f"CRD '{crd_name}' not available after 60s — cert-manager not yet synced by ArgoCD. "
+            "SM-B (monitoring deploy.py) will retry once cert-manager is healthy."
+        )
 
     # Apply ClusterIssuer with DNS-01 Route 53 solver
     #
@@ -628,10 +635,10 @@ spec:
     if result.returncode == 0:
         log("  ✓ ClusterIssuer 'letsencrypt' applied with DNS-01 solver")
     else:
-        log(f"  ⚠ Failed to apply ClusterIssuer: {result.stderr.strip()}")
-        log("    Re-run bootstrap after cert-manager is healthy")
-        log("")
-        return
+        raise RuntimeError(
+            f"kubectl apply ClusterIssuer failed: {result.stderr.strip()}. "
+            "SM-B (monitoring deploy.py) will retry."
+        )
 
     # Remove ArgoCD tracking annotation so selfHeal doesn't overwrite this resource.
     # The cert-manager-config Application now syncs from platform/cert-manager-config/

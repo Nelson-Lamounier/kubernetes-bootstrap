@@ -172,8 +172,16 @@ def main() -> None:
     with logger.step("restore_tls_cert"):
         restore_tls_cert(cfg)
 
-    with logger.step("apply_cert_manager_issuer"):
-        apply_cert_manager_issuer(cfg)
+    # Non-fatal: cert-manager CRD may not be ready during first bootstrap
+    # (ArgoCD is still syncing cert-manager at this point in the sequence).
+    # The step is recorded as 'failed' in SSM when it can't complete.
+    # SM-B (monitoring deploy.py ensure_cluster_issuer) retries idempotently
+    # once ArgoCD has cert-manager healthy.
+    try:
+        with logger.step("apply_cert_manager_issuer"):
+            apply_cert_manager_issuer(cfg)
+    except Exception as e:
+        log(f"  ⚠ apply_cert_manager_issuer failed (non-fatal) — SM-B will retry: {e}\n")
 
     with logger.step("wait_for_argocd"):
         wait_for_argocd(cfg)
