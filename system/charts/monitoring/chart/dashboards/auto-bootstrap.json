@@ -3,7 +3,10 @@
     "list": [
       {
         "builtIn": 1,
-        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
@@ -12,7 +15,7 @@
       }
     ]
   },
-  "description": "End-to-end trace of the auto-bootstrap pipeline: EventBridge → Router Lambda → Step Functions → SSM Automation. Tracks instance replacements across all 4 K8s node roles.",
+  "description": "End-to-end trace of the auto-bootstrap pipeline: EventBridge \u2192 Router Lambda \u2192 Step Functions \u2192 SSM Automation. Tracks instance replacements across all 4 K8s node roles.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -21,16 +24,26 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 100,
-      "title": "Step Functions Orchestrator — Metrics",
+      "title": "Step Functions Orchestrator \u2014 Metrics",
       "type": "row"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -40,49 +53,111 @@
             "lineWidth": 1,
             "pointSize": 5,
             "showPoints": "never",
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "unit": "short"
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Failed" },
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Succeeded" },
+            "matcher": {
+              "id": "byName",
+              "options": "Succeeded"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Aborted" },
+            "matcher": {
+              "id": "byName",
+              "options": "Aborted"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Timed Out" },
+            "matcher": {
+              "id": "byName",
+              "options": "Timed Out"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
             ]
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
       "id": 1,
       "options": {
-        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "StateMachineArn": ["${sfn_arn}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "StateMachineArn": [
+              "${sfn_arn}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -97,8 +172,15 @@
           "label": "Succeeded"
         },
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "StateMachineArn": ["${sfn_arn}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "StateMachineArn": [
+              "${sfn_arn}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -113,8 +195,15 @@
           "label": "Failed"
         },
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "StateMachineArn": ["${sfn_arn}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "StateMachineArn": [
+              "${sfn_arn}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -129,8 +218,15 @@
           "label": "Aborted"
         },
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "StateMachineArn": ["${sfn_arn}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "StateMachineArn": [
+              "${sfn_arn}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -145,14 +241,19 @@
           "label": "Timed Out"
         }
       ],
-      "title": "Step Functions — Executions (Succeeded / Failed / Aborted / Timed Out)",
+      "title": "Step Functions \u2014 Executions (Succeeded / Failed / Aborted / Timed Out)",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -162,24 +263,51 @@
             "lineWidth": 2,
             "pointSize": 5,
             "showPoints": "auto",
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "unit": "ms"
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 8, "x": 12, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 12,
+        "y": 1
+      },
       "id": 2,
       "options": {
-        "legend": { "calcs": ["mean", "max"], "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "StateMachineArn": ["${sfn_arn}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "StateMachineArn": [
+              "${sfn_arn}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -194,8 +322,15 @@
           "label": "Avg Execution Time"
         },
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "StateMachineArn": ["${sfn_arn}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "StateMachineArn": [
+              "${sfn_arn}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -210,11 +345,14 @@
           "label": "p99 Execution Time"
         }
       ],
-      "title": "Step Functions — Execution Duration (Avg / p99)",
+      "title": "Step Functions \u2014 Execution Duration (Avg / p99)",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -223,16 +361,30 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 5 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
       "id": 3,
       "options": {
         "colorMode": "background",
@@ -240,7 +392,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["sum"],
+          "calcs": [
+            "sum"
+          ],
           "fields": "",
           "values": false
         },
@@ -249,8 +403,15 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "StateMachineArn": ["${sfn_arn}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "StateMachineArn": [
+              "${sfn_arn}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -268,7 +429,10 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -277,14 +441,22 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
           },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 5 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 5
+      },
       "id": 4,
       "options": {
         "colorMode": "background",
@@ -292,7 +464,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": ["sum"],
+          "calcs": [
+            "sum"
+          ],
           "fields": "",
           "values": false
         },
@@ -301,8 +475,15 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "StateMachineArn": ["${sfn_arn}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "StateMachineArn": [
+              "${sfn_arn}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -321,16 +502,26 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
       "id": 150,
-      "title": "Router Lambda — Metrics & Logs",
+      "title": "Router Lambda \u2014 Metrics & Logs",
       "type": "row"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -340,37 +531,81 @@
             "lineWidth": 1,
             "pointSize": 5,
             "showPoints": "never",
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "unit": "short"
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Errors" },
+            "matcher": {
+              "id": "byName",
+              "options": "Errors"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Invocations" },
+            "matcher": {
+              "id": "byName",
+              "options": "Invocations"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
             ]
           }
         ]
       },
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 10 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
       "id": 16,
       "options": {
-        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "FunctionName": ["k8s-dev-bootstrap-router"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "FunctionName": [
+              "k8s-dev-bootstrap-router"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -385,8 +620,15 @@
           "label": "Invocations"
         },
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "FunctionName": ["k8s-dev-bootstrap-router"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "FunctionName": [
+              "k8s-dev-bootstrap-router"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -401,16 +643,24 @@
           "label": "Errors"
         }
       ],
-      "title": "Router Lambda — Invocations vs Errors",
+      "title": "Router Lambda \u2014 Invocations vs Errors",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 10 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
       "id": 5,
       "options": {
         "dedupStrategy": "none",
@@ -425,11 +675,18 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message, @logStream\n| filter @message like /Instance launched|Router result|Unknown bootstrap|skipping|ERROR/\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/k8s-dev-bootstrap-router", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/aws/lambda/k8s-dev-bootstrap-router",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -437,58 +694,103 @@
           "statsGroups": []
         }
       ],
-      "title": "Router Lambda — Logs (filtered)",
+      "title": "Router Lambda \u2014 Logs (filtered)",
       "type": "logs"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
           "custom": {
             "align": "auto",
-            "cellOptions": { "type": "auto" },
+            "cellOptions": {
+              "type": "auto"
+            },
             "inspect": false
           }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "role" },
+            "matcher": {
+              "id": "byName",
+              "options": "role"
+            },
             "properties": [
-              { "id": "custom.width", "value": 130 }
+              {
+                "id": "custom.width",
+                "value": 130
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "instanceId" },
+            "matcher": {
+              "id": "byName",
+              "options": "instanceId"
+            },
             "properties": [
-              { "id": "custom.width", "value": 180 }
+              {
+                "id": "custom.width",
+                "value": 180
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "asgName" },
+            "matcher": {
+              "id": "byName",
+              "options": "asgName"
+            },
             "properties": [
-              { "id": "custom.width", "value": 250 }
+              {
+                "id": "custom.width",
+                "value": 250
+              }
             ]
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 17 },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
       "id": 6,
       "options": {
         "cellHeight": "sm",
-        "footer": { "countRows": true, "fields": "", "reducer": ["count"], "show": true },
+        "footer": {
+          "countRows": true,
+          "fields": "",
+          "reducer": [
+            "count"
+          ],
+          "show": true
+        },
         "showHeader": true,
         "sortBy": [
-          { "desc": true, "displayName": "@timestamp" }
+          {
+            "desc": true,
+            "displayName": "@timestamp"
+          }
         ]
       },
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message\n| filter @message like /Router result:/\n| parse @message \"Router result: *\" as result\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/k8s-dev-bootstrap-router", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/aws/lambda/k8s-dev-bootstrap-router",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -496,21 +798,31 @@
           "statsGroups": []
         }
       ],
-      "title": "Router — Resolved Roles Trace (Parsed)",
+      "title": "Router \u2014 Resolved Roles Trace (Parsed)",
       "type": "table"
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
       "id": 300,
       "title": "EventBridge Rule Activity",
       "type": "row"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -520,37 +832,81 @@
             "lineWidth": 1,
             "pointSize": 5,
             "showPoints": "never",
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "unit": "short"
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "Failed Invocations" },
+            "matcher": {
+              "id": "byName",
+              "options": "Failed Invocations"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Triggered Rules" },
+            "matcher": {
+              "id": "byName",
+              "options": "Triggered Rules"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
             ]
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
       "id": 7,
       "options": {
-        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "RuleName": ["k8s-dev-auto-bootstrap"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "RuleName": [
+              "k8s-dev-auto-bootstrap"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -565,8 +921,15 @@
           "label": "Triggered Rules"
         },
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "RuleName": ["k8s-dev-auto-bootstrap"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "RuleName": [
+              "k8s-dev-auto-bootstrap"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -581,14 +944,19 @@
           "label": "Failed Invocations"
         }
       ],
-      "title": "EventBridge Rule — Triggers & Failures",
+      "title": "EventBridge Rule \u2014 Triggers & Failures",
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -598,24 +966,51 @@
             "lineWidth": 1,
             "pointSize": 5,
             "showPoints": "never",
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "unit": "ms"
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
       "id": 8,
       "options": {
-        "legend": { "calcs": ["mean", "max"], "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "RuleName": ["k8s-dev-auto-bootstrap"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "RuleName": [
+              "k8s-dev-auto-bootstrap"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -630,23 +1025,36 @@
           "label": "Avg Latency"
         }
       ],
-      "title": "EventBridge → Step Functions Delivery Latency",
+      "title": "EventBridge \u2192 Step Functions Delivery Latency",
       "type": "timeseries"
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
       "id": 400,
-      "title": "SSM Automation — Execution Logs",
+      "title": "SSM Automation \u2014 Execution Logs",
       "type": "row"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 35 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 35
+      },
       "id": 9,
       "options": {
         "dedupStrategy": "none",
@@ -661,11 +1069,18 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/ssm/k8s/development/bootstrap",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -677,12 +1092,20 @@
       "type": "logs"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 35 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 35
+      },
       "id": 10,
       "options": {
         "dedupStrategy": "none",
@@ -697,11 +1120,18 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message, @logStream\n| filter @message like /(?i)error|fail|exception|timeout|denied/\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/ssm/k8s/development/bootstrap",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -713,10 +1143,15 @@
       "type": "logs"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -726,32 +1161,61 @@
             "lineWidth": 1,
             "pointSize": 5,
             "showPoints": "never",
-            "stacking": { "group": "A", "mode": "normal" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 43 },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
       "id": 11,
       "options": {
-        "legend": { "calcs": ["sum"], "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message\n| filter @message like /Router result:/\n| parse @message \"*'role': '*'*\" as _pre, role, _post\n| stats count(*) as executions by bin(1h), role\n| sort bin(1h) desc",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/aws/lambda/k8s-dev-bootstrap-router", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/aws/lambda/k8s-dev-bootstrap-router",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
           "region": "eu-west-1",
-          "statsGroups": ["bin(1h)", "role"]
+          "statsGroups": [
+            "bin(1h)",
+            "role"
+          ]
         }
       ],
       "title": "Bootstrap Executions Over Time (by Role)",
@@ -759,18 +1223,31 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
       "id": 500,
-      "title": "CA Re-Join Trace — Worker Rejoin on CP Replacement",
+      "title": "CA Re-Join Trace \u2014 Worker Rejoin on CP Replacement",
       "type": "row"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 51
+      },
       "id": 12,
       "options": {
         "dedupStrategy": "none",
@@ -785,11 +1262,18 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message, @logStream\n| filter @message like /CA MISMATCH|CA certificate valid|kubeadm reset|re-join|stale CA|Removed stale|RejoinAllWorkers/\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/ssm/k8s/development/bootstrap",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -797,16 +1281,24 @@
           "statsGroups": []
         }
       ],
-      "title": "CA Re-Join — Worker Bootstrap Logs",
+      "title": "CA Re-Join \u2014 Worker Bootstrap Logs",
       "type": "logs"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 51
+      },
       "id": 14,
       "options": {
         "dedupStrategy": "none",
@@ -821,11 +1313,18 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message, @logStream\n| filter @message like /CA MISMATCH|CA certificate valid|kubeadm reset|re-join|stale CA|Removed stale/\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/ssm/k8s/development/bootstrap",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -833,23 +1332,36 @@
           "statsGroups": []
         }
       ],
-      "title": "CA Mismatch Detection — Worker Bootstrap Logs",
+      "title": "CA Mismatch Detection \u2014 Worker Bootstrap Logs",
       "type": "logs"
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
       "id": 600,
-      "title": "ASG Pool Bootstrap — General & Monitoring",
+      "title": "ASG Pool Bootstrap \u2014 General & Monitoring",
       "type": "row"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 61 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 61
+      },
       "id": 601,
       "options": {
         "dedupStrategy": "none",
@@ -864,11 +1376,18 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message, @logStream\n| filter @message like /register.instance|node_pool|step_join|Bootstrap complete|Bootstrap FAILED|kubeadm join/\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ec2/k8s-dev-general-pool/instances", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/ec2/k8s-dev-general-pool/instances",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -876,16 +1395,24 @@
           "statsGroups": []
         }
       ],
-      "title": "General Pool — Bootstrap Logs",
+      "title": "General Pool \u2014 Bootstrap Logs",
       "type": "logs"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 61 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 61
+      },
       "id": 602,
       "options": {
         "dedupStrategy": "none",
@@ -900,11 +1427,18 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message, @logStream\n| filter @message like /register.instance|node_pool|step_join|Bootstrap complete|Bootstrap FAILED|kubeadm join/\n| sort @timestamp desc\n| limit 200",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ec2/k8s-dev-monitoring-pool/instances", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/ec2/k8s-dev-monitoring-pool/instances",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -912,16 +1446,24 @@
           "statsGroups": []
         }
       ],
-      "title": "Monitoring Pool — Bootstrap Logs",
+      "title": "Monitoring Pool \u2014 Bootstrap Logs",
       "type": "logs"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 70 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 70
+      },
       "id": 603,
       "options": {
         "dedupStrategy": "none",
@@ -936,11 +1478,18 @@
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
           "expression": "fields @timestamp, @message, @logStream\n| filter @message like /register.instance|node_pool=general|node_pool=monitoring|SSM.*registered|Registered instance/\n| sort @timestamp desc\n| limit 100",
           "id": "",
           "logGroups": [
-            { "arn": "", "name": "/ssm/k8s/development/bootstrap", "accountId": "" }
+            {
+              "arn": "",
+              "name": "/ssm/k8s/development/bootstrap",
+              "accountId": ""
+            }
           ],
           "queryMode": "Logs",
           "refId": "A",
@@ -952,10 +1501,15 @@
       "type": "logs"
     },
     {
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -965,38 +1519,84 @@
             "lineWidth": 2,
             "pointSize": 5,
             "showPoints": "auto",
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "min": 0,
           "unit": "short"
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "General Pool" },
+            "matcher": {
+              "id": "byName",
+              "options": "General Pool"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
             ]
           },
           {
-            "matcher": { "id": "byName", "options": "Monitoring Pool" },
+            "matcher": {
+              "id": "byName",
+              "options": "Monitoring Pool"
+            },
             "properties": [
-              { "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              }
             ]
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 70 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 70
+      },
       "id": 604,
       "options": {
-        "legend": { "calcs": ["last", "min", "max"], "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "calcs": [
+            "last",
+            "min",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "11.6.0",
       "targets": [
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "AutoScalingGroupName": ["${general_asg_name}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "AutoScalingGroupName": [
+              "${general_asg_name}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -1011,8 +1611,15 @@
           "label": "General Pool"
         },
         {
-          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
-          "dimensions": { "AutoScalingGroupName": ["${monitoring_asg_name}"] },
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "dimensions": {
+            "AutoScalingGroupName": [
+              "${monitoring_asg_name}"
+            ]
+          },
           "expression": "",
           "id": "",
           "matchExact": true,
@@ -1029,16 +1636,262 @@
       ],
       "title": "Pool In-Service Node Count (General vs Monitoring)",
       "type": "timeseries"
+    },
+    {
+      "id": 700,
+      "type": "row",
+      "title": "Step-Level Observability \u2014 per-Script Step Timeline",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 79
+      },
+      "panels": []
+    },
+    {
+      "id": 701,
+      "type": "logs",
+      "title": "ArgoCD Bootstrap \u2014 Step Timeline (start / success / fail / skip)",
+      "description": "Structured JSON events emitted by BootstrapLogger in bootstrap_argocd.py. Each line is one step lifecycle event. Filter by status=fail to triage failures without scrolling through thousands of log lines.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 80
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Ascending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "expression": "fields @timestamp, @message\n| filter @logStream like /aws-runShellScript\\/stdout/\n| filter ispresent(step) and ispresent(status)\n| fields step, status, duration_ms, msg\n| sort @timestamp asc\n| limit 500",
+          "id": "",
+          "logGroups": [
+            {
+              "arn": "",
+              "name": "/ssm/k8s/development/bootstrap",
+              "accountId": ""
+            }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ]
+    },
+    {
+      "id": 702,
+      "type": "logs",
+      "title": "Boot Steps \u2014 Step Timeline (=== Starting step / Failed / completed)",
+      "description": "StepRunner log lines from control_plane.py and worker.py. Shows === Starting step, completion times, and ERROR lines. Use this to pinpoint which kubeadm / Calico / CCM step failed without SSM CLI commands.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 90
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Ascending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "expression": "fields @timestamp, @message\n| filter @logStream like /aws-runShellScript\\/stdout/\n| filter @message like /=== (Starting|Step)|FAILED|completed in|ERROR/\n| sort @timestamp asc\n| limit 200",
+          "id": "",
+          "logGroups": [
+            {
+              "arn": "",
+              "name": "/ssm/k8s/development/bootstrap",
+              "accountId": ""
+            }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ]
+    },
+    {
+      "id": 703,
+      "type": "timeseries",
+      "title": "ArgoCD Step Durations (ms) \u2014 Slowest Steps at a Glance",
+      "description": "Parses duration_ms from BootstrapLogger JSON events. Spike = slow step. Flat = skipped / fast.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 100
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "scheme",
+            "lineWidth": 1,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "max",
+            "mean"
+          ],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "expression": "fields @timestamp, step, duration_ms\n| filter @logStream like /aws-runShellScript\\/stdout/\n| filter ispresent(duration_ms)\n| filter status in ['success', 'fail']\n| stats max(duration_ms) as max_ms by step\n| sort max_ms desc",
+          "id": "",
+          "logGroups": [
+            {
+              "arn": "",
+              "name": "/ssm/k8s/development/bootstrap",
+              "accountId": ""
+            }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": [
+            "step"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 704,
+      "type": "table",
+      "title": "Failed Steps Summary \u2014 All Bootstrap Failures in Time Range",
+      "description": "One row per step failure. Shows step name, error message, and duration. Query SSM for the full context: aws ssm get-parameter --name /k8s/development/bootstrap/status/argocd/<step>",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 100
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "@timestamp",
+            "desc": true
+          }
+        ]
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "cloudwatch"
+          },
+          "expression": "fields @timestamp, step, status, msg, duration_ms\n| filter @logStream like /aws-runShellScript\\/stdout/\n| filter status = 'fail'\n| sort @timestamp desc\n| limit 50",
+          "id": "",
+          "logGroups": [
+            {
+              "arn": "",
+              "name": "/ssm/k8s/development/bootstrap",
+              "accountId": ""
+            }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ]
     }
   ],
   "refresh": "",
   "schemaVersion": 39,
-  "tags": ["aws", "auto-bootstrap", "step-functions", "ssm", "eventbridge", "asg-pools"],
+  "tags": [
+    "aws",
+    "auto-bootstrap",
+    "step-functions",
+    "ssm",
+    "eventbridge",
+    "asg-pools"
+  ],
   "templating": {
     "list": [
       {
         "current": {},
-        "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "cloudwatch"
+        },
         "definition": "",
         "description": "Step Functions state machine ARN",
         "hide": 2,
@@ -1063,7 +1916,10 @@
       },
       {
         "current": {},
-        "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "cloudwatch"
+        },
         "definition": "",
         "description": "General pool ASG name (auto-discovered from AWS/AutoScaling)",
         "hide": 2,
@@ -1088,7 +1944,10 @@
       },
       {
         "current": {},
-        "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "cloudwatch"
+        },
         "definition": "",
         "description": "Monitoring pool ASG name (auto-discovered from AWS/AutoScaling)",
         "hide": 2,
@@ -1113,10 +1972,14 @@
       }
     ]
   },
-  "time": { "from": "now-24h", "to": "now" },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
   "title": "Auto-Bootstrap Trace",
   "uid": "auto-bootstrap-trace",
-  "version": 3
+  "version": 4,
+  "iteration": 1
 }
