@@ -192,10 +192,16 @@ def main() -> None:
 
     if cli_installed:
         with logger.step("create_ci_bot"):
-            create_ci_bot(cfg)
+            try:
+                create_ci_bot(cfg)
+            except Exception as e:
+                log(f"  ⚠ create_ci_bot failed — non-fatal, will retry on next bootstrap: {e}")
 
         with logger.step("generate_ci_token"):
-            generate_ci_token(cfg)
+            try:
+                generate_ci_token(cfg)
+            except Exception as e:
+                log(f"  ⚠ generate_ci_token failed — non-fatal, will retry on next bootstrap: {e}")
     else:
         logger.skip("create_ci_bot", "ArgoCD CLI not available")
         logger.skip("generate_ci_token", "ArgoCD CLI not available")

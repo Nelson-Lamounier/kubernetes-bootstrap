@@ -1658,7 +1658,7 @@ def step_bootstrap_argocd() -> None:
             [str(bootstrap_script)],
             env=env,
             capture=False,
-            timeout=800,
+            timeout=1800,
         )
 
         log_info(
