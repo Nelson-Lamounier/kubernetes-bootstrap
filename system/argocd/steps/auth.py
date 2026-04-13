@@ -391,10 +391,11 @@ def set_admin_password(cfg: Config) -> None:
         password = resp["Parameter"]["Value"]
         log("  ✓ Admin password resolved from SSM")
     except Exception as e:
-        log(f"  ⚠ ArgoCD admin password not found in SSM — {e}")
-        log(f"  ⚠ Store the password at: {ssm_path} (SecureString)")
-        log("  ⚠ The auto-generated password (argocd-initial-admin-secret) remains usable\n")
-        return
+        raise RuntimeError(
+            f"ArgoCD admin password not found in SSM at '{ssm_path}' — {e}. "
+            f"Store the password before running bootstrap: "
+            f"aws ssm put-parameter --name '{ssm_path}' --type SecureString --value '<password>'"
+        ) from e
 
     # 2. Hash the password with bcrypt
     #    ArgoCD stores passwords as bcrypt hashes in argocd-secret.

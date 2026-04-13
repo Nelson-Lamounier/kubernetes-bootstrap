@@ -103,6 +103,36 @@ def inject_monitoring_helm_params(cfg: Config) -> None:
         log("  ⚠ No parameters to inject — skipping patch\n")
         return
 
+    # Wait for the monitoring Application to be created by ArgoCD.
+    # inject_monitoring_helm_params runs immediately after apply_root_app, but
+    # ArgoCD takes 10–30s to discover and create the Application from the root
+    # app. Patching before it exists fails silently, leaving allowedIps empty
+    # and the Traefik admin-ip-allowlist Middleware with sourceRange: [] —
+    # which causes Traefik to return 404 for all monitoring routes.
+    app_max_attempts = 24  # 24 × 5s = 120s
+    log("  → Waiting for monitoring Application to be created by ArgoCD...")
+    app_ready = False
+    for attempt in range(1, app_max_attempts + 1):
+        check = subprocess.run(
+            ["kubectl", "get", "application", "monitoring", "-n", "argocd"],
+            env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
+            capture_output=True, text=True,
+        )
+        if check.returncode == 0:
+            log(f"  ✓ monitoring Application exists (attempt {attempt}/{app_max_attempts})")
+            app_ready = True
+            break
+        if attempt < app_max_attempts:
+            if attempt % 6 == 0:
+                log(f"    Attempt {attempt}/{app_max_attempts} — not found, still waiting...")
+            time.sleep(5)
+
+    if not app_ready:
+        log("  ⚠ monitoring Application not found after 120s — ArgoCD root app may not have synced yet")
+        log("    SM-B (monitoring deploy.py) will need to re-run inject_monitoring_helm_params")
+        log("    Or patch manually: kubectl patch application monitoring -n argocd ...\n")
+        return
+
     # Patch the monitoring ArgoCD Application with all Helm parameter overrides
     patch = json.dumps({
         "spec": {
