@@ -27,14 +27,15 @@ metadata:
 spec:
   project: default
 
-  # Preserve bootstrap-injected Helm parameters (IP allowlists from SSM).
-  # Without this, selfHeal overwrites the patched parameters back to the
-  # Git-declared state (no parameters), breaking the Traefik middleware.
+  # Preserve bootstrap-injected secrets that deploy.py overwrites from SSM.
+  # selfHeal: true would otherwise revert these back to the Helm placeholder
+  # on every ArgoCD sync cycle, locking users out of Prometheus.
   ignoreDifferences:
-    - group: ""
-      kind: ""
+    - kind: Secret
+      name: prometheus-basic-auth-secret
+      namespace: monitoring
       jsonPointers:
-        - /spec/source/helm/parameters
+        - /data
 
   source:
     repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
