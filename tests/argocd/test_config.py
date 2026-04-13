@@ -18,7 +18,7 @@ class TestConfig:
         assert cfg.aws_region == "eu-west-1"
         assert cfg.ssm_prefix == "/k8s/development"
         assert cfg.dry_run is False
-        assert cfg.argo_timeout == 120
+        assert cfg.argo_timeout == 300
         assert cfg.kubeconfig == "/etc/kubernetes/admin.conf"
 
     def test_env_derived_from_ssm_prefix(self) -> None:

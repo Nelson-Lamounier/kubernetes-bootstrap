@@ -122,7 +122,10 @@ def main() -> None:
         log(f"  environment:      {cfg.env}")
         log("")
 
-    logger = BootstrapLogger()
+    logger = BootstrapLogger(
+        ssm_prefix=cfg.ssm_prefix,
+        aws_region=cfg.aws_region,
+    )
 
     with logger.step("create_namespace"):
         create_namespace(cfg)

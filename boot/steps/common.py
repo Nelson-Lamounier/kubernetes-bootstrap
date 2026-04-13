@@ -320,7 +320,14 @@ class StepRunner:
     """
     Context manager for running a bootstrap step with timing and status reporting.
 
-    Usage:
+    Writes a JSON status blob to SSM Parameter Store at:
+        ``{SSM_PREFIX}/bootstrap/status/boot/{step_name}``
+
+    on every lifecycle transition (running → success/failed/skipped).
+    SSM writes are best-effort — a failure never blocks the bootstrap.
+
+    Usage::
+
         with StepRunner("validate-ami") as step:
             # ... step logic ...
             step.details["binaries_found"] = ["kubeadm", "kubelet"]
@@ -328,6 +335,9 @@ class StepRunner:
         # On success: step.status = "success"
         # On exception: step.status = "failed", step.error = str(exception)
     """
+
+    #: SSM parameter path prefix for step-status markers.
+    _SSM_STATUS_PREFIX = f"{SSM_PREFIX}/bootstrap/status/boot"
 
     def __init__(self, step_name: str, *, skip_if: Optional[str] = None):
         """
@@ -342,19 +352,23 @@ class StepRunner:
         self.details: dict = {}
 
     def __enter__(self):
+        """Start the step: check idempotency guard, log start, write SSM marker."""
         # Check idempotency guard
         if self.skip_if and is_already_done(self.skip_if):
             log_info(f"Step '{self.step_name}' already completed — skipping",
                      marker=self.skip_if)
             self._status.status = "skipped"
+            self._write_ssm_status("skipped")
             return self
 
         log_info(f"=== Starting step: {self.step_name} ===")
         self._status.started_at = datetime.now(timezone.utc).isoformat()
         self._start_time = time.monotonic()
+        self._write_ssm_status("running")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """Complete the step: update timing/status, write SSM marker, persist run summary."""
         if self._status.status == "skipped":
             return False  # Don't suppress exceptions (none expected)
 
@@ -370,11 +384,13 @@ class StepRunner:
                 f"Step '{self.step_name}' FAILED in {duration:.1f}s",
                 error=str(exc_val),
             )
+            self._write_ssm_status("failed", error=str(exc_val))
             self._persist_run_summary()
             return False  # Propagate exception
 
         self._status.status = "success"
         log_info(f"Step '{self.step_name}' completed in {duration:.1f}s")
+        self._write_ssm_status("success")
 
         # Mark done if idempotency marker is configured
         if self.skip_if:
@@ -382,6 +398,43 @@ class StepRunner:
 
         self._persist_run_summary()
         return False
+
+    def _write_ssm_status(
+        self,
+        status: str,
+        *,
+        error: str = "",
+    ) -> None:
+        """Write step status JSON to SSM Parameter Store (best-effort).
+
+        Writes to ``{SSM_PREFIX}/bootstrap/status/boot/{step_name}``.
+        Failures are logged as warnings and never propagate.
+
+        Args:
+            status: One of "running", "success", "failed", "skipped".
+            error:  Optional error message (populated on failure only).
+        """
+        param_name = f"{self._SSM_STATUS_PREFIX}/{self.step_name}"
+        payload: dict = {
+            "script": "control_plane",
+            "step": self.step_name,
+            "status": status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if self._status.started_at:
+            payload["started_at"] = self._status.started_at
+        if status in ("success", "failed", "skipped"):
+            payload["elapsed_s"] = self._status.duration_seconds
+        if error:
+            # Truncate to 3 KB — SSM Standard tier limit is 4 KB total
+            payload["error"] = error[:3000]
+        try:
+            ssm_put(param_name, json.dumps(payload))
+        except Exception as exc:  # noqa: BLE001
+            log_warn(
+                f"SSM step-status write failed for '{self.step_name}' "
+                f"(non-fatal): {exc}"
+            )
 
     @property
     def skipped(self) -> bool:
