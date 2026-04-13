@@ -191,7 +191,7 @@ class TestApplyIngressCrdWait:
         mock_sleep: MagicMock,
         cfg_with_manifests: Config,
     ) -> None:
-        """Should poll up to 60 times (300s) before giving up."""
+        """Should poll up to 60 times (300s) then raise RuntimeError (SM-B retry path)."""
         # ArgoCD pods running
         argocd_check = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="pod/argocd-server-xxx\n", stderr="",
@@ -202,7 +202,8 @@ class TestApplyIngressCrdWait:
         )
         mock_subprocess.side_effect = [argocd_check] + [crd_check] * 60
 
-        apply_ingress(cfg_with_manifests)
+        with pytest.raises(RuntimeError, match="Traefik CRD"):
+            apply_ingress(cfg_with_manifests)
 
         # Should have slept 59 times (not on the last attempt)
         assert mock_sleep.call_count == 59
@@ -262,14 +263,15 @@ class TestApplyIngressNoArgoCdPods:
         mock_run: MagicMock,
         cfg_with_manifests: Config,
     ) -> None:
-        """Should skip ingress entirely if no ArgoCD pods are Running."""
+        """Should raise RuntimeError (SM-B retry path) if no ArgoCD pods are Running."""
         mock_subprocess.return_value = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="", stderr="",
         )
 
-        apply_ingress(cfg_with_manifests)
+        with pytest.raises(RuntimeError, match="No ArgoCD pods Running"):
+            apply_ingress(cfg_with_manifests)
 
-        # Should not call kubectl apply
+        # Should not have called kubectl apply before raising
         mock_run.assert_not_called()
 
 
