@@ -152,9 +152,15 @@ resources:
     cpu: 200m
     memory: 128Mi
 
-# PodDisruptionBudget (DaemonSet pattern).
-# maxUnavailable: 1 allows rolling node eviction while keeping n-1 nodes serving traffic.
-# minAvailable is inappropriate for DaemonSets — the scheduler guarantees 1 pod/node.
+# PodDisruptionBudget — disabled for DaemonSet.
+#
+# Kubernetes PDB controller does not count DaemonSet-owned pods in Total/Current/Desired,
+# so the PDB always reports disruptionsAllowed: 0 regardless of pod health. ArgoCD v3's
+# PDB health check marks Degraded whenever disruptionsAllowed == 0, causing the traefik
+# Application to show Degraded permanently even with all pods Running.
+#
+# DaemonSets don't benefit from PDB protection anyway — the scheduler guarantees exactly
+# one pod per node and the DaemonSet controller recreates evicted pods immediately.
+# Rolling node maintenance is controlled by updateStrategy.rollingUpdate.maxUnavailable: 1.
 podDisruptionBudget:
-  enabled: true
-  maxUnavailable: 1
+  enabled: false
