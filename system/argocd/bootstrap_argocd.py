@@ -186,11 +186,23 @@ def main() -> None:
     with logger.step("wait_for_argocd"):
         wait_for_argocd(cfg)
 
-    with logger.step("apply_ingress"):
-        apply_ingress(cfg)
+    # Non-fatal: Traefik CRDs may not be ready during first bootstrap
+    # (ArgoCD is still syncing Traefik at this point in the sequence).
+    # SM-B (monitoring deploy.py ensure_argocd_ingress) retries idempotently.
+    try:
+        with logger.step("apply_ingress"):
+            apply_ingress(cfg)
+    except Exception as e:
+        log(f"  ⚠ apply_ingress failed (non-fatal) — SM-B will retry: {e}\n")
 
-    with logger.step("create_argocd_ip_allowlist"):
-        create_argocd_ip_allowlist(cfg)
+    # Non-fatal: depends on Traefik CRDs (same timing issue as apply_ingress).
+    # Also fixed missing KUBECONFIG in subprocess.run.
+    # SM-B (monitoring deploy.py ensure_argocd_ip_allowlist) retries idempotently.
+    try:
+        with logger.step("create_argocd_ip_allowlist"):
+            create_argocd_ip_allowlist(cfg)
+    except Exception as e:
+        log(f"  ⚠ create_argocd_ip_allowlist failed (non-fatal) — SM-B will retry: {e}\n")
 
     with logger.step("configure_webhook_secret"):
         configure_webhook_secret(cfg)

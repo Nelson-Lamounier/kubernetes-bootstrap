@@ -189,12 +189,10 @@ def apply_ingress(cfg: Config) -> None:
     )
     running_pods = [p for p in argocd_running.stdout.strip().split("\n") if p]
     if not running_pods:
-        log("  ⚠ No ArgoCD pods Running — Traefik will not sync yet")
-        log("    Skipping CRD wait — apply ingress manually once ArgoCD is healthy:")
-        for manifest_path, _ in manifests_to_apply:
-            log(f"    kubectl apply -f {manifest_path}")
-        log("")
-        return
+        raise RuntimeError(
+            "No ArgoCD pods Running — Traefik will not sync yet. "
+            "SM-B (monitoring deploy.py) will retry once ArgoCD is healthy."
+        )
 
     crd_ready = False
     for attempt in range(1, crd_max_attempts + 1):
@@ -214,12 +212,10 @@ def apply_ingress(cfg: Config) -> None:
             time.sleep(5)
 
     if not crd_ready:
-        log(f"  ⚠ Traefik CRD '{traefik_crd}' not available after 300s")
-        log("    ArgoCD may not have synced Traefik yet. Apply manually:")
-        for manifest_path, _ in manifests_to_apply:
-            log(f"    kubectl apply -f {manifest_path}")
-        log("")
-        return
+        raise RuntimeError(
+            f"Traefik CRD '{traefik_crd}' not available after 300s — ArgoCD not yet synced. "
+            "SM-B (monitoring deploy.py) will retry once Traefik is healthy."
+        )
 
     # Apply all ingress manifests now that CRDs are available
     applied: list[str] = []
@@ -302,9 +298,11 @@ def create_argocd_ip_allowlist(cfg: Config) -> None:
             log(f"  ⚠ IP not found in SSM ({ip_ssm_path}) — {e}")
 
     if not source_ranges:
-        log("  ⚠ No IPs found — skipping middleware creation")
-        log("    ArgoCD ingress will reject all traffic until middleware exists\n")
-        return
+        raise RuntimeError(
+            "No admin IPs found in SSM — middleware not created. "
+            "Ensure ALLOW_IPV4/ALLOW_IPV6 are set and Phase 1 of the pipeline has run. "
+            "SM-B (monitoring deploy.py) will retry once IPs are present."
+        )
 
     # Build the Middleware manifest
     source_range_yaml = "\n".join(f'      - "{ip}"' for ip in source_ranges)
@@ -324,12 +322,16 @@ spec:
     result = subprocess.run(
         ["kubectl", "apply", "-f", "-"],
         input=manifest, text=True, capture_output=True,
+        env={**os.environ, "KUBECONFIG": cfg.kubeconfig},
     )
 
     if result.returncode == 0:
         log(f"  ✓ ArgoCD IP allowlist middleware created with {len(source_ranges)} IP(s)")
     else:
-        log(f"  ⚠ Failed to create middleware: {result.stderr.strip()}")
+        raise RuntimeError(
+            f"kubectl apply admin-ip-allowlist failed: {result.stderr.strip()}. "
+            "SM-B (monitoring deploy.py) will retry."
+        )
 
     log("")
 
