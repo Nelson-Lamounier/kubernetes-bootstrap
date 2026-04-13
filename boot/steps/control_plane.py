@@ -229,34 +229,25 @@ def _get_apiserver_cert_ips() -> list[str]:
     return ips
 
 
-def _renew_apiserver_cert(private_ip: str, public_ip: str) -> None:
-    """Regenerate the API server certificate with the current instance IPs.
+def _renew_apiserver_cert_files(private_ip: str, public_ip: str) -> None:
+    """Regenerate API server cert/key files ONLY — no container restart.
 
-    Called when the instance has a new private IP that is not covered by the
-    existing cert SANs — the typical case after ASG replacement where the new
-    EC2 instance gets a different IP from the original.
-
-    Steps:
-        1. Delete the stale apiserver cert/key (kubeadm will not overwrite them).
-        2. Re-run ``kubeadm init phase certs apiserver`` with the correct SANs.
-        3. Restart the kube-apiserver static pod by removing its container so
-           kubelet recreates it from the updated manifest.
-        4. Wait up to 60 s for the API server to become healthy again.
+    Called during DR reconstruction BEFORE static pod manifests exist.
+    The container restart + health wait happens after kubelet starts.
     """
-    log_info(f"Renewing API server certificate for IP {private_ip}...")
+    log_info(f"Renewing API server certificate files for IP {private_ip}...")
 
-    # Build the full SAN list — must include everything the original init used
     extra_sans = f"127.0.0.1,{private_ip},{API_DNS_NAME}"
     if public_ip:
         extra_sans += f",{public_ip}"
 
-    # Step 1: Remove stale cert/key so kubeadm regenerates them
+    # Remove stale cert/key so kubeadm regenerates them
     for path in ["/etc/kubernetes/pki/apiserver.crt", "/etc/kubernetes/pki/apiserver.key"]:
         if Path(path).exists():
             Path(path).unlink()
             log_info(f"Removed stale cert: {path}")
 
-    # Step 2: Regenerate with correct SANs
+    # Regenerate with correct SANs
     result = run_cmd(
         [
             "kubeadm", "init", "phase", "certs", "apiserver",
@@ -271,8 +262,17 @@ def _renew_apiserver_cert(private_ip: str, public_ip: str) -> None:
         )
     log_info("✓ API server certificate regenerated")
 
-    # Step 3: Force kube-apiserver static pod to reload the new cert.
-    # Removing the running container causes kubelet to recreate it immediately.
+
+def _renew_apiserver_cert(private_ip: str, public_ip: str) -> None:
+    """Regenerate API server cert AND restart the running container.
+
+    Called on second-run when the API server is already running and
+    the cert SANs don't include the current IP. Safe to call because
+    static pod manifests already exist — kubelet will restart the pod.
+    """
+    _renew_apiserver_cert_files(private_ip, public_ip)
+
+    # Force kube-apiserver static pod to reload the new cert
     log_info("Restarting kube-apiserver static pod to pick up new certificate...")
     run_cmd(
         ["bash", "-c",
@@ -280,9 +280,9 @@ def _renew_apiserver_cert(private_ip: str, public_ip: str) -> None:
         check=False,
     )
 
-    # Step 4: Wait for the API server to come back up
+    # Wait for the API server to come back up
     log_info("Waiting for API server to become healthy after cert renewal...")
-    for i in range(1, 61):
+    for i in range(1, 181):
         probe = run_cmd(
             ["kubectl", "get", "--raw", HEALTHZ_PATH],
             check=False, env=_bootstrap_kubeconfig_env(),
@@ -293,7 +293,7 @@ def _renew_apiserver_cert(private_ip: str, public_ip: str) -> None:
         time.sleep(1)
 
     raise RuntimeError(
-        "API server did not become healthy within 60s after cert renewal. "
+        "API server did not become healthy within 180s after cert renewal. "
         "Check 'crictl ps' and 'journalctl -u kubelet' for details."
     )
 
@@ -571,7 +571,7 @@ def _reconstruct_control_plane(private_ip: str, public_ip: str) -> None:
             f"API server cert SANs {cert_ips} do not include "
             f"current IP {private_ip} — regenerating certificate"
         )
-        _renew_apiserver_cert(private_ip, public_ip)
+        _renew_apiserver_cert_files(private_ip, public_ip)
     else:
         log_info(f"API server cert already includes {private_ip} — no renewal needed")
 
@@ -602,8 +602,8 @@ def _reconstruct_control_plane(private_ip: str, public_ip: str) -> None:
     run_cmd(["systemctl", "restart", "kubelet"])
 
     # ── 11. Wait for API server to become healthy ───────────────────
-    log_info("Waiting for API server to become healthy...")
-    for i in range(1, 91):
+    log_info("Waiting for API server to become healthy after kubelet start...")
+    for i in range(1, 181):
         probe = run_cmd(
             ["kubectl", "get", "--raw", HEALTHZ_PATH],
             check=False, env=_bootstrap_kubeconfig_env(),
@@ -611,12 +611,12 @@ def _reconstruct_control_plane(private_ip: str, public_ip: str) -> None:
         if probe.returncode == 0 and "ok" in probe.stdout.lower():
             log_info(f"✓ API server healthy (waited {i}s)")
             break
-        if i == 90:
-            log_warn(
-                "API server did not become healthy in 90s. "
-                "Check 'crictl ps' and 'journalctl -u kubelet' for details."
-            )
         time.sleep(1)
+    else:
+        raise RuntimeError(
+            "API server did not become healthy within 180s after kubelet start. "
+            "Check 'crictl ps' and 'journalctl -u kubelet' for details."
+        )
 
     # ── 12. Copy kubeconfig for user access ─────────────────────────
     Path("/root/.kube").mkdir(parents=True, exist_ok=True)
