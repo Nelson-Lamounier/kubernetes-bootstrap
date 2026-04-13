@@ -235,7 +235,11 @@ alloy:
 # ---------------------------------------------------------------------------
 resourceQuota:
   hard:
-    requests.cpu: "500m"   # prometheus(50m) + grafana(15m) + loki(25m) + tempo(20m) + others + headroom
+    requests.cpu: "1000m"  # prometheus(50m) + grafana(15m) + loki(25m) + tempo(20m)
+                           # + promtail×2(100m) + node-exporter×2(100m)
+                           # + kube-state-metrics(50m) + alloy(50m)
+                           # + steampipe(250m) + github-actions-exporter(50m)
+                           # = 710m actual + ~290m headroom
     requests.memory: 3Gi   # prometheus(384Mi) + grafana(128Mi) + loki(256Mi) + tempo(320Mi) + others
     limits.cpu: "4"
     limits.memory: 8Gi

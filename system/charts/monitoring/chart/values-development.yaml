@@ -54,7 +54,8 @@ tempo:
 
 resourceQuota:
   hard:
-    requests.cpu: "500m"   # Aligns with base values.yaml quota
+    requests.cpu: "1000m"  # Raised from 500m — steampipe(250m) + github-actions-exporter(50m)
+                           # were excluded from original budget; actual total is ~710m
     requests.memory: 3Gi
     limits.cpu: "3"
     limits.memory: 5Gi
