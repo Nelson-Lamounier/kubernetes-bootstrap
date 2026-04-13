@@ -57,7 +57,14 @@ def install_argocd_cli(cfg: Config) -> bool:
 # Step 9: Create CI bot account
 # ---------------------------------------------------------------------------
 def create_ci_bot(cfg: Config) -> None:
-    """Register the ci-bot account in ArgoCD and grant read-only RBAC."""
+    """Register the ci-bot account in ArgoCD and grant read-only RBAC.
+
+    Guards against restarting argocd-server when it is already mid-rollout.
+    If a rollout is in progress (e.g. from Step 4c rootpath config or Step
+    3b-restore signing key), we wait for it to settle before triggering our
+    own restart — preventing the cascading double-wait that caused the
+    2026-04-13 SM-A timeout at poll count 19.
+    """
     log("=== Step 9: Creating CI bot account ===")
 
     if cfg.dry_run:
@@ -93,12 +100,50 @@ def create_ci_bot(cfg: Config) -> None:
     else:
         log("  ⚠ Failed to patch argocd-rbac-cm")
 
-    # Restart argocd-server so it picks up the new ci-bot account from argocd-cm.
-    # Without this restart, the server won't recognize the ci-bot token and the
-    # verify job's health check will fail with HTTP 401.
-    # Note: Step 10 generates the token using --core mode (talks to K8s API
-    # directly), so the token IS valid — but the server must also know about
-    # the account to accept it when the CI pipeline queries the API.
+    # ── Restart argocd-server to load ci-bot account ──────────────────────
+    #
+    # argocd-server must be restarted so it picks up the new ci-bot account
+    # from argocd-cm. Without this, the server won't recognise the ci-bot
+    # token and the CI pipeline health check will fail with HTTP 401.
+    #
+    # Guard: if a rollout is already in progress (old replica still
+    # terminating from a previous step — e.g. Step 4c rootpath config or
+    # Step 3b-restore signing key), triggering a *second* restart stacks
+    # a new wait on top of an already-recovering pod. This was the root
+    # cause of the 2026-04-13 SM-A timeout at Step 9 / poll count 19.
+    #
+    # Strategy:
+    #   1. Quick 10s probe: is argocd-server already fully ready?
+    #   2a. If ready → restart cleanly. Pod comes up fast from a clean state.
+    #   2b. If mid-rollout → wait for the existing rollout to settle first,
+    #       then restart. Avoids a cascading double-wait.
+    #   3. Wait for the post-restart rollout to complete before Step 10
+    #      generates the CI bot token (server must know about the account).
+    log("  → Checking argocd-server rollout state before restart...")
+
+    pre_check = run(
+        ["kubectl", "rollout", "status", _ARGOCD_SERVER_DEPLOYMENT,
+         "-n", "argocd", "--timeout=10s"],
+        cfg=cfg, check=False,
+    )
+
+    if pre_check.returncode == 0:
+        log("  ✓ argocd-server is fully ready — proceeding with restart")
+    else:
+        # A rollout is in progress: wait up to argo_timeout for it to settle
+        # before we trigger our own restart, to avoid a cascading double-wait.
+        log(f"  ⚠ argocd-server rollout in progress — waiting up to {cfg.argo_timeout}s for it to settle...")
+        settle = run(
+            ["kubectl", "rollout", "status", _ARGOCD_SERVER_DEPLOYMENT,
+             "-n", "argocd", f"--timeout={cfg.argo_timeout}s"],
+            cfg=cfg, check=False,
+        )
+        if settle.returncode == 0:
+            log("  ✓ Existing rollout settled — continuing with ci-bot restart")
+        else:
+            log(f"  ⚠ Rollout did not settle within {cfg.argo_timeout}s — restarting anyway")
+            log("    (ci-bot account must be loaded; Step 10 has retry logic)")
+
     log("  → Restarting argocd-server to load ci-bot account...")
     result = run(
         ["kubectl", "rollout", "restart", _ARGOCD_SERVER_DEPLOYMENT,
