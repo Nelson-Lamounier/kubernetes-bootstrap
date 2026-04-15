@@ -746,3 +746,127 @@ spec:
             log(f"    - No stale {resource}(s) found")
 
     log("")
+
+
+# ---------------------------------------------------------------------------
+# Step 5e: Provision ArgoCD Notifications secret (GitHub App credentials)
+# ---------------------------------------------------------------------------
+def provision_argocd_notifications_secret(cfg: Config) -> None:
+    """Create or update the argocd-notifications-secret from SSM SecureString.
+
+    The ArgoCD Notifications controller references three GitHub App credentials
+    from this Secret to post commit-status checks on every application sync:
+
+        $github-appID
+        $github-installationID
+        $github-privateKey
+
+    Expected SSM paths (all SecureString):
+
+        {ssm_prefix}/argocd/github-app-id
+        {ssm_prefix}/argocd/github-installation-id
+        {ssm_prefix}/argocd/github-private-key
+
+    The function is idempotent — a 409 Conflict triggers a replace rather
+    than failing, so re-runs during SM-B retries are safe.
+
+    If any SSM parameter is missing, the step logs a warning and exits
+    gracefully — ArgoCD Notifications will silently skip GitHub status
+    updates until the secret is populated and the controller is restarted.
+
+    Args:
+        cfg: Bootstrap configuration (ssm_prefix, aws_region, kubeconfig).
+    """
+    log("=== Step 5e: Provisioning ArgoCD Notifications Secret ===")
+
+    ssm_map = {
+        "github-appID": f"{cfg.ssm_prefix}/argocd/github-app-id",
+        "github-installationID": f"{cfg.ssm_prefix}/argocd/github-installation-id",
+        "github-privateKey": f"{cfg.ssm_prefix}/argocd/github-private-key",
+    }
+
+    if cfg.dry_run:
+        for key, path in ssm_map.items():
+            log(f"  [DRY-RUN] Would read {path} → secret key '{key}'")
+        log("  [DRY-RUN] Would create/update argocd-notifications-secret\n")
+        return
+
+    # 1. Read all three credentials from SSM
+    secret_data: dict[str, str] = {}
+    missing: list[str] = []
+
+    try:
+        ssm = get_ssm_client(cfg)
+
+        for secret_key, ssm_path in ssm_map.items():
+            log(f"  → Reading from SSM: {ssm_path}")
+            try:
+                resp = ssm.get_parameter(Name=ssm_path, WithDecryption=True)
+                secret_data[secret_key] = resp["Parameter"]["Value"].strip()
+                log(f"  ✓ Retrieved '{secret_key}'")
+            except Exception as e:
+                log(f"  ⚠ SSM parameter not found ({ssm_path}) — {e}")
+                missing.append(ssm_path)
+
+    except Exception as e:
+        log(f"  ⚠ Failed to connect to SSM — {e}")
+        log("    ArgoCD Notifications will not post GitHub commit statuses")
+        log("    Store credentials in SSM and re-run SM-B (monitoring deploy.py)\n")
+        return
+
+    if missing:
+        log(f"  ⚠ {len(missing)} SSM parameter(s) missing:")
+        for path in missing:
+            log(f"      aws ssm put-parameter --name '{path}' --type SecureString --value '<value>'")
+        log("    ArgoCD Notifications will not post GitHub commit statuses")
+        log("    Re-run SM-B after storing the missing parameters\n")
+        return
+
+    # 2. Create/update the argocd-notifications-secret K8s Secret
+    try:
+        from kubernetes import client
+        from kubernetes import config as k8s_config
+
+        k8s_config.load_kube_config(config_file=cfg.kubeconfig)
+        v1 = client.CoreV1Api()
+
+        secret = client.V1Secret(
+            metadata=client.V1ObjectMeta(
+                name="argocd-notifications-secret",
+                namespace="argocd",
+                labels={
+                    "app.kubernetes.io/managed-by": "bootstrap",
+                    "app.kubernetes.io/part-of": "argocd",
+                },
+            ),
+            string_data=secret_data,
+            type="Opaque",
+        )
+
+        try:
+            v1.create_namespaced_secret("argocd", secret)
+            log("  ✓ argocd-notifications-secret created")
+        except client.exceptions.ApiException as e:
+            if e.status == 409:
+                v1.replace_namespaced_secret(
+                    "argocd-notifications-secret", "argocd", secret,
+                )
+                log("  ✓ argocd-notifications-secret updated")
+            else:
+                raise
+
+        log("  ✓ ArgoCD Notifications will post GitHub commit statuses on sync")
+        log("    Restart the controller if it was already running:")
+        log("    kubectl rollout restart deployment argocd-notifications-controller -n argocd")
+
+    except Exception as e:
+        log(f"  ⚠ Failed to create argocd-notifications-secret: {e}")
+        log("    ArgoCD Notifications will not post GitHub commit statuses")
+        log("    Manual fallback:")
+        log("      kubectl create secret generic argocd-notifications-secret \\")
+        log("        --from-literal=github-appID=<id> \\")
+        log("        --from-literal=github-installationID=<id> \\")
+        log("        --from-literal=github-privateKey='<pem>' \\")
+        log("        -n argocd")
+
+    log("")

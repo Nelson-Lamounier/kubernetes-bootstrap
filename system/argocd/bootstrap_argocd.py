@@ -67,6 +67,7 @@ from steps.apps import (
     apply_cert_manager_issuer,
     apply_root_app,
     inject_monitoring_helm_params,
+    provision_argocd_notifications_secret,
     provision_crossplane_credentials,
     restore_tls_cert,
     seed_ecr_credentials,
@@ -206,6 +207,15 @@ def main() -> None:
 
     with logger.step("configure_webhook_secret"):
         configure_webhook_secret(cfg)
+
+    # Non-fatal: GitHub App credentials in SSM may not exist on first bootstrap.
+    # ArgoCD Notifications silently skips commit-status updates until the secret
+    # is present. Store credentials in SSM then re-run SM-B to retry.
+    try:
+        with logger.step("provision_argocd_notifications_secret"):
+            provision_argocd_notifications_secret(cfg)
+    except Exception as e:
+        log(f"  ⚠ provision_argocd_notifications_secret failed (non-fatal) — {e}\n")
 
     with logger.step("install_argocd_cli"):
         cli_installed = install_argocd_cli(cfg)
