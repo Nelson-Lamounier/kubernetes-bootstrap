@@ -59,6 +59,11 @@ spec:
           # The manually committed workloads/argocd-apps/start-admin.yaml is used instead.
           - path: kubernetes-app/workloads/charts/start-admin
             exclude: true
+          # wiki-mcp is excluded because it requires ArgoCD Image Updater annotations
+          # (ECR SHA tag tracking, git write-back to .argocd-source-wiki-mcp.yaml).
+          # The manually committed workloads/argocd-apps/wiki-mcp.yaml is used instead.
+          - path: kubernetes-app/workloads/charts/wiki-mcp
+            exclude: true
 
   template:
     metadata:
