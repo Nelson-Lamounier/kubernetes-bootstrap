@@ -53,7 +53,7 @@ const POLL_INTERVAL_MS = 10_000;
 const TERMINAL_STATUSES = new Set(['Success', 'Failed', 'TimedOut', 'Cancelled', 'Undeliverable']);
 
 /** Valid app names accepted by this script. */
-const VALID_APPS = ['admin-api', 'public-api'] as const;
+const VALID_APPS = ['admin-api', 'public-api', 'wiki-mcp'] as const;
 type AppName = (typeof VALID_APPS)[number];
 
 // =============================================================================
@@ -83,7 +83,6 @@ if (!app || !VALID_APPS.includes(app)) {
 // =============================================================================
 
 const awsCfg = buildAwsConfig(args);
-const ssmPrefix = `/k8s/${environment}`;
 
 const ec2 = new EC2Client({ region: awsCfg.region, credentials: awsCfg.credentials });
 const ssm = new SSMClient({ region: awsCfg.region, credentials: awsCfg.credentials });
@@ -248,8 +247,9 @@ async function main(): Promise<void> {
       }),
     );
 
-    commandId = resp.Command?.CommandId;
-    if (!commandId) throw new Error('SSM did not return a CommandId');
+    const cmdId = resp.Command?.CommandId;
+    if (!cmdId) throw new Error('SSM did not return a CommandId');
+    commandId = cmdId;
   } catch (err) {
     ghError(`Failed to send SSM command: ${(err as Error).message}`);
     process.exit(1);
