@@ -13,8 +13,9 @@
 # Placement: monitoring pool (same reasoning as cluster-autoscaler —
 # the controller must not run on the general pool it manages).
 #
-# Requires ArgoCD v2.8+ for OCI Helm registry support (ghcr.io is public,
-# no registry credentials needed).
+# Requires ArgoCD v2.8+ for OCI Helm registry support.
+# GHCR requires authentication even for public OCI packages — a PAT with
+# read:packages scope must be stored as an ArgoCD repository secret.
 #
 # Chart: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
 
@@ -34,7 +35,7 @@ spec:
   project: default
 
   source:
-    repoURL: oci://ghcr.io/actions/actions-runner-controller-charts
+    repoURL: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
     chart: gha-runner-scale-set-controller
     targetRevision: "0.10.*"
     helm:
