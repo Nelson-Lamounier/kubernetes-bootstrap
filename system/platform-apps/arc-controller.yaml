@@ -85,6 +85,17 @@ spec:
     server: https://kubernetes.default.svc
     namespace: arc-systems
 
+  # CRDs have large OpenAPI schemas that exceed ArgoCD's apply timeout.
+  # Applied once via `kubectl apply --server-side` during bootstrap.
+  # ArgoCD manages all other resources; CRDs are ignored to prevent timeout.
+  ignoreDifferences:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      name: autoscalingrunnersets.actions.github.com
+      jsonPointers:
+        - /spec
+        - /status
+
   syncPolicy:
     automated:
       prune: true
@@ -94,6 +105,7 @@ spec:
       - CreateNamespace=true
       - PruneLast=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 3
       backoff:
