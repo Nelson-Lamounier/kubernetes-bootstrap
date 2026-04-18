@@ -152,7 +152,7 @@ function buildCommands(env: string, region: string, targetApp: AppName): string[
     ].join(' '),
 
     // 3. Install Python runtime deps (boto3, kubernetes) — fast no-op if already installed
-    `pip3 install -q -r /data/k8s-bootstrap/deploy_helpers/requirements.txt 2>&1 && echo "[pip] deps ready" || echo "[WARN] pip install failed"`,
+    `python3 -m pip install -q -r /data/k8s-bootstrap/deploy_helpers/requirements.txt 2>&1 && echo "[pip] deps ready" || echo "[WARN] pip install failed"`,
 
     // 4. Run the app-specific deploy.py
     `KUBECONFIG=/etc/kubernetes/admin.conf python3 /data/app-deploy/${targetApp}/deploy.py 2>&1`,
