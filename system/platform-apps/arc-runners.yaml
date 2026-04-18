@@ -1,0 +1,115 @@
+# @format
+# ArgoCD Application: ARC Runner Scale Set
+#
+# Defines the self-hosted runner pool used by GitHub Actions workflows.
+# Runners are ephemeral pods — created on job start, deleted on job end.
+# minRunners=0 means zero idle cost; maxRunners=3 caps concurrent jobs.
+#
+# Authentication: GitHub App (preferred — no token expiry).
+# The K8s secret `arc-github-secret` must be created manually before sync:
+#
+#   kubectl create secret generic arc-github-secret \
+#     --namespace arc-runners \
+#     --from-literal=github_app_id="<APP_ID>" \
+#     --from-literal=github_app_installation_id="<INSTALLATION_ID>" \
+#     --from-literal=github_app_private_key="$(cat private-key.pem)"
+#
+# GitHub App permissions required:
+#   - Actions: Read & Write
+#   - Administration: Read & Write (for self-hosted runner registration)
+#   - Metadata: Read (mandatory)
+#
+# Runners appear in GitHub as: runs-on: [self-hosted, k8s]
+#
+# IAM: Runner pods inherit the worker node EC2 instance profile.
+# No additional IRSA configuration needed for ECR, SSM, S3 access.
+#
+# Chart: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc-runners
+  annotations:
+    kubernetes.io/description: "GitHub Actions self-hosted runner scale set (0-3 pods, webhook mode)"
+    argocd.argoproj.io/sync-wave: "3"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: oci://ghcr.io/actions/actions-runner-controller-charts
+    chart: gha-runner-scale-set
+    targetRevision: "0.10.*"
+    helm:
+      releaseName: arc-runners
+      values: |
+        # ── GitHub connection ─────────────────────────────────────────────────────
+        # Org-level registration — runners are available to all repos in the org.
+        # Switch to a repo URL (e.g. https://github.com/Nelson-Lamounier/cdk-monitoring)
+        # to restrict runners to a single repository.
+        githubConfigUrl: "https://github.com/Nelson-Lamounier"
+
+        # Created manually — see header comment for kubectl command.
+        githubConfigSecret: arc-github-secret
+
+        # ── Runner label ──────────────────────────────────────────────────────────
+        # Matches runs-on: [self-hosted, k8s] in workflow files.
+        runnerScaleSetName: k8s
+
+        # ── Scaling ───────────────────────────────────────────────────────────────
+        minRunners: 0
+        maxRunners: 3
+
+        # ── Container mode ────────────────────────────────────────────────────────
+        # Kubernetes mode: each workflow step runs in its own ephemeral pod.
+        # No Docker-in-Docker required. kubectl, yarn, aws-cli available on PATH.
+        containerMode:
+          type: "kubernetes"
+          kubernetesModeWorkVolumeClaim:
+            accessModes: ["ReadWriteOnce"]
+            # Match your existing EBS CSI StorageClass name.
+            storageClassName: "ebs-sc"
+            resources:
+              requests:
+                storage: 5Gi
+
+        # ── Runner pod resources ──────────────────────────────────────────────────
+        template:
+          spec:
+            # ServiceAccount with RBAC to apply K8s resources and trigger ArgoCD
+            # syncs directly — defined in system/arc/runner-rbac.yaml.
+            serviceAccountName: arc-runner
+            containers:
+              - name: runner
+                resources:
+                  requests:
+                    cpu: 250m
+                    memory: 256Mi
+                  limits:
+                    cpu: "1"
+                    memory: 1Gi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: arc-runners
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
