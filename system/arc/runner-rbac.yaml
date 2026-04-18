@@ -1,0 +1,75 @@
+# @format
+# ARC Runner ServiceAccount + RBAC
+#
+# The runner pod runs as this ServiceAccount and needs cross-namespace
+# permissions to apply the K8s resources that deploy.py manages:
+#
+#   admin-api namespace:   Namespace, Secret, ConfigMap, IngressRoute
+#   public-api namespace:  Namespace, ConfigMap, IngressRoute
+#   argocd namespace:      Application (patch annotations for sync trigger)
+#
+# Applied by ArgoCD as part of the arc-controller sync wave.
+# The ServiceAccount is referenced in arc-runners ArgoCD Application
+# via template.spec.serviceAccountName: arc-runner.
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: arc-runner
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/part-of: arc
+
+---
+# ClusterRole grants cross-namespace permissions.
+# Scoped to exactly what deploy.py and the ArgoCD sync trigger need.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: arc-runner
+  labels:
+    app.kubernetes.io/part-of: arc
+rules:
+  # Namespace creation — deploy.py calls ensure_namespace() on first deploy
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create"]
+
+  # admin-api: Cognito Secret
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch", "replace"]
+
+  # admin-api + public-api: infra ConfigMaps
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update", "patch", "replace"]
+
+  # admin-api + public-api: Traefik IngressRoutes
+  # deploy.py is the sole owner — ArgoCD never manages these resources.
+  - apiGroups: ["traefik.io"]
+    resources: ["ingressroutes"]
+    verbs: ["get", "create", "update", "patch", "replace"]
+
+  # ArgoCD sync trigger — runner annotates Application to force immediate refresh.
+  # This replaces the 60-line SSM polling loop that ran argocd app sync on the CP node.
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "patch", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: arc-runner
+  labels:
+    app.kubernetes.io/part-of: arc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: arc-runner
+subjects:
+  - kind: ServiceAccount
+    name: arc-runner
+    namespace: arc-runners

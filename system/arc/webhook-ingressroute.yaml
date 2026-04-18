@@ -1,0 +1,41 @@
+# @format
+# ARC Webhook IngressRoute
+#
+# Exposes ONLY the /webhook path on runners.nelsonlamounier.com to the
+# public internet so GitHub can push workflow_job events to the ARC
+# controller — enabling faster scale-up than long-polling.
+#
+# No IP allowlist: GitHub sends events from rotating IP ranges.
+# Authentication is handled by the webhook secret configured in the
+# ARC controller (webhookServer.secret — matched against GitHub's
+# X-Hub-Signature-256 header).
+#
+# Priority 200: same as argocd-webhook-ingress — ensures this route
+# matches before any catch-all IngressRoute on the same host.
+#
+# Service name: arc-controller-webhook-server
+#   Derived from fullnameOverride: arc-controller in arc-controller.yaml
+#   (format: {fullnameOverride}-webhook-server)
+#
+# DNS prerequisite: add CNAME runners.nelsonlamounier.com → NLB DNS name
+# before deploying this IngressRoute. TLS cert is issued automatically
+# by cert-manager (same ClusterIssuer as ops.nelsonlamounier.com).
+
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: arc-webhook-ingress
+  namespace: arc-systems
+  labels:
+    app.kubernetes.io/part-of: arc
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`runners.nelsonlamounier.com`) && PathPrefix(`/webhook`)
+      kind: Rule
+      priority: 200
+      services:
+        - name: arc-controller-webhook-server
+          port: 9000
+  tls: {}
