@@ -52,6 +52,13 @@ spec:
         # Org-level registration — runners are available to all repos in the org.
         # Switch to a repo URL (e.g. https://github.com/Nelson-Lamounier/cdk-monitoring)
         # to restrict runners to a single repository.
+        # ── Controller service account discovery ──────────────────────────────────
+        # Explicit reference required when controller uses fullnameOverride.
+        # Auto-discovery via label selector fails if the label doesn't match.
+        controllerServiceAccount:
+          namespace: arc-systems
+          name: arc-controller
+
         githubConfigUrl: "https://github.com/Nelson-Lamounier"
 
         # Created manually — see header comment for kubectl command.
