@@ -39,6 +39,9 @@ spec:
     chart: gha-runner-scale-set-controller
     targetRevision: "0.10.*"
     helm:
+      # CRDs are bootstrapped manually via `kubectl apply --server-side`
+      # to avoid ArgoCD's 262144-byte annotation limit on large schemas.
+      skipCrds: true
       # Predictable service name for the Traefik IngressRoute.
       # Webhook service will be: arc-controller-webhook-server
       releaseName: arc-controller
@@ -84,17 +87,6 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: arc-systems
-
-  # CRDs have large OpenAPI schemas that exceed ArgoCD's apply timeout.
-  # Applied once via `kubectl apply --server-side` during bootstrap.
-  # ArgoCD manages all other resources; CRDs are ignored to prevent timeout.
-  ignoreDifferences:
-    - group: apiextensions.k8s.io
-      kind: CustomResourceDefinition
-      name: autoscalingrunnersets.actions.github.com
-      jsonPointers:
-        - /spec
-        - /status
 
   syncPolicy:
     automated:
