@@ -21,6 +21,10 @@
 #
 # Runners appear in GitHub as: runs-on: [self-hosted, k8s]
 #
+# NOTE: githubConfigUrl must be a repository URL, not the user/org root.
+# Nelson-Lamounier is a personal GitHub account — the org runner API returns
+# 404 for personal accounts. Repo-level runners work correctly.
+#
 # IAM: Runner pods inherit the worker node EC2 instance profile.
 # No additional IRSA configuration needed for ECR, SSM, S3 access.
 #
@@ -49,9 +53,9 @@ spec:
       releaseName: arc-runners
       values: |
         # ── GitHub connection ─────────────────────────────────────────────────────
-        # Org-level registration — runners are available to all repos in the org.
-        # Switch to a repo URL (e.g. https://github.com/Nelson-Lamounier/cdk-monitoring)
-        # to restrict runners to a single repository.
+        # Repo-level registration — Nelson-Lamounier is a personal user account,
+        # not a GitHub Organization. The org runner API (/orgs/{account}/runners)
+        # returns 404 for personal accounts. Must use a repository URL instead.
         # ── Controller service account discovery ──────────────────────────────────
         # Explicit reference required when controller uses fullnameOverride.
         # Auto-discovery via label selector fails if the label doesn't match.
@@ -59,7 +63,7 @@ spec:
           namespace: arc-systems
           name: arc-controller
 
-        githubConfigUrl: "https://github.com/Nelson-Lamounier"
+        githubConfigUrl: "https://github.com/Nelson-Lamounier/cdk-monitoring"
 
         # Created manually — see header comment for kubectl command.
         githubConfigSecret: arc-github-secret
