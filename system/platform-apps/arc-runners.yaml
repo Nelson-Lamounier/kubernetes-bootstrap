@@ -86,6 +86,12 @@ spec:
             # ServiceAccount with RBAC to apply K8s resources and trigger ArgoCD
             # syncs directly — defined in system/arc/runner-rbac.yaml.
             serviceAccountName: arc-runner
+            containers:
+              - name: runner
+                # Custom runner image with AWS CLI v2, python3+pip+venv, kubectl
+                # pre-installed. Built by .github/workflows/build-ci-image.yml
+                # (build-arc-runner job) and pushed to GHCR.
+                image: ghcr.io/nelson-lamounier/cdk-monitoring/arc-runner:latest
 
   destination:
     server: https://kubernetes.default.svc
