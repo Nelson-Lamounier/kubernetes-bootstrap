@@ -76,33 +76,16 @@ spec:
         minRunners: 0
         maxRunners: 3
 
-        # ── Container mode ────────────────────────────────────────────────────────
-        # Kubernetes mode: each workflow step runs in its own ephemeral pod.
-        # No Docker-in-Docker required. kubectl, yarn, aws-cli available on PATH.
-        containerMode:
-          type: "kubernetes"
-          kubernetesModeWorkVolumeClaim:
-            accessModes: ["ReadWriteOnce"]
-            # Match your existing EBS CSI StorageClass name.
-            storageClassName: "ebs-sc"
-            resources:
-              requests:
-                storage: 5Gi
-
-        # ── Runner pod resources ──────────────────────────────────────────────────
-        # Do NOT override spec.containers here — ARC's Helm chart injects the
-        # runner image via its own values; overriding containers[] without an
-        # image causes "spec.containers[0].image: Required value" and pod failure.
+        # ── Runner pod template ───────────────────────────────────────────────────
+        # No containerMode — steps run directly in the runner container (same
+        # behaviour as GitHub-hosted runners). containerMode: kubernetes requires
+        # every job to declare a container: image, which is unnecessary overhead
+        # for simple kubectl/aws/python deploy scripts.
         template:
           spec:
             # ServiceAccount with RBAC to apply K8s resources and trigger ArgoCD
             # syncs directly — defined in system/arc/runner-rbac.yaml.
             serviceAccountName: arc-runner
-            # EBS volumes mount owned by root. fsGroup tells Kubernetes to
-            # recursively chown the work volume to GID 1001 on mount so the
-            # runner user (UID 1001) can write to /home/runner/_work.
-            securityContext:
-              fsGroup: 1001
 
   destination:
     server: https://kubernetes.default.svc
