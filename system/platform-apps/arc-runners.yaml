@@ -92,6 +92,7 @@ spec:
                 # pre-installed. Built by .github/workflows/build-ci-image.yml
                 # (build-arc-runner job) and pushed to GHCR.
                 image: ghcr.io/nelson-lamounier/cdk-monitoring/arc-runner:latest
+                command: ["/home/runner/run.sh"]
 
   destination:
     server: https://kubernetes.default.svc
