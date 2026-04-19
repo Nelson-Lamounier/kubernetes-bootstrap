@@ -98,6 +98,11 @@ spec:
             # ServiceAccount with RBAC to apply K8s resources and trigger ArgoCD
             # syncs directly — defined in system/arc/runner-rbac.yaml.
             serviceAccountName: arc-runner
+            # EBS volumes mount owned by root. fsGroup tells Kubernetes to
+            # recursively chown the work volume to GID 1001 on mount so the
+            # runner user (UID 1001) can write to /home/runner/_work.
+            securityContext:
+              fsGroup: 1001
 
   destination:
     server: https://kubernetes.default.svc
