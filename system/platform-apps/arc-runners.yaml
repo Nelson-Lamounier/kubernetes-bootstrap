@@ -88,10 +88,11 @@ spec:
             serviceAccountName: arc-runner
             containers:
               - name: runner
-                # Custom runner image with AWS CLI v2, python3+pip+venv, kubectl
-                # pre-installed. Built by .github/workflows/build-ci-image.yml
-                # (build-arc-runner job) and pushed to GHCR.
                 image: ghcr.io/nelson-lamounier/cdk-monitoring/arc-runner:latest
+                # DEBUG ONLY: override command to keep pod alive for env inspection
+                # Remove command/args after debugging, then revert to normal
+                command: ["sleep"]
+                args: ["3600"]
 
   destination:
     server: https://kubernetes.default.svc
