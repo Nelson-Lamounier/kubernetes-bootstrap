@@ -70,7 +70,7 @@ spec:
 
         # ── Runner label ──────────────────────────────────────────────────────────
         # Matches runs-on: [self-hosted, k8s] in workflow files.
-        runnerScaleSetName: k8s
+        runnerScaleSetName: k8s-runner
 
         # ── Scaling ───────────────────────────────────────────────────────────────
         minRunners: 0
