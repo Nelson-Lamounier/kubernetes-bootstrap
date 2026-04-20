@@ -27,9 +27,9 @@ spec:
   project: default
 
   source:
-    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
     targetRevision: develop
-    path: kubernetes-app/platform/charts/crossplane-xrds/chart
+    path: charts/crossplane-xrds/chart
 
   destination:
     server: https://kubernetes.default.svc

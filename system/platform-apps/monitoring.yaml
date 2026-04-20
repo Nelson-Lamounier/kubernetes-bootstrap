@@ -38,10 +38,10 @@ spec:
         - /data
 
   source:
-    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
     # PRODUCTION: Change to 'main' when deploying to production.
     targetRevision: develop
-    path: kubernetes-app/platform/charts/monitoring/chart
+    path: charts/monitoring/chart
     helm:
       valueFiles:
         - values-development.yaml

@@ -26,9 +26,9 @@ spec:
   project: default
 
   source:
-    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
     targetRevision: develop
-    path: kubernetes-app/platform/charts/ecr-token-refresh
+    path: charts/ecr-token-refresh
 
   destination:
     server: https://kubernetes.default.svc

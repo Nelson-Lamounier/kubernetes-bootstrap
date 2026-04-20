@@ -33,10 +33,10 @@ spec:
   project: default
 
   source:
-    # Points to this same repo — monorepo pattern
-    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    # Points to the dedicated kubernetes-platform repository
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
     targetRevision: develop
-    path: kubernetes-app/platform/charts/crossplane-providers/manifests
+    path: charts/crossplane-providers/manifests
 
   destination:
     server: https://kubernetes.default.svc

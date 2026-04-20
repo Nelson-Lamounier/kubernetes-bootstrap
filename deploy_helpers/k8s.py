@@ -22,7 +22,7 @@ import base64
 import os
 from typing import Any
 
-from deploy_helpers.logging import log_info, log_warn
+from deploy_helpers.logging import log_info
 
 # Lazy-loaded references
 _k8s_client: Any = None
