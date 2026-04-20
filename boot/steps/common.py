@@ -430,7 +430,7 @@ class StepRunner:
             payload["error"] = error[:3000]
         try:
             ssm_put(param_name, json.dumps(payload))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log_warn(
                 f"SSM step-status write failed for '{self.step_name}' "
                 f"(non-fatal): {exc}"

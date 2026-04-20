@@ -24,6 +24,7 @@ from common import (
     log_warn,
     run_cmd,
 )
+
 from boot_helpers.config import BootConfig
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -164,7 +165,7 @@ def ensure_data_directories(mount_point: str) -> None:
             f"✓ ssm-user granted group-write on {app_deploy} "
             f"(interactive script deployment enabled)"
         )
-    except Exception as err:  # noqa: BLE001 — non-fatal; instance may not have ssm-user yet
+    except Exception as err:
         log_warn(f"Could not set group permissions on {app_deploy}: {err}")
 
     log_info(

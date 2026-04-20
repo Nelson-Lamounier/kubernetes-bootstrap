@@ -45,14 +45,11 @@ from common import (
     StepRunner,
     ensure_ecr_credential_provider,
     get_imds_value,
-    log_error,
     log_info,
     log_warn,
     patch_provider_id,
     run_cmd,
     ssm_get,
-    step_install_cloudwatch_agent,
-    step_validate_ami,
     validate_kubeadm_token,
 )
 from common import (

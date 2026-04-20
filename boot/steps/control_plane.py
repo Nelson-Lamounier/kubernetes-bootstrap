@@ -47,8 +47,9 @@ import re
 import shutil
 import sys
 import time
-import yaml
 from pathlib import Path
+
+import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import (
@@ -905,7 +906,7 @@ def _publish_ssm_params(private_ip: str, public_ip: str, instance_id: str) -> No
     ssm_put(f"{SSM_PREFIX}/control-plane-endpoint", api_endpoint)
     ssm_put(f"{SSM_PREFIX}/instance-id", instance_id)
     ssm_put(f"{SSM_PREFIX}/private-ip", private_ip)
-    
+
     if public_ip:
         ssm_put(f"{SSM_PREFIX}/public-ip", public_ip)
     ssm_put(f"{SSM_PREFIX}/kubernetes-version", K8S_VERSION)
@@ -954,7 +955,7 @@ def _publish_kubeconfig_to_ssm() -> None:
     # SecureString so the admin credentials are encrypted at rest.
     # Workers fall back to kubelet.conf (read-only) if this is absent, so
     # label correction silently fails — publishing here ensures the happy path.
-    import base64  # noqa: PLC0415 — local import keeps module-level imports clean
+    import base64
     admin_kc_b64 = base64.b64encode(kubeconfig_content.encode()).decode()
     kc_b64_path = f"{SSM_PREFIX}/admin-kubeconfig-b64"
     log_info(f"Publishing admin kubeconfig (base64) to SSM: {kc_b64_path}")
@@ -984,13 +985,13 @@ def _backup_certificates() -> None:
 
     try:
         log_info("Backing up PKI certificates to S3...")
-        
+
         paths_to_tar = ["pki"]
         if Path("/etc/kubernetes/admin.conf").exists():
             paths_to_tar.append("admin.conf")
         if Path("/etc/kubernetes/super-admin.conf").exists():
             paths_to_tar.append("super-admin.conf")
-            
+
         run_cmd(["tar", "czf", archive_path, "-C", "/etc/kubernetes"] + paths_to_tar)
 
         s3_key = f"{DR_BACKUP_PREFIX}/pki/{timestamp}.tar.gz"
@@ -1817,7 +1818,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 TOKEN=$(kubeadm token create --ttl 24h)
 
 # Validate token format before writing to SSM
-if ! echo "$TOKEN" | grep -qE '^[a-z0-9]{{6}}\.[a-z0-9]{{16}}$'; then
+if ! echo "$TOKEN" | grep -qE '^[a-z0-9]{{6}}\\.[a-z0-9]{{16}}$'; then
     echo "ERROR: kubeadm token create returned invalid token: $TOKEN" >&2
     exit 1
 fi

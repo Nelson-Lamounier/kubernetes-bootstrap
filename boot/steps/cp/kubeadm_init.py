@@ -25,6 +25,7 @@ from common import (
     ssm_put,
     validate_kubeadm_token,
 )
+
 from boot_helpers.config import BootConfig
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -192,13 +193,13 @@ def backup_certificates(cfg: BootConfig) -> None:
 
     try:
         log_info("Backing up PKI certificates to S3...")
-        
+
         paths_to_tar = ["pki"]
         if Path("/etc/kubernetes/admin.conf").exists():
             paths_to_tar.append("admin.conf")
         if Path("/etc/kubernetes/super-admin.conf").exists():
             paths_to_tar.append("super-admin.conf")
-            
+
         run_cmd(["tar", "czf", archive_path, "-C", "/etc/kubernetes"] + paths_to_tar)
 
         s3_key = f"{DR_BACKUP_PREFIX}/pki/{timestamp}.tar.gz"

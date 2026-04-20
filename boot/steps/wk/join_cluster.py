@@ -33,6 +33,7 @@ from common import (
     ssm_get,
     validate_kubeadm_token,
 )
+
 from boot_helpers.config import BootConfig
 
 # ── Constants ──────────────────────────────────────────────────────────────

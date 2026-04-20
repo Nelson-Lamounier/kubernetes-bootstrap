@@ -28,13 +28,13 @@ from __future__ import annotations
 import socket
 
 import boto3
-
 from common import (
     StepRunner,
     get_imds_value,
     log_info,
     log_warn,
 )
+
 from boot_helpers.config import BootConfig
 
 
@@ -132,7 +132,7 @@ def step_register_instance(cfg: BootConfig) -> None:
             step.details["hostname"] = hostname
             step.details["node_pool"] = cfg.node_pool
             step.details["ssm_path"] = ssm_path
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Registration failure is non-fatal — the node has already joined
             # the cluster.  Log clearly so CloudWatch captures the issue.
             log_warn(

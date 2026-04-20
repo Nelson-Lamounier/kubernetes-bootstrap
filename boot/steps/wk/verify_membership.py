@@ -39,8 +39,6 @@ from common import (
     run_cmd,
     ssm_get,
 )
-from boot_helpers.config import BootConfig
-
 from wk.join_cluster import (
     KUBELET_CONF,
     _build_node_labels,
@@ -51,6 +49,7 @@ from wk.join_cluster import (
     wait_for_kubelet,
 )
 
+from boot_helpers.config import BootConfig
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
@@ -97,7 +96,7 @@ def _resolve_worker_kubeconfig(cfg: BootConfig) -> dict[str, str]:
                 "for membership verification"
             )
             return {**base_env, "KUBECONFIG": str(kc_path)}
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log_warn(f"Failed to write admin kubeconfig from SSM: {exc}")
 
     # ── Option 2: kubelet.conf (read-only Node authorizer access) ─────────

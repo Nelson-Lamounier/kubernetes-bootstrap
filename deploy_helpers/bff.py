@@ -37,9 +37,10 @@ Usage::
 
 from __future__ import annotations
 
-import boto3
 from dataclasses import dataclass
 from typing import Any
+
+import boto3
 
 from deploy_helpers.logging import log_warn
 from deploy_helpers.ssm import resolve_secrets

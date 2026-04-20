@@ -45,14 +45,14 @@ class BootstrapLogger:
 
         def __init__(
             self,
-            logger: "BootstrapLogger",
+            logger: BootstrapLogger,
             step_name: str,
         ) -> None:
             self._logger = logger
             self._step = step_name
             self._start: float = 0.0
 
-        def __enter__(self) -> "BootstrapLogger._StepContext":
+        def __enter__(self) -> BootstrapLogger._StepContext:
             self._start = time.monotonic()
             self._logger._emit(self._step, "info", "start")
             self._logger._write_ssm_status(self._step, "running")
@@ -183,7 +183,7 @@ class BootstrapLogger:
                 Type="String",
                 Overwrite=True,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Non-fatal — log to stdout (captured by CloudWatch) and continue
             print(
                 json.dumps({
