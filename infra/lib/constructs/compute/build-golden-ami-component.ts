@@ -258,6 +258,7 @@ phases:
           commands:
             - |
               source /etc/environment
+              export HOME=/root
               ARGOCD_VERSION="${imageConfig.bakedVersions.argoCdCli}"
               curl -fsSL \
                 "https://github.com/argoproj/argo-cd/releases/download/\${ARGOCD_VERSION}/argocd-linux-\${ARCH}" \
@@ -272,6 +273,7 @@ phases:
           commands:
             - |
               source /etc/environment
+              export HOME=/root
               ROLLOUTS_VERSION="${imageConfig.bakedVersions.kubectlArgoRollouts}"
               curl -fsSL \
                 "https://github.com/argoproj/argo-rollouts/releases/download/\${ROLLOUTS_VERSION}/kubectl-argo-rollouts-linux-\${ARCH}" \

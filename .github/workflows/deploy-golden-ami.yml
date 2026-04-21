@@ -221,6 +221,65 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
+  # Phase 2b: Image Builder log fetch — runs only when the bake job fails
+  # with a component execution error ("Workflow Execution ID: ... failed!").
+  #
+  # Replicates the manual troubleshooting steps:
+  #   1. Resolve scripts S3 bucket from SSM
+  #   2. List image-builder-logs/ — pick the most recent execution
+  #   3. Download TOE console.log, parse step boundaries
+  #   4. Print failed step output + stderr to the job summary
+  #
+  # Local equivalent: just ami-build-logs [env] [region] [profile]
+  # ---------------------------------------------------------------------------
+  debug-bake:
+    name: Fetch Image Builder Logs
+    needs: bake
+    if: failure() && needs.bake.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: "22"
+          install-infra: "false"
+
+      - name: Configure AWS credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Fetch Image Builder logs
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          npx tsx scripts/ami-build-logs.ts \
+            --env development \
+            --region "$AWS_REGION" \
+          2>&1 | tee /tmp/ami-build-logs.txt || true
+
+      - name: Write logs to job summary
+        if: always()
+        run: |
+          {
+            echo "## Image Builder Build Logs"
+            echo '```'
+            cat /tmp/ami-build-logs.txt
+            echo '```'
+            echo ""
+            echo "> Run \`just ami-build-logs\` locally for the same output."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
   # Phase 3: Validate AMI metadata
   # Resolves AMI ID from bake job output or existing_ami_id input.
   # ---------------------------------------------------------------------------

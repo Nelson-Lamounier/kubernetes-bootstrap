@@ -919,62 +919,20 @@ troubleshoot-ami *ARGS:
       {{ARGS}}
 
 # Fetch Image Builder per-step logs from S3 after a failed AMI bake.
-# Logs are written to the scripts S3 bucket under image-builder-logs/.
-# Run this immediately after a CDK deploy reports component failure.
+# Resolves the scripts bucket from SSM, finds the most recent execution,
+# downloads the TOE console.log, and highlights the failed step + stderr.
+# Run immediately after a CDK deploy reports "component ... failed!".
 #
-# Usage: just ami-build-logs                          # latest run, development
-#        just ami-build-logs production prod-account  # production env
+# Usage: just ami-build-logs                                    # latest, development
+#        just ami-build-logs production eu-west-1 prod-account  # production
+#        just ami-build-logs development eu-west-1 dev-account --workflow-id wf-abc123
 [group('k8s')]
-ami-build-logs env="development" region="eu-west-1" profile="dev-account":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    BUCKET=$(aws ssm get-parameter \
-      --name "/k8s/{{env}}/scripts-bucket" \
-      --region {{region}} --profile {{profile}} \
-      --query Parameter.Value --output text 2>/dev/null || echo "")
-    if [ -z "$BUCKET" ]; then
-      echo "✗ SSM /k8s/{{env}}/scripts-bucket not found — has the SsmAutomation stack been deployed?"
-      exit 1
-    fi
-    PREFIX="image-builder-logs"
-    echo "→ Scanning s3://${BUCKET}/${PREFIX}/ for executions..."
-    # List all execution roots (depth: recipe/version/execution-id/)
-    # Sort descending by LastModified so the most recent failure is first.
-    LATEST_DIR=$(aws s3 ls "s3://${BUCKET}/${PREFIX}/" --recursive \
-      --region {{region}} --profile {{profile}} 2>/dev/null \
-      | grep -E 'stdout$' \
-      | sort -k1,2 -r \
-      | head -1 \
-      | awk '{print $4}' \
-      | sed 's|/[^/]*/[^/]*$||')
-    if [ -z "$LATEST_DIR" ]; then
-      echo "✗ No Image Builder logs found at s3://${BUCKET}/${PREFIX}/"
-      echo "  Logs are only available after the first bake following CDK deploy."
-      exit 1
-    fi
-    echo "→ Latest execution: ${LATEST_DIR}"
-    echo ""
-    # Download all stdout/stderr files for this execution into a temp dir
-    TMP=$(mktemp -d)
-    aws s3 cp "s3://${BUCKET}/${LATEST_DIR}/" "${TMP}/" \
-      --recursive --quiet \
-      --region {{region}} --profile {{profile}}
-    # Print each phase/step in sorted order
-    find "${TMP}" -type f \( -name "stdout" -o -name "stderr" \) | sort | while read -r FILE; do
-      REL="${FILE#${TMP}/}"
-      # phase_build/step_InstallArgoCdCli/stdout → [build] InstallArgoCdCli stdout
-      PHASE=$(echo "$REL" | cut -d/ -f1 | sed 's/phase_//')
-      STEP=$(echo "$REL" | cut -d/ -f2 | sed 's/step_//')
-      STREAM=$(echo "$REL" | cut -d/ -f3)
-      CONTENT=$(cat "$FILE")
-      if [ -z "$CONTENT" ]; then continue; fi
-      echo "┌─────────────────────────────────────────────────────────"
-      printf "│ [%s] %s  (%s)\n" "$PHASE" "$STEP" "$STREAM"
-      echo "└─────────────────────────────────────────────────────────"
-      echo "$CONTENT"
-      echo ""
-    done
-    rm -rf "${TMP}"
+ami-build-logs env="development" region="eu-west-1" profile="dev-account" *ARGS:
+    npx tsx scripts/ami-build-logs.ts \
+      --env {{env}} \
+      --region {{region}} \
+      --profile {{profile}} \
+      {{ARGS}}
 
 # Static analysis of the AMI component YAML — no AWS calls needed
 # Catches anti-patterns (alternatives --set python3, missing binaries, etc.)
