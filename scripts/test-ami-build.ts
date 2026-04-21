@@ -146,11 +146,29 @@ test('validate phase present', () =>
 test('bootstrap scripts baked from S3', () =>
     contains('/opt/k8s-bootstrap') && contains('aws s3 sync'));
 
-test('orchestrator.py presence validated', () =>
-    contains('orchestrator.py'));
+test('orchestrator.ts presence validated', () =>
+    contains('orchestrator.ts'));
 
 test('/data directories created', () =>
     contains('/data/kubernetes'));
+
+// ---------------------------------------------------------------------------
+// Node.js / tsx checks
+// ---------------------------------------------------------------------------
+test('Node.js 22 LTS installed via NodeSource (required for tsx bootstrap runner)', () =>
+    contains('nodesource.com/setup_22.x') && contains('dnf install -y nodejs'));
+
+test('npm ci run after S3 sync to install tsx and transitive deps', () =>
+    contains('npm ci') && contains('node_modules/.bin/tsx'));
+
+// ---------------------------------------------------------------------------
+// ArgoCD / Argo Rollouts CLI checks (baked to avoid GitHub downloads at boot)
+// ---------------------------------------------------------------------------
+test('ArgoCD CLI baked from argoproj/argo-cd releases (auth.py skips download when present)', () =>
+    contains('argoproj/argo-cd/releases/download') && contains('/usr/local/bin/argocd'));
+
+test('kubectl-argo-rollouts baked from argoproj/argo-rollouts releases (control_plane.ts skips download when present)', () =>
+    contains('argoproj/argo-rollouts/releases/download') && contains('/usr/local/bin/kubectl-argo-rollouts'));
 
 // ---------------------------------------------------------------------------
 // Report

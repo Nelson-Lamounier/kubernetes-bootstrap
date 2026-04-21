@@ -1,29 +1,31 @@
+# @format
 # ============================================================================
 # deploy-golden-ami.yml — Golden AMI Pipeline
 # ============================================================================
 #
-# Two-phase execution per environment:
-#   Phase 1 — CDK Deploy: provisions/updates the Image Builder pipeline
-#              infrastructure (~2 minutes).
-#   Phase 2 — Verify AMI: polls SSM for the AMI ID written by CfnImage
-#              after CloudFormation completes the synchronous build.
+# Three-phase pipeline per environment:
 #
-# VPC Resolution:
-#   Reads VPC ID from SSM: /k8s/{env}/vpc-id
-#   Injects as CDK context: -c vpcId=$VPC_ID
-#   Avoids ec2.Vpc.fromLookup requiring a synth-time describe-vpcs call.
+#   Phase 1 — Static Analysis   Validates the generated Image Builder
+#              component YAML offline. No AWS credentials required. Runs
+#              for every trigger, including test-only runs against a
+#              pre-existing AMI. Fails fast before a 25-minute bake.
 #
-# Pipeline Flow:
-#   1. deploy-development  → always runs first
-#   2. deploy-staging      → requires development success + manual approval gate
-#   3. deploy-production   → requires staging success + manual approval gate
+#   Phase 2 — CDK Deploy + Bake  Provisions/updates the Image Builder
+#              pipeline infrastructure and triggers an AMI build
+#              (~15–25 min). Skipped when existing_ami_id is provided.
 #
-# Each environment gate uses GitHub Environment protection rules.
-# Production requires at least one reviewer approval.
+#   Phase 3 — AMI Validation     Verifies AMI state, root device type,
+#              and tags via ec2:DescribeImages. Runs against either a
+#              freshly baked AMI (from phase 2) or a pre-existing AMI
+#              supplied via the existing_ami_id input.
 #
-# Prerequisites (secrets per GitHub Environment):
-#   - AWS_DEPLOY_ROLE_ARN      : IAM role to assume (OIDC)
-#   - NOTIFICATION_EMAIL       : Failure notification email (optional)
+# Credentials (no GitHub Environments — repository-level):
+#   vars.AWS_REGION          repository variable  (e.g. eu-west-1)
+#   secrets.AWS_DEPLOY_ROLE_ARN  repository secret  (OIDC role ARN)
+#
+# Testing a pre-existing AMI without rebuilding:
+#   workflow_dispatch → set existing_ami_id to ami-xxxxxxxxxxxx
+#   Phases 1 and 3 run; Phase 2 (CDK + bake) is skipped entirely.
 
 name: Deploy Golden AMI
 
@@ -31,54 +33,98 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target environment to deploy'
+        description: "Target environment"
         required: true
-        default: 'development'
+        default: "development"
         type: choice
         options:
           - development
           - staging
           - production
       build_ami:
-        description: 'Trigger AMI build and wait for completion'
+        description: "Trigger AMI build and wait for completion"
         required: false
         default: true
         type: boolean
       all_environments:
-        description: 'Promote through all environments (dev → staging → production)'
+        description: "Promote through all environments (dev → staging → production)"
         required: false
         default: false
         type: boolean
+      existing_ami_id:
+        description: "Validate this pre-built AMI ID instead of rebuilding (e.g. ami-0abc123). Skips CDK deploy and bake."
+        required: false
+        default: ""
+        type: string
 
   push:
     branches:
       - main
     paths:
-      - 'infra/lib/constructs/compute/**'
-      - 'infra/lib/stacks/golden-ami-stack.ts'
-      - 'infra/lib/config/kubernetes/configurations.ts'
-      - '.github/workflows/deploy-golden-ami.yml'
+      - "infra/lib/constructs/compute/**"
+      - "infra/lib/stacks/golden-ami-stack.ts"
+      - "infra/lib/config/kubernetes/configurations.ts"
+      - ".github/workflows/deploy-golden-ami.yml"
 
 concurrency:
-  # Prevent concurrent AMI pipeline runs per environment. Never cancel an
-  # in-flight AMI build — parallel CfnImage builds write conflicting AMI IDs.
-  group: golden-ami-${{ github.ref_name }}-${{ github.event.inputs.environment || 'development' }}
+  # Never cancel an in-flight AMI build — concurrent CfnImage builds write
+  # conflicting AMI IDs to the same SSM parameter.
+  group: golden-ami-${{ github.ref_name }}-${{ inputs.environment || 'development' }}
   cancel-in-progress: false
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Development (always runs first)
+  # Phase 1: Static AMI component analysis — no AWS credentials required.
+  #
+  # Renders the Image Builder YAML from the CDK construct and runs static
+  # checks for required software, anti-patterns, and structural invariants.
+  # A failure here aborts the pipeline before spending time on a bake that
+  # would fail at the validate phase anyway.
   # ---------------------------------------------------------------------------
-  deploy-development:
-    name: Deploy + Build (development)
-    if: |
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && (
-        inputs.environment == 'development' ||
-        inputs.all_environments == true
-      ))
+  test-ami-component:
+    name: Static AMI Component Analysis
     runs-on: ubuntu-latest
-    environment: development
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: infra/yarn.lock
+
+      - name: Install infra dependencies
+        # aws-cdk-lib and constructs are imported transitively by test-ami-build.ts
+        # via configurations.ts — they must be in infra/node_modules/ before tsx runs.
+        run: yarn install --frozen-lockfile
+        working-directory: infra
+
+      - name: Install script dependencies
+        run: npm install --prefix scripts
+
+      - name: Run static analysis
+        run: npx --prefix scripts tsx scripts/test-ami-build.ts
+
+  # ---------------------------------------------------------------------------
+  # Phase 2: CDK deploy + AMI bake
+  #
+  # Three sequential jobs mirror the dev → staging → production promotion path.
+  # All three are skipped when existing_ami_id is set.
+  # ---------------------------------------------------------------------------
+
+  deploy-development:
+    name: Deploy + Bake (development)
+    needs: test-ami-component
+    if: |
+      !inputs.existing_ami_id &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && (
+         inputs.environment == 'development' ||
+         inputs.all_environments == true
+       )))
+    runs-on: ubuntu-latest
     timeout-minutes: 60
 
     permissions:
@@ -87,52 +133,49 @@ jobs:
 
     outputs:
       ami_id: ${{ steps.verify_ami.outputs.ami_id }}
-      pipeline_arn: ${{ steps.get_pipeline.outputs.pipeline_arn }}
 
     env:
       DEPLOY_ENV: development
       BUILD_AMI: ${{ github.event_name == 'push' && 'true' || inputs.build_ami }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'yarn'
+          node-version: "22"
+          cache: yarn
           cache-dependency-path: infra/yarn.lock
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: ./.github/actions/configure-aws
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: eu-west-1
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Resolve VPC ID from SSM
         id: resolve_vpc
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           SSM_PATH="/k8s/${DEPLOY_ENV}/vpc-id"
           VPC_ID=$(aws ssm get-parameter \
             --name "$SSM_PATH" \
-            --region eu-west-1 \
+            --region "$AWS_REGION" \
             --query Parameter.Value \
             --output text)
-
           if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
-            echo "ERROR: Could not resolve VPC ID from SSM path: $SSM_PATH"
+            echo "ERROR: VPC ID not found at SSM: $SSM_PATH"
             exit 1
           fi
-
           echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
-          echo "Resolved VPC ID: $VPC_ID (from $SSM_PATH)"
+          echo "Resolved VPC: $VPC_ID"
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
         working-directory: infra
 
-      - name: CDK Deploy — K8s-GoldenAmi-development
+      - name: CDK Deploy
         env:
           VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
           NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
@@ -144,77 +187,45 @@ jobs:
             -c vpcId="${VPC_ID}"
         working-directory: infra
 
-      - name: Get Image Builder pipeline ARN
-        id: get_pipeline
-        if: env.BUILD_AMI == 'true'
-        run: |
-          STACK_NAME="K8s-GoldenAmi-${DEPLOY_ENV}"
-          NAME_PREFIX="k8s-${DEPLOY_ENV}"
-
-          PIPELINE_ARN=$(aws imagebuilder list-image-pipelines \
-            --filters "name=name,values=${NAME_PREFIX}-golden-ami-pipeline" \
-            --query 'imagePipelineList[0].arn' \
-            --output text \
-            --region eu-west-1 || true)
-
-          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
-            echo "Falling back to CloudFormation resource lookup..."
-            PIPELINE_ARN=$(aws cloudformation describe-stack-resources \
-              --stack-name "$STACK_NAME" \
-              --region eu-west-1 \
-              --query "StackResources[?ResourceType=='AWS::ImageBuilder::ImagePipeline'].PhysicalResourceId" \
-              --output text || true)
-          fi
-
-          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
-            echo "WARNING: Pipeline ARN not found — CfnImage triggers build via CloudFormation."
-            echo "pipeline_arn=" >> "$GITHUB_OUTPUT"
-          else
-            echo "pipeline_arn=$PIPELINE_ARN" >> "$GITHUB_OUTPUT"
-            echo "Image Builder pipeline ARN: $PIPELINE_ARN"
-          fi
-
-      - name: Verify AMI ID in SSM
+      - name: Wait for AMI to become available
         id: verify_ami
         if: env.BUILD_AMI == 'true'
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           SSM_PATH="/k8s/${DEPLOY_ENV}/golden-ami/latest"
-          MAX_WAIT_SECONDS=1800
-          POLL_INTERVAL=30
+          MAX_WAIT=1800
+          INTERVAL=30
           ELAPSED=0
 
-          echo "Polling SSM parameter: $SSM_PATH"
-
-          while [ $ELAPSED -lt $MAX_WAIT_SECONDS ]; do
+          echo "Polling $SSM_PATH (max ${MAX_WAIT}s)"
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
             AMI_ID=$(aws ssm get-parameter \
               --name "$SSM_PATH" \
-              --region eu-west-1 \
+              --region "$AWS_REGION" \
               --query Parameter.Value \
               --output text 2>/dev/null || echo "")
 
             if [[ "$AMI_ID" == ami-* ]]; then
-              echo "AMI ID resolved: $AMI_ID"
-              echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
-
               STATE=$(aws ec2 describe-images \
                 --image-ids "$AMI_ID" \
-                --region eu-west-1 \
+                --region "$AWS_REGION" \
                 --query 'Images[0].State' \
                 --output text 2>/dev/null || echo "unknown")
-
-              echo "AMI state: $STATE"
+              echo "  $AMI_ID — $STATE (${ELAPSED}s)"
               if [ "$STATE" = "available" ]; then
-                echo "Golden AMI $AMI_ID is available."
+                echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+                echo "Golden AMI ready: $AMI_ID"
                 exit 0
               fi
+            else
+              echo "  Waiting for AMI ID in SSM... (${ELAPSED}/${MAX_WAIT}s)"
             fi
 
-            echo "Waiting for AMI... ($ELAPSED / $MAX_WAIT_SECONDS s)"
-            sleep $POLL_INTERVAL
-            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
           done
-
-          echo "ERROR: Timed out waiting for AMI ID in SSM after ${MAX_WAIT_SECONDS}s"
+          echo "ERROR: Timed out after ${MAX_WAIT}s"
           exit 1
 
       - name: Job summary
@@ -222,31 +233,28 @@ jobs:
         env:
           VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
           AMI_ID: ${{ steps.verify_ami.outputs.ami_id }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           {
-            echo "## Golden AMI Deployment Summary"
-            echo ""
-            echo "| Property        | Value |"
-            echo "|-----------------|-------|"
-            echo "| Environment     | \`${DEPLOY_ENV}\` |"
-            echo "| Stack           | \`K8s-GoldenAmi-${DEPLOY_ENV}\` |"
-            echo "| VPC ID          | \`${VPC_ID}\` |"
-            echo "| AMI ID          | \`${AMI_ID}\` |"
-            echo "| SSM Path        | \`/k8s/${DEPLOY_ENV}/golden-ami/latest\` |"
-            echo "| Build Triggered | \`${BUILD_AMI}\` |"
+            echo "## Golden AMI — development"
+            echo "| Property    | Value |"
+            echo "|-------------|-------|"
+            echo "| Environment | \`${DEPLOY_ENV}\` |"
+            echo "| Stack       | \`K8s-GoldenAmi-${DEPLOY_ENV}\` |"
+            echo "| Region      | \`${AWS_REGION}\` |"
+            echo "| VPC ID      | \`${VPC_ID}\` |"
+            echo "| AMI ID      | \`${AMI_ID:-not built}\` |"
+            echo "| SSM Path    | \`/k8s/${DEPLOY_ENV}/golden-ami/latest\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------------------------------------------------------------------------
-  # Staging (requires development success + manual approval gate)
-  # ---------------------------------------------------------------------------
   deploy-staging:
-    name: Deploy + Build (staging)
-    needs: deploy-development
+    name: Deploy + Bake (staging)
+    needs: [test-ami-component, deploy-development]
     if: |
+      !inputs.existing_ami_id &&
       github.event_name == 'workflow_dispatch' &&
       (inputs.environment == 'staging' || inputs.all_environments == true)
     runs-on: ubuntu-latest
-    environment: staging
     timeout-minutes: 60
 
     permissions:
@@ -255,52 +263,48 @@ jobs:
 
     outputs:
       ami_id: ${{ steps.verify_ami.outputs.ami_id }}
-      pipeline_arn: ${{ steps.get_pipeline.outputs.pipeline_arn }}
 
     env:
       DEPLOY_ENV: staging
       BUILD_AMI: ${{ inputs.build_ami }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'yarn'
+          node-version: "22"
+          cache: yarn
           cache-dependency-path: infra/yarn.lock
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: ./.github/actions/configure-aws
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: eu-west-1
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Resolve VPC ID from SSM
         id: resolve_vpc
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           SSM_PATH="/k8s/${DEPLOY_ENV}/vpc-id"
           VPC_ID=$(aws ssm get-parameter \
             --name "$SSM_PATH" \
-            --region eu-west-1 \
+            --region "$AWS_REGION" \
             --query Parameter.Value \
             --output text)
-
           if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
-            echo "ERROR: Could not resolve VPC ID from SSM path: $SSM_PATH"
+            echo "ERROR: VPC ID not found at SSM: $SSM_PATH"
             exit 1
           fi
-
           echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
-          echo "Resolved VPC ID: $VPC_ID (from $SSM_PATH)"
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
         working-directory: infra
 
-      - name: CDK Deploy — K8s-GoldenAmi-staging
+      - name: CDK Deploy
         env:
           VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
           NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
@@ -312,77 +316,41 @@ jobs:
             -c vpcId="${VPC_ID}"
         working-directory: infra
 
-      - name: Get Image Builder pipeline ARN
-        id: get_pipeline
-        if: env.BUILD_AMI == 'true'
-        run: |
-          STACK_NAME="K8s-GoldenAmi-${DEPLOY_ENV}"
-          NAME_PREFIX="k8s-${DEPLOY_ENV}"
-
-          PIPELINE_ARN=$(aws imagebuilder list-image-pipelines \
-            --filters "name=name,values=${NAME_PREFIX}-golden-ami-pipeline" \
-            --query 'imagePipelineList[0].arn' \
-            --output text \
-            --region eu-west-1 || true)
-
-          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
-            echo "Falling back to CloudFormation resource lookup..."
-            PIPELINE_ARN=$(aws cloudformation describe-stack-resources \
-              --stack-name "$STACK_NAME" \
-              --region eu-west-1 \
-              --query "StackResources[?ResourceType=='AWS::ImageBuilder::ImagePipeline'].PhysicalResourceId" \
-              --output text || true)
-          fi
-
-          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
-            echo "WARNING: Pipeline ARN not found — CfnImage triggers build via CloudFormation."
-            echo "pipeline_arn=" >> "$GITHUB_OUTPUT"
-          else
-            echo "pipeline_arn=$PIPELINE_ARN" >> "$GITHUB_OUTPUT"
-            echo "Image Builder pipeline ARN: $PIPELINE_ARN"
-          fi
-
-      - name: Verify AMI ID in SSM
+      - name: Wait for AMI to become available
         id: verify_ami
         if: env.BUILD_AMI == 'true'
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           SSM_PATH="/k8s/${DEPLOY_ENV}/golden-ami/latest"
-          MAX_WAIT_SECONDS=1800
-          POLL_INTERVAL=30
+          MAX_WAIT=1800
+          INTERVAL=30
           ELAPSED=0
-
-          echo "Polling SSM parameter: $SSM_PATH"
-
-          while [ $ELAPSED -lt $MAX_WAIT_SECONDS ]; do
+          echo "Polling $SSM_PATH (max ${MAX_WAIT}s)"
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
             AMI_ID=$(aws ssm get-parameter \
               --name "$SSM_PATH" \
-              --region eu-west-1 \
+              --region "$AWS_REGION" \
               --query Parameter.Value \
               --output text 2>/dev/null || echo "")
-
             if [[ "$AMI_ID" == ami-* ]]; then
-              echo "AMI ID resolved: $AMI_ID"
-              echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
-
               STATE=$(aws ec2 describe-images \
                 --image-ids "$AMI_ID" \
-                --region eu-west-1 \
+                --region "$AWS_REGION" \
                 --query 'Images[0].State' \
                 --output text 2>/dev/null || echo "unknown")
-
-              echo "AMI state: $STATE"
+              echo "  $AMI_ID — $STATE (${ELAPSED}s)"
               if [ "$STATE" = "available" ]; then
-                echo "Golden AMI $AMI_ID is available."
+                echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
+            else
+              echo "  Waiting... (${ELAPSED}/${MAX_WAIT}s)"
             fi
-
-            echo "Waiting for AMI... ($ELAPSED / $MAX_WAIT_SECONDS s)"
-            sleep $POLL_INTERVAL
-            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
           done
-
-          echo "ERROR: Timed out waiting for AMI ID in SSM after ${MAX_WAIT_SECONDS}s"
+          echo "ERROR: Timed out after ${MAX_WAIT}s"
           exit 1
 
       - name: Job summary
@@ -390,32 +358,28 @@ jobs:
         env:
           VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
           AMI_ID: ${{ steps.verify_ami.outputs.ami_id }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           {
-            echo "## Golden AMI Deployment Summary"
-            echo ""
-            echo "| Property        | Value |"
-            echo "|-----------------|-------|"
-            echo "| Environment     | \`${DEPLOY_ENV}\` |"
-            echo "| Stack           | \`K8s-GoldenAmi-${DEPLOY_ENV}\` |"
-            echo "| VPC ID          | \`${VPC_ID}\` |"
-            echo "| AMI ID          | \`${AMI_ID}\` |"
-            echo "| SSM Path        | \`/k8s/${DEPLOY_ENV}/golden-ami/latest\` |"
-            echo "| Build Triggered | \`${BUILD_AMI}\` |"
+            echo "## Golden AMI — staging"
+            echo "| Property    | Value |"
+            echo "|-------------|-------|"
+            echo "| Environment | \`${DEPLOY_ENV}\` |"
+            echo "| Stack       | \`K8s-GoldenAmi-${DEPLOY_ENV}\` |"
+            echo "| Region      | \`${AWS_REGION}\` |"
+            echo "| VPC ID      | \`${VPC_ID}\` |"
+            echo "| AMI ID      | \`${AMI_ID:-not built}\` |"
+            echo "| SSM Path    | \`/k8s/${DEPLOY_ENV}/golden-ami/latest\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------------------------------------------------------------------------
-  # Production (requires staging success + manual approval gate)
-  # GitHub Environment protection rules enforce reviewer approval.
-  # ---------------------------------------------------------------------------
   deploy-production:
-    name: Deploy + Build (production)
-    needs: deploy-staging
+    name: Deploy + Bake (production)
+    needs: [test-ami-component, deploy-staging]
     if: |
+      !inputs.existing_ami_id &&
       github.event_name == 'workflow_dispatch' &&
       (inputs.environment == 'production' || inputs.all_environments == true)
     runs-on: ubuntu-latest
-    environment: production
     timeout-minutes: 60
 
     permissions:
@@ -424,52 +388,48 @@ jobs:
 
     outputs:
       ami_id: ${{ steps.verify_ami.outputs.ami_id }}
-      pipeline_arn: ${{ steps.get_pipeline.outputs.pipeline_arn }}
 
     env:
       DEPLOY_ENV: production
       BUILD_AMI: ${{ inputs.build_ami }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'yarn'
+          node-version: "22"
+          cache: yarn
           cache-dependency-path: infra/yarn.lock
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: ./.github/actions/configure-aws
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: eu-west-1
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE}}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Resolve VPC ID from SSM
         id: resolve_vpc
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           SSM_PATH="/k8s/${DEPLOY_ENV}/vpc-id"
           VPC_ID=$(aws ssm get-parameter \
             --name "$SSM_PATH" \
-            --region eu-west-1 \
+            --region "$AWS_REGION" \
             --query Parameter.Value \
             --output text)
-
           if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
-            echo "ERROR: Could not resolve VPC ID from SSM path: $SSM_PATH"
+            echo "ERROR: VPC ID not found at SSM: $SSM_PATH"
             exit 1
           fi
-
           echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
-          echo "Resolved VPC ID: $VPC_ID (from $SSM_PATH)"
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
         working-directory: infra
 
-      - name: CDK Deploy — K8s-GoldenAmi-production
+      - name: CDK Deploy
         env:
           VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
           NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
@@ -481,77 +441,41 @@ jobs:
             -c vpcId="${VPC_ID}"
         working-directory: infra
 
-      - name: Get Image Builder pipeline ARN
-        id: get_pipeline
-        if: env.BUILD_AMI == 'true'
-        run: |
-          STACK_NAME="K8s-GoldenAmi-${DEPLOY_ENV}"
-          NAME_PREFIX="k8s-${DEPLOY_ENV}"
-
-          PIPELINE_ARN=$(aws imagebuilder list-image-pipelines \
-            --filters "name=name,values=${NAME_PREFIX}-golden-ami-pipeline" \
-            --query 'imagePipelineList[0].arn' \
-            --output text \
-            --region eu-west-1 || true)
-
-          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
-            echo "Falling back to CloudFormation resource lookup..."
-            PIPELINE_ARN=$(aws cloudformation describe-stack-resources \
-              --stack-name "$STACK_NAME" \
-              --region eu-west-1 \
-              --query "StackResources[?ResourceType=='AWS::ImageBuilder::ImagePipeline'].PhysicalResourceId" \
-              --output text || true)
-          fi
-
-          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
-            echo "WARNING: Pipeline ARN not found — CfnImage triggers build via CloudFormation."
-            echo "pipeline_arn=" >> "$GITHUB_OUTPUT"
-          else
-            echo "pipeline_arn=$PIPELINE_ARN" >> "$GITHUB_OUTPUT"
-            echo "Image Builder pipeline ARN: $PIPELINE_ARN"
-          fi
-
-      - name: Verify AMI ID in SSM
+      - name: Wait for AMI to become available
         id: verify_ami
         if: env.BUILD_AMI == 'true'
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           SSM_PATH="/k8s/${DEPLOY_ENV}/golden-ami/latest"
-          MAX_WAIT_SECONDS=1800
-          POLL_INTERVAL=30
+          MAX_WAIT=1800
+          INTERVAL=30
           ELAPSED=0
-
-          echo "Polling SSM parameter: $SSM_PATH"
-
-          while [ $ELAPSED -lt $MAX_WAIT_SECONDS ]; do
+          echo "Polling $SSM_PATH (max ${MAX_WAIT}s)"
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
             AMI_ID=$(aws ssm get-parameter \
               --name "$SSM_PATH" \
-              --region eu-west-1 \
+              --region "$AWS_REGION" \
               --query Parameter.Value \
               --output text 2>/dev/null || echo "")
-
             if [[ "$AMI_ID" == ami-* ]]; then
-              echo "AMI ID resolved: $AMI_ID"
-              echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
-
               STATE=$(aws ec2 describe-images \
                 --image-ids "$AMI_ID" \
-                --region eu-west-1 \
+                --region "$AWS_REGION" \
                 --query 'Images[0].State' \
                 --output text 2>/dev/null || echo "unknown")
-
-              echo "AMI state: $STATE"
+              echo "  $AMI_ID — $STATE (${ELAPSED}s)"
               if [ "$STATE" = "available" ]; then
-                echo "Golden AMI $AMI_ID is available."
+                echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
+            else
+              echo "  Waiting... (${ELAPSED}/${MAX_WAIT}s)"
             fi
-
-            echo "Waiting for AMI... ($ELAPSED / $MAX_WAIT_SECONDS s)"
-            sleep $POLL_INTERVAL
-            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
           done
-
-          echo "ERROR: Timed out waiting for AMI ID in SSM after ${MAX_WAIT_SECONDS}s"
+          echo "ERROR: Timed out after ${MAX_WAIT}s"
           exit 1
 
       - name: Job summary
@@ -559,30 +483,183 @@ jobs:
         env:
           VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
           AMI_ID: ${{ steps.verify_ami.outputs.ami_id }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           {
-            echo "## Golden AMI Deployment Summary"
-            echo ""
-            echo "| Property        | Value |"
-            echo "|-----------------|-------|"
-            echo "| Environment     | \`${DEPLOY_ENV}\` |"
-            echo "| Stack           | \`K8s-GoldenAmi-${DEPLOY_ENV}\` |"
-            echo "| VPC ID          | \`${VPC_ID}\` |"
-            echo "| AMI ID          | \`${AMI_ID}\` |"
-            echo "| SSM Path        | \`/k8s/${DEPLOY_ENV}/golden-ami/latest\` |"
-            echo "| Build Triggered | \`${BUILD_AMI}\` |"
+            echo "## Golden AMI — production"
+            echo "| Property    | Value |"
+            echo "|-------------|-------|"
+            echo "| Environment | \`${DEPLOY_ENV}\` |"
+            echo "| Stack       | \`K8s-GoldenAmi-${DEPLOY_ENV}\` |"
+            echo "| Region      | \`${AWS_REGION}\` |"
+            echo "| VPC ID      | \`${VPC_ID}\` |"
+            echo "| AMI ID      | \`${AMI_ID:-not built}\` |"
+            echo "| SSM Path    | \`/k8s/${DEPLOY_ENV}/golden-ami/latest\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
-  # Pipeline summary (runs after all environments, regardless of outcome)
+  # Phase 3: AMI metadata validation
+  #
+  # Resolves the AMI ID from (in priority order):
+  #   inputs.existing_ami_id → production output → staging output → dev output
+  #
+  # Hard failures: AMI not found, state != available, root device != ebs.
+  # Soft warnings: missing expected tags (tolerant of older AMIs lacking tags).
+  #
+  # Runs when at least one AMI ID source is available. Skipped otherwise
+  # (e.g. build_ami=false with no existing_ami_id).
+  # ---------------------------------------------------------------------------
+  validate-ami:
+    name: Validate AMI Metadata
+    needs:
+      [
+        test-ami-component,
+        deploy-development,
+        deploy-staging,
+        deploy-production,
+      ]
+    if: |
+      always() &&
+      needs.test-ami-component.result == 'success' &&
+      (inputs.existing_ami_id != '' ||
+       needs.deploy-development.outputs.ami_id != '' ||
+       needs.deploy-staging.outputs.ami_id != '' ||
+       needs.deploy-production.outputs.ami_id != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Resolve AMI ID
+        id: resolve_ami
+        env:
+          EXISTING_AMI_ID: ${{ inputs.existing_ami_id }}
+          FROM_PROD: ${{ needs.deploy-production.outputs.ami_id }}
+          FROM_STG: ${{ needs.deploy-staging.outputs.ami_id }}
+          FROM_DEV: ${{ needs.deploy-development.outputs.ami_id }}
+        run: |
+          # Shell parameter expansion — first non-empty value wins
+          AMI_ID="${EXISTING_AMI_ID:-${FROM_PROD:-${FROM_STG:-$FROM_DEV}}}"
+          if [[ "$AMI_ID" != ami-* ]]; then
+            echo "ERROR: No valid AMI ID available from any source"
+            exit 1
+          fi
+          echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+          SOURCE="deploy job output"
+          [ -n "$EXISTING_AMI_ID" ] && SOURCE="existing_ami_id input"
+          echo "AMI ID: $AMI_ID  (source: $SOURCE)"
+
+      - name: Validate AMI metadata
+        env:
+          AMI_ID: ${{ steps.resolve_ami.outputs.ami_id }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          echo "Fetching metadata for $AMI_ID in $AWS_REGION..."
+
+          AMI_INFO=$(aws ec2 describe-images \
+            --image-ids "$AMI_ID" \
+            --region "$AWS_REGION" \
+            --query 'Images[0]' \
+            --output json 2>/dev/null || echo "null")
+
+          if [ "$AMI_INFO" = "null" ] || [ -z "$AMI_INFO" ]; then
+            echo "::error::AMI $AMI_ID not found in region $AWS_REGION"
+            exit 1
+          fi
+
+          # ---- Hard failures -----------------------------------------------
+          STATE=$(echo "$AMI_INFO" | jq -r '.State // "unknown"')
+          if [ "$STATE" != "available" ]; then
+            echo "::error::AMI $AMI_ID state is '$STATE' — must be 'available'"
+            exit 1
+          fi
+          echo "[pass] state: $STATE"
+
+          ROOT_TYPE=$(echo "$AMI_INFO" | jq -r '.RootDeviceType // "unknown"')
+          if [ "$ROOT_TYPE" != "ebs" ]; then
+            echo "::error::Root device type '$ROOT_TYPE' — must be 'ebs'"
+            exit 1
+          fi
+          echo "[pass] root device type: $ROOT_TYPE"
+
+          # ---- Informational -----------------------------------------------
+          ARCH=$(echo "$AMI_INFO" | jq -r '.Architecture // "unknown"')
+          AMI_NAME=$(echo "$AMI_INFO" | jq -r '.Name // "unknown"')
+          CREATED=$(echo "$AMI_INFO" | jq -r '.CreationDate // "unknown"')
+          echo "[info] architecture: $ARCH"
+          echo "[info] name: $AMI_NAME"
+          echo "[info] created: $CREATED"
+
+          # ---- Block device (soft) -----------------------------------------
+          GP3_COUNT=$(echo "$AMI_INFO" | jq '[.BlockDeviceMappings[]?.Ebs | select(.VolumeType=="gp3")] | length')
+          if [ "$GP3_COUNT" -eq 0 ]; then
+            echo "::warning::No gp3 block devices found on $AMI_ID (may use gp2)"
+          else
+            echo "[pass] gp3 block devices: $GP3_COUNT"
+          fi
+
+          # ---- Tag checks (soft — tolerant of older AMIs) ------------------
+          get_tag() { echo "$AMI_INFO" | jq -r --arg k "$1" '.Tags[]? | select(.Key==$k) | .Value // ""'; }
+
+          PURPOSE=$(get_tag "Purpose")
+          MANAGED_BY=$(get_tag "ManagedBy")
+          BOOTSTRAP_BAKED=$(get_tag "BootstrapBaked")
+          K8S_VERSION=$(get_tag "KubernetesVersion")
+
+          check_tag() {
+            local key="$1" expected="$2" actual="$3"
+            if [ "$actual" = "$expected" ]; then
+              echo "[pass] tag $key=$actual"
+            else
+              echo "::warning::Tag $key='$actual' (expected '$expected')"
+            fi
+          }
+
+          check_tag "Purpose"         "GoldenAMI"             "$PURPOSE"
+          check_tag "ManagedBy"       "kubernetes-bootstrap"  "$MANAGED_BY"
+          check_tag "BootstrapBaked"  "true"                  "$BOOTSTRAP_BAKED"
+          [ -n "$K8S_VERSION" ] && echo "[info] KubernetesVersion: $K8S_VERSION" \
+            || echo "::warning::Tag KubernetesVersion not set"
+
+          echo ""
+          echo "AMI $AMI_ID passed validation ($AMI_NAME)"
+
+      - name: Validation summary
+        if: always()
+        env:
+          AMI_ID: ${{ steps.resolve_ami.outputs.ami_id }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          {
+            echo "## AMI Validation"
+            echo "| Property | Value |"
+            echo "|----------|-------|"
+            echo "| AMI ID   | \`${AMI_ID:-n/a}\` |"
+            echo "| Region   | \`${AWS_REGION}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Pipeline summary — runs after all jobs regardless of outcome.
   # ---------------------------------------------------------------------------
   pipeline-summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
     if: always()
-    needs: [deploy-development, deploy-staging, deploy-production]
+    needs: [deploy-development, deploy-staging, deploy-production, validate-ami]
+
     steps:
-      - name: Summarise pipeline results
+      - name: Summarise results
         env:
           DEV_RESULT: ${{ needs.deploy-development.result }}
           DEV_AMI: ${{ needs.deploy-development.outputs.ami_id }}
@@ -590,13 +667,15 @@ jobs:
           STG_AMI: ${{ needs.deploy-staging.outputs.ami_id }}
           PRD_RESULT: ${{ needs.deploy-production.result }}
           PRD_AMI: ${{ needs.deploy-production.outputs.ami_id }}
+          VALIDATE_RESULT: ${{ needs.validate-ami.result }}
         run: |
           {
             echo "## Golden AMI Pipeline — Final Summary"
             echo ""
-            echo "| Environment | Result | AMI ID |"
-            echo "|-------------|--------|--------|"
-            echo "| development | ${DEV_RESULT} | ${DEV_AMI} |"
-            echo "| staging     | ${STG_RESULT} | ${STG_AMI} |"
-            echo "| production  | ${PRD_RESULT} | ${PRD_AMI} |"
+            echo "| Job                | Result               | AMI ID |"
+            echo "|--------------------|----------------------|--------|"
+            echo "| deploy-development | \`${DEV_RESULT}\` | \`${DEV_AMI:-—}\` |"
+            echo "| deploy-staging     | \`${STG_RESULT}\` | \`${STG_AMI:-—}\` |"
+            echo "| deploy-production  | \`${PRD_RESULT}\` | \`${PRD_AMI:-—}\` |"
+            echo "| validate-ami       | \`${VALIDATE_RESULT}\` | — |"
           } >> "$GITHUB_STEP_SUMMARY"
