@@ -257,8 +257,7 @@ phases:
         inputs:
           commands:
             - |
-              source /etc/environment
-              export HOME=/root
+              source /etc/environment; export HOME=/root
               ARGOCD_VERSION="${imageConfig.bakedVersions.argoCdCli}"
               curl -fsSL \
                 "https://github.com/argoproj/argo-cd/releases/download/\${ARGOCD_VERSION}/argocd-linux-\${ARCH}" \
@@ -272,23 +271,21 @@ phases:
         inputs:
           commands:
             - |
-              source /etc/environment
-              export HOME=/root
+              source /etc/environment; export HOME=/root
               ROLLOUTS_VERSION="${imageConfig.bakedVersions.kubectlArgoRollouts}"
               curl -fsSL \
                 "https://github.com/argoproj/argo-rollouts/releases/download/\${ROLLOUTS_VERSION}/kubectl-argo-rollouts-linux-\${ARCH}" \
                 -o /usr/local/bin/kubectl-argo-rollouts \
-                || { echo "FATAL: kubectl-argo-rollouts download failed"; exit 1; }
+                || { echo "FATAL: rollouts download failed"; exit 1; }
               chmod +x /usr/local/bin/kubectl-argo-rollouts
-              kubectl-argo-rollouts version || { echo "FATAL: kubectl-argo-rollouts not runnable"; exit 1; }
+              kubectl-argo-rollouts version || { echo "FATAL: rollouts not runnable"; exit 1; }
 
       - name: InstallK8sGPT
         action: ExecuteBash
         inputs:
           commands:
             - |
-              source /etc/environment
-              export HOME=/root
+              source /etc/environment; export HOME=/root
               K8SGPT_VERSION="${imageConfig.bakedVersions.k8sgpt}"
               curl -fsSL "https://github.com/k8sgpt-ai/k8sgpt/releases/download/v\${K8SGPT_VERSION}/k8sgpt_amd64.rpm" \
                 -o /tmp/k8sgpt.rpm || { echo "FATAL: k8sgpt download failed"; exit 1; }
