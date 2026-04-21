@@ -73,7 +73,7 @@ if (vpcId) {
     });
 } else {
     // Allow synth without vpcId for SSM Automation stack only
-    // eslint-disable-next-line no-console
+     
     console.warn(
         '[app.ts] vpcId not provided — skipping GoldenAmiStack synthesis. ' +
         'Pass -c vpcId=<vpc-id> or set VPC_ID env var to include it.',

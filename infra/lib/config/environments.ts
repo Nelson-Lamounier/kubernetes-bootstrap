@@ -186,12 +186,12 @@ export function resolveEnvironment(contextValue?: string): Environment {
 
     if (envValue in SHORT_TO_FULL) {
         const fullName = SHORT_TO_FULL[envValue];
-        // eslint-disable-next-line no-console
+         
         console.log(`Mapping short environment name '${envValue}' to '${fullName}'`);
         return fullName;
     }
 
-    // eslint-disable-next-line no-console
+     
     console.warn(`Unknown environment '${envValue}', defaulting to '${Environment.DEVELOPMENT}'`);
     return Environment.DEVELOPMENT;
 }

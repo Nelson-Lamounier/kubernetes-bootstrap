@@ -45,7 +45,6 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as cdk from 'aws-cdk-lib/core';
-import { NagSuppressions } from 'cdk-nag';
 
 import { Construct } from 'constructs';
 
