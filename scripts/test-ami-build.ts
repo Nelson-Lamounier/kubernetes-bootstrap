@@ -161,8 +161,8 @@ test('/data directories created', () =>
 test('Node.js 22 LTS installed via NodeSource (required for tsx bootstrap runner)', () =>
     contains('nodesource.com/setup_22.x') && contains('dnf install -y nodejs'));
 
-test('npm ci run after S3 sync to install tsx and transitive deps', () =>
-    contains('npm ci') && contains('node_modules/.bin/tsx'));
+test('tsx installed globally via npm install -g during Node.js setup', () =>
+    contains('npm install -g tsx') && contains('command -v tsx'));
 
 // ---------------------------------------------------------------------------
 // ArgoCD / Argo Rollouts CLI checks (baked to avoid GitHub downloads at boot)

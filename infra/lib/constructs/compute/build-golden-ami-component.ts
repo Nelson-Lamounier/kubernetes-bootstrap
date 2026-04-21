@@ -301,6 +301,7 @@ phases:
             - dnf install -y nodejs
             - node --version
             - npm --version
+            - npm install -g tsx@4
 
       - name: InstallPythonDependencies
         action: ExecuteBash
@@ -345,14 +346,7 @@ phases:
               fi
               find /opt/k8s-bootstrap -name "*.py" -exec chmod +x {} \\;
               find /opt/k8s-bootstrap -name "*.sh" -exec chmod +x {} \\;
-              if [ -f /opt/k8s-bootstrap/package.json ]; then
-                cd /opt/k8s-bootstrap
-                npm ci --omit=dev --prefer-offline 2>&1
-                test -f node_modules/.bin/tsx || { echo "FATAL: tsx not found after npm ci"; exit 1; }
-              else
-                echo "FATAL: package.json not found in /opt/k8s-bootstrap"
-                exit 1
-              fi
+              command -v tsx > /dev/null || { echo "FATAL: tsx not installed"; exit 1; }
               echo "Bootstrap scripts baked: $FILE_COUNT files"
 
       - name: CreateDataDirectory
