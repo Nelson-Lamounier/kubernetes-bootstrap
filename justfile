@@ -272,15 +272,29 @@ build-golden-ami env="development" region="eu-west-1":
     echo "✗ Timed out after ${MAX_WAIT}s"
     exit 1
 
+# Dispatch any GitHub Actions workflow via gh CLI
+# Requires: gh CLI authenticated (gh auth login)
+# Usage: just gh-dispatch deploy-golden-ami.yml
+#        just gh-dispatch deploy-golden-ami.yml --field environment=staging
+#        just gh-dispatch deploy-golden-ami.yml --field existing_ami_id=ami-0abc123
+[group('ci')]
+gh-dispatch workflow *ARGS:
+    gh workflow run {{workflow}} {{ARGS}}
+
 # Trigger the deploy-golden-ami GitHub Actions workflow
 # Requires: gh CLI authenticated (gh auth login)
 # Usage: just ami-workflow production
-#        just ami-workflow production build_ami=false
-[group('k8s')]
-ami-workflow env="production" build-ami="true":
-    gh workflow run deploy-golden-ami.yml \
-      --field environment={{env}} \
-      --field build_ami={{build-ami}}
+#        just ami-workflow production build-ami=false
+#        just ami-workflow production existing-ami-id=ami-0abc123
+[group('ci')]
+ami-workflow env="development" build-ami="true" existing-ami-id="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ARGS=(--field environment={{env}} --field build_ami={{build-ami}})
+    if [ -n "{{existing-ami-id}}" ]; then
+      ARGS+=(--field existing_ami_id={{existing-ami-id}})
+    fi
+    gh workflow run deploy-golden-ami.yml "${ARGS[@]}"
 
 # Sync bootstrap scripts from boot/ to S3 (for AMI bake or emergency re-sync)
 # Usage: just sync-k8s-bootstrap development dev-account
