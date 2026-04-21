@@ -2,6 +2,7 @@
   "name": "kubernetes-bootstrap-scripts",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "yarn@4.14.0",
   "description": "CD scripts for kubernetes-bootstrap — Step Functions triggers, S3 sync, and ArgoCD verification",
   "scripts": {
     "typecheck": "tsc --project tsconfig.json"
