@@ -89,20 +89,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-yarn
         with:
           node-version: "22"
-          cache: yarn
-          cache-dependency-path: infra/yarn.lock
-
-      - name: Install infra dependencies
-        # aws-cdk-lib and constructs are imported transitively by test-ami-build.ts
-        # via configurations.ts — they must be in infra/node_modules/ before tsx runs.
-        run: yarn install --frozen-lockfile
-        working-directory: infra
-
-      - name: Install script dependencies
-        run: npm install --prefix scripts
+          install-infra: "true"
 
       - name: Run static analysis
         run: npx --prefix scripts tsx scripts/test-ami-build.ts
@@ -172,7 +163,7 @@ jobs:
           echo "Resolved VPC: $VPC_ID"
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
         working-directory: infra
 
       - name: CDK Deploy
@@ -301,7 +292,7 @@ jobs:
           echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
         working-directory: infra
 
       - name: CDK Deploy
@@ -426,7 +417,7 @@ jobs:
           echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
         working-directory: infra
 
       - name: CDK Deploy

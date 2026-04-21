@@ -1,16 +1,24 @@
 # @format
-name: "Setup Node.js and Install Script Dependencies"
-description: "Installs Node.js and npm dependencies for the scripts/ directory."
+name: "Setup Node.js and Install Dependencies"
+description: >
+  Installs Node.js, yarn dependencies for scripts/, and optionally yarn
+  dependencies for infra/. Use install-infra: 'true' when the job needs to
+  import from infra/lib/ (e.g. test-ami-build.ts imports aws-cdk-lib via
+  configurations.ts).
 
 inputs:
   node-version:
     description: "Node.js version to install"
     required: false
     default: "22"
+  install-infra:
+    description: "Also install infra/ workspace deps (needed when tsx imports from infra/lib/)"
+    required: false
+    default: "false"
 
 outputs:
   cache-hit:
-    description: "Whether dependency cache was hit"
+    description: "Whether script dependency cache was hit"
     value: ${{ steps.cache-deps.outputs.cache-hit }}
 
 runs:
@@ -32,14 +40,25 @@ runs:
 
     - name: Install Script Dependencies
       shell: bash
+      working-directory: scripts
       run: |
-        echo "Installing script dependencies..."
-        npm install --prefix scripts
-        echo "✓ Dependencies ready"
+        yarn install
+        echo "✓ scripts/ deps ready"
+
+    - name: Install Infra Dependencies
+      # No --immutable: runs in analysis/test jobs where the lockfile may lag
+      # behind package.json. Deploy jobs manage infra deps themselves with
+      # --immutable to enforce reproducibility.
+      if: inputs.install-infra == 'true'
+      shell: bash
+      working-directory: infra
+      run: |
+        yarn install
+        echo "✓ infra/ deps ready"
 
     - name: Verify Installation
       shell: bash
       run: |
-        echo "Node version: $(node --version)"
-        echo "npm version: $(npm --version)"
-        echo "tsx available: $(npx --prefix scripts tsx --version 2>/dev/null || echo 'not found')"
+        echo "node:  $(node --version)"
+        echo "yarn:  $(yarn --version)"
+        echo "tsx:   $(npx --prefix scripts tsx --version 2>/dev/null || echo 'not found')"
