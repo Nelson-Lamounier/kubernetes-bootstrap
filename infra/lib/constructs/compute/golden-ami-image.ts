@@ -315,6 +315,14 @@ export class GoldenAmiImageConstruct extends Construct {
             resources: [scriptsBucket.bucketArn],
         }));
 
+        // Image Builder TOE execution logs — written by the build instance so
+        // per-step output survives instance termination.
+        this.instanceRole.addToPolicy(new iam.PolicyStatement({
+            sid: 'ImageBuilderLogs',
+            actions: ['s3:PutObject'],
+            resources: [scriptsBucket.arnForObjects('image-builder-logs/*')],
+        }));
+
         // -----------------------------------------------------------------
         // 2. Image Builder Component
         //
@@ -382,6 +390,12 @@ export class GoldenAmiImageConstruct extends Construct {
                 subnetId,
                 securityGroupIds: [securityGroupId],
                 terminateInstanceOnFailure: true,
+                logging: {
+                    s3Logs: {
+                        s3BucketName: scriptsBucket.bucketName,
+                        s3KeyPrefix: 'image-builder-logs',
+                    },
+                },
             },
         );
         infraConfig.addDependency(this.instanceProfile);

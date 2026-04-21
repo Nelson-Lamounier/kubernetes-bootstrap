@@ -29,6 +29,14 @@
 #
 # Testing a pre-existing AMI without rebuilding:
 #   workflow_dispatch → set existing_ami_id to ami-xxxxxxxxxxxx
+#
+# Debugging a failed bake:
+#   If the "CDK Deploy + Bake" job fails with "component ... failed!", the
+#   per-step shell output is in S3 (scripts bucket / image-builder-logs/).
+#   Fetch it locally with:
+#
+#     just ami-build-logs                            # development (default)
+#     just ami-build-logs production prod-account    # production
 
 name: Deploy Golden AMI
 
