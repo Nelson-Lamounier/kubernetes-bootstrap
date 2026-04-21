@@ -25,6 +25,17 @@ def install_argocd_cli(cfg: Config) -> bool:
         log(f"  [DRY-RUN] Would install ArgoCD CLI {cfg.argocd_cli_version}\n")
         return True
 
+    # Binary is baked into the Golden AMI — skip download to avoid GitHub dependency
+    # at bootstrap time. The baked version matches cfg.argocd_cli_version.
+    if Path("/usr/local/bin/argocd").exists():
+        version_result = run(
+            ["argocd", "version", "--client", "--short"],
+            cfg=cfg, check=False, capture=True,
+        )
+        version = version_result.stdout.strip() if version_result.returncode == 0 else "(unknown)"
+        log(f"  ✓ ArgoCD CLI already present (baked in AMI): {version}\n")
+        return True
+
     import platform
     arch_map = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
     cli_arch = arch_map.get(platform.machine(), "amd64")

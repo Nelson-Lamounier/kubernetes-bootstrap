@@ -1,0 +1,138 @@
+# @format
+# @description Deploy CDK Infrastructure Stack
+#
+# Deploys the K8sSsmAutomationStack via AWS CDK when infra/ changes.
+# Provisions: SSM Automation documents, Step Functions (SM-A + SM-B),
+# SSM Parameter Store paths, EventBridge rule, CloudWatch alarms, and
+# the Lambda router for node-role resolution.
+#
+# ─── Triggers ──────────────────────────────────────────────────────
+#   Push to develop/main when infra/** changes
+#   Manual dispatch (workflow_dispatch) for targeted environment deploys
+#
+# ─── Prerequisites ─────────────────────────────────────────────────
+#   AWS_OIDC_ROLE secret must be set in the GitHub environment.
+#   SCRIPTS_BUCKET var (optional) — defaults to k8s-scripts-{account}-{region}.
+
+name: Deploy CDK Infrastructure
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'infra/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+        default: development
+      action:
+        description: "CDK action to run (deploy, diff, synth)"
+        required: false
+        type: choice
+        options:
+          - deploy
+          - diff
+          - synth
+        default: deploy
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-cdk
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  cdk-deploy:
+    name: "CDK Deploy"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment || 'development' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Enable Corepack (Yarn v4)
+        run: corepack enable
+
+      - name: Cache Infra Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            infra/node_modules
+            infra/.yarn/cache
+          key: infra-deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: |
+            infra-deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-
+
+      - name: Install Infra Dependencies
+        run: yarn --cwd infra install --immutable
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+
+      - name: TypeScript Check
+        run: yarn --cwd infra tsc --noEmit
+
+      - name: CDK Bootstrap (deploy only)
+        env:
+          CDK_ACTION: ${{ inputs.action || 'deploy' }}
+          TARGET_ENV: ${{ inputs.environment || 'development' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          if [ "$CDK_ACTION" = "deploy" ]; then
+            npx --prefix infra cdk bootstrap \
+              --context "environment=${TARGET_ENV}" \
+              --region "$AWS_REGION" \
+              || echo "[INFO] Bootstrap already complete"
+          fi
+
+      - name: CDK Action
+        env:
+          CDK_ACTION: ${{ inputs.action || 'deploy' }}
+          TARGET_ENV: ${{ inputs.environment || 'development' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+          SCRIPTS_BUCKET: ${{ vars.SCRIPTS_BUCKET || '' }}
+        run: |
+          ARGS=(
+            "--context" "environment=${TARGET_ENV}"
+            "--region" "$AWS_REGION"
+          )
+
+          if [ -n "$SCRIPTS_BUCKET" ]; then
+            ARGS+=("--context" "scriptsBucket=${SCRIPTS_BUCKET}")
+          fi
+
+          case "$CDK_ACTION" in
+            deploy)
+              npx --prefix infra cdk deploy "${ARGS[@]}" \
+                --require-approval never \
+                --outputs-file /tmp/cdk-outputs.json
+              ;;
+            diff)
+              npx --prefix infra cdk diff "${ARGS[@]}"
+              ;;
+            synth)
+              npx --prefix infra cdk synth "${ARGS[@]}"
+              ;;
+          esac

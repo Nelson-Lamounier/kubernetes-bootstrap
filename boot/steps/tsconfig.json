@@ -10,5 +10,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["./**/*.ts"]
+  "include": ["control_plane.ts", "worker.ts", "orchestrator.ts", "common.ts"]
 }

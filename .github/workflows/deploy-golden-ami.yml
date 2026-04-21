@@ -1,0 +1,602 @@
+# ============================================================================
+# deploy-golden-ami.yml — Golden AMI Pipeline
+# ============================================================================
+#
+# Two-phase execution per environment:
+#   Phase 1 — CDK Deploy: provisions/updates the Image Builder pipeline
+#              infrastructure (~2 minutes).
+#   Phase 2 — Verify AMI: polls SSM for the AMI ID written by CfnImage
+#              after CloudFormation completes the synchronous build.
+#
+# VPC Resolution:
+#   Reads VPC ID from SSM: /k8s/{env}/vpc-id
+#   Injects as CDK context: -c vpcId=$VPC_ID
+#   Avoids ec2.Vpc.fromLookup requiring a synth-time describe-vpcs call.
+#
+# Pipeline Flow:
+#   1. deploy-development  → always runs first
+#   2. deploy-staging      → requires development success + manual approval gate
+#   3. deploy-production   → requires staging success + manual approval gate
+#
+# Each environment gate uses GitHub Environment protection rules.
+# Production requires at least one reviewer approval.
+#
+# Prerequisites (secrets per GitHub Environment):
+#   - AWS_DEPLOY_ROLE_ARN      : IAM role to assume (OIDC)
+#   - NOTIFICATION_EMAIL       : Failure notification email (optional)
+
+name: Deploy Golden AMI
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment to deploy'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      build_ami:
+        description: 'Trigger AMI build and wait for completion'
+        required: false
+        default: true
+        type: boolean
+      all_environments:
+        description: 'Promote through all environments (dev → staging → production)'
+        required: false
+        default: false
+        type: boolean
+
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/lib/constructs/compute/**'
+      - 'infra/lib/stacks/golden-ami-stack.ts'
+      - 'infra/lib/config/kubernetes/configurations.ts'
+      - '.github/workflows/deploy-golden-ami.yml'
+
+concurrency:
+  # Prevent concurrent AMI pipeline runs per environment. Never cancel an
+  # in-flight AMI build — parallel CfnImage builds write conflicting AMI IDs.
+  group: golden-ami-${{ github.ref_name }}-${{ github.event.inputs.environment || 'development' }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Development (always runs first)
+  # ---------------------------------------------------------------------------
+  deploy-development:
+    name: Deploy + Build (development)
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && (
+        inputs.environment == 'development' ||
+        inputs.all_environments == true
+      ))
+    runs-on: ubuntu-latest
+    environment: development
+    timeout-minutes: 60
+
+    permissions:
+      id-token: write
+      contents: read
+
+    outputs:
+      ami_id: ${{ steps.verify_ami.outputs.ami_id }}
+      pipeline_arn: ${{ steps.get_pipeline.outputs.pipeline_arn }}
+
+    env:
+      DEPLOY_ENV: development
+      BUILD_AMI: ${{ github.event_name == 'push' && 'true' || inputs.build_ami }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'yarn'
+          cache-dependency-path: infra/yarn.lock
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-west-1
+
+      - name: Resolve VPC ID from SSM
+        id: resolve_vpc
+        run: |
+          SSM_PATH="/k8s/${DEPLOY_ENV}/vpc-id"
+          VPC_ID=$(aws ssm get-parameter \
+            --name "$SSM_PATH" \
+            --region eu-west-1 \
+            --query Parameter.Value \
+            --output text)
+
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+            echo "ERROR: Could not resolve VPC ID from SSM path: $SSM_PATH"
+            exit 1
+          fi
+
+          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
+          echo "Resolved VPC ID: $VPC_ID (from $SSM_PATH)"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+        working-directory: infra
+
+      - name: CDK Deploy — K8s-GoldenAmi-development
+        env:
+          VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+        run: |
+          npx cdk deploy "K8s-GoldenAmi-${DEPLOY_ENV}" \
+            --require-approval never \
+            --progress events \
+            -c environment="${DEPLOY_ENV}" \
+            -c vpcId="${VPC_ID}"
+        working-directory: infra
+
+      - name: Get Image Builder pipeline ARN
+        id: get_pipeline
+        if: env.BUILD_AMI == 'true'
+        run: |
+          STACK_NAME="K8s-GoldenAmi-${DEPLOY_ENV}"
+          NAME_PREFIX="k8s-${DEPLOY_ENV}"
+
+          PIPELINE_ARN=$(aws imagebuilder list-image-pipelines \
+            --filters "name=name,values=${NAME_PREFIX}-golden-ami-pipeline" \
+            --query 'imagePipelineList[0].arn' \
+            --output text \
+            --region eu-west-1 || true)
+
+          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
+            echo "Falling back to CloudFormation resource lookup..."
+            PIPELINE_ARN=$(aws cloudformation describe-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region eu-west-1 \
+              --query "StackResources[?ResourceType=='AWS::ImageBuilder::ImagePipeline'].PhysicalResourceId" \
+              --output text || true)
+          fi
+
+          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
+            echo "WARNING: Pipeline ARN not found — CfnImage triggers build via CloudFormation."
+            echo "pipeline_arn=" >> "$GITHUB_OUTPUT"
+          else
+            echo "pipeline_arn=$PIPELINE_ARN" >> "$GITHUB_OUTPUT"
+            echo "Image Builder pipeline ARN: $PIPELINE_ARN"
+          fi
+
+      - name: Verify AMI ID in SSM
+        id: verify_ami
+        if: env.BUILD_AMI == 'true'
+        run: |
+          SSM_PATH="/k8s/${DEPLOY_ENV}/golden-ami/latest"
+          MAX_WAIT_SECONDS=1800
+          POLL_INTERVAL=30
+          ELAPSED=0
+
+          echo "Polling SSM parameter: $SSM_PATH"
+
+          while [ $ELAPSED -lt $MAX_WAIT_SECONDS ]; do
+            AMI_ID=$(aws ssm get-parameter \
+              --name "$SSM_PATH" \
+              --region eu-west-1 \
+              --query Parameter.Value \
+              --output text 2>/dev/null || echo "")
+
+            if [[ "$AMI_ID" == ami-* ]]; then
+              echo "AMI ID resolved: $AMI_ID"
+              echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+
+              STATE=$(aws ec2 describe-images \
+                --image-ids "$AMI_ID" \
+                --region eu-west-1 \
+                --query 'Images[0].State' \
+                --output text 2>/dev/null || echo "unknown")
+
+              echo "AMI state: $STATE"
+              if [ "$STATE" = "available" ]; then
+                echo "Golden AMI $AMI_ID is available."
+                exit 0
+              fi
+            fi
+
+            echo "Waiting for AMI... ($ELAPSED / $MAX_WAIT_SECONDS s)"
+            sleep $POLL_INTERVAL
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+
+          echo "ERROR: Timed out waiting for AMI ID in SSM after ${MAX_WAIT_SECONDS}s"
+          exit 1
+
+      - name: Job summary
+        if: always()
+        env:
+          VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
+          AMI_ID: ${{ steps.verify_ami.outputs.ami_id }}
+        run: |
+          {
+            echo "## Golden AMI Deployment Summary"
+            echo ""
+            echo "| Property        | Value |"
+            echo "|-----------------|-------|"
+            echo "| Environment     | \`${DEPLOY_ENV}\` |"
+            echo "| Stack           | \`K8s-GoldenAmi-${DEPLOY_ENV}\` |"
+            echo "| VPC ID          | \`${VPC_ID}\` |"
+            echo "| AMI ID          | \`${AMI_ID}\` |"
+            echo "| SSM Path        | \`/k8s/${DEPLOY_ENV}/golden-ami/latest\` |"
+            echo "| Build Triggered | \`${BUILD_AMI}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Staging (requires development success + manual approval gate)
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    name: Deploy + Build (staging)
+    needs: deploy-development
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.environment == 'staging' || inputs.all_environments == true)
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 60
+
+    permissions:
+      id-token: write
+      contents: read
+
+    outputs:
+      ami_id: ${{ steps.verify_ami.outputs.ami_id }}
+      pipeline_arn: ${{ steps.get_pipeline.outputs.pipeline_arn }}
+
+    env:
+      DEPLOY_ENV: staging
+      BUILD_AMI: ${{ inputs.build_ami }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'yarn'
+          cache-dependency-path: infra/yarn.lock
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-west-1
+
+      - name: Resolve VPC ID from SSM
+        id: resolve_vpc
+        run: |
+          SSM_PATH="/k8s/${DEPLOY_ENV}/vpc-id"
+          VPC_ID=$(aws ssm get-parameter \
+            --name "$SSM_PATH" \
+            --region eu-west-1 \
+            --query Parameter.Value \
+            --output text)
+
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+            echo "ERROR: Could not resolve VPC ID from SSM path: $SSM_PATH"
+            exit 1
+          fi
+
+          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
+          echo "Resolved VPC ID: $VPC_ID (from $SSM_PATH)"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+        working-directory: infra
+
+      - name: CDK Deploy — K8s-GoldenAmi-staging
+        env:
+          VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+        run: |
+          npx cdk deploy "K8s-GoldenAmi-${DEPLOY_ENV}" \
+            --require-approval never \
+            --progress events \
+            -c environment="${DEPLOY_ENV}" \
+            -c vpcId="${VPC_ID}"
+        working-directory: infra
+
+      - name: Get Image Builder pipeline ARN
+        id: get_pipeline
+        if: env.BUILD_AMI == 'true'
+        run: |
+          STACK_NAME="K8s-GoldenAmi-${DEPLOY_ENV}"
+          NAME_PREFIX="k8s-${DEPLOY_ENV}"
+
+          PIPELINE_ARN=$(aws imagebuilder list-image-pipelines \
+            --filters "name=name,values=${NAME_PREFIX}-golden-ami-pipeline" \
+            --query 'imagePipelineList[0].arn' \
+            --output text \
+            --region eu-west-1 || true)
+
+          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
+            echo "Falling back to CloudFormation resource lookup..."
+            PIPELINE_ARN=$(aws cloudformation describe-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region eu-west-1 \
+              --query "StackResources[?ResourceType=='AWS::ImageBuilder::ImagePipeline'].PhysicalResourceId" \
+              --output text || true)
+          fi
+
+          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
+            echo "WARNING: Pipeline ARN not found — CfnImage triggers build via CloudFormation."
+            echo "pipeline_arn=" >> "$GITHUB_OUTPUT"
+          else
+            echo "pipeline_arn=$PIPELINE_ARN" >> "$GITHUB_OUTPUT"
+            echo "Image Builder pipeline ARN: $PIPELINE_ARN"
+          fi
+
+      - name: Verify AMI ID in SSM
+        id: verify_ami
+        if: env.BUILD_AMI == 'true'
+        run: |
+          SSM_PATH="/k8s/${DEPLOY_ENV}/golden-ami/latest"
+          MAX_WAIT_SECONDS=1800
+          POLL_INTERVAL=30
+          ELAPSED=0
+
+          echo "Polling SSM parameter: $SSM_PATH"
+
+          while [ $ELAPSED -lt $MAX_WAIT_SECONDS ]; do
+            AMI_ID=$(aws ssm get-parameter \
+              --name "$SSM_PATH" \
+              --region eu-west-1 \
+              --query Parameter.Value \
+              --output text 2>/dev/null || echo "")
+
+            if [[ "$AMI_ID" == ami-* ]]; then
+              echo "AMI ID resolved: $AMI_ID"
+              echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+
+              STATE=$(aws ec2 describe-images \
+                --image-ids "$AMI_ID" \
+                --region eu-west-1 \
+                --query 'Images[0].State' \
+                --output text 2>/dev/null || echo "unknown")
+
+              echo "AMI state: $STATE"
+              if [ "$STATE" = "available" ]; then
+                echo "Golden AMI $AMI_ID is available."
+                exit 0
+              fi
+            fi
+
+            echo "Waiting for AMI... ($ELAPSED / $MAX_WAIT_SECONDS s)"
+            sleep $POLL_INTERVAL
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+
+          echo "ERROR: Timed out waiting for AMI ID in SSM after ${MAX_WAIT_SECONDS}s"
+          exit 1
+
+      - name: Job summary
+        if: always()
+        env:
+          VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
+          AMI_ID: ${{ steps.verify_ami.outputs.ami_id }}
+        run: |
+          {
+            echo "## Golden AMI Deployment Summary"
+            echo ""
+            echo "| Property        | Value |"
+            echo "|-----------------|-------|"
+            echo "| Environment     | \`${DEPLOY_ENV}\` |"
+            echo "| Stack           | \`K8s-GoldenAmi-${DEPLOY_ENV}\` |"
+            echo "| VPC ID          | \`${VPC_ID}\` |"
+            echo "| AMI ID          | \`${AMI_ID}\` |"
+            echo "| SSM Path        | \`/k8s/${DEPLOY_ENV}/golden-ami/latest\` |"
+            echo "| Build Triggered | \`${BUILD_AMI}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Production (requires staging success + manual approval gate)
+  # GitHub Environment protection rules enforce reviewer approval.
+  # ---------------------------------------------------------------------------
+  deploy-production:
+    name: Deploy + Build (production)
+    needs: deploy-staging
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      (inputs.environment == 'production' || inputs.all_environments == true)
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+
+    permissions:
+      id-token: write
+      contents: read
+
+    outputs:
+      ami_id: ${{ steps.verify_ami.outputs.ami_id }}
+      pipeline_arn: ${{ steps.get_pipeline.outputs.pipeline_arn }}
+
+    env:
+      DEPLOY_ENV: production
+      BUILD_AMI: ${{ inputs.build_ami }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'yarn'
+          cache-dependency-path: infra/yarn.lock
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: eu-west-1
+
+      - name: Resolve VPC ID from SSM
+        id: resolve_vpc
+        run: |
+          SSM_PATH="/k8s/${DEPLOY_ENV}/vpc-id"
+          VPC_ID=$(aws ssm get-parameter \
+            --name "$SSM_PATH" \
+            --region eu-west-1 \
+            --query Parameter.Value \
+            --output text)
+
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+            echo "ERROR: Could not resolve VPC ID from SSM path: $SSM_PATH"
+            exit 1
+          fi
+
+          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
+          echo "Resolved VPC ID: $VPC_ID (from $SSM_PATH)"
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+        working-directory: infra
+
+      - name: CDK Deploy — K8s-GoldenAmi-production
+        env:
+          VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+        run: |
+          npx cdk deploy "K8s-GoldenAmi-${DEPLOY_ENV}" \
+            --require-approval never \
+            --progress events \
+            -c environment="${DEPLOY_ENV}" \
+            -c vpcId="${VPC_ID}"
+        working-directory: infra
+
+      - name: Get Image Builder pipeline ARN
+        id: get_pipeline
+        if: env.BUILD_AMI == 'true'
+        run: |
+          STACK_NAME="K8s-GoldenAmi-${DEPLOY_ENV}"
+          NAME_PREFIX="k8s-${DEPLOY_ENV}"
+
+          PIPELINE_ARN=$(aws imagebuilder list-image-pipelines \
+            --filters "name=name,values=${NAME_PREFIX}-golden-ami-pipeline" \
+            --query 'imagePipelineList[0].arn' \
+            --output text \
+            --region eu-west-1 || true)
+
+          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
+            echo "Falling back to CloudFormation resource lookup..."
+            PIPELINE_ARN=$(aws cloudformation describe-stack-resources \
+              --stack-name "$STACK_NAME" \
+              --region eu-west-1 \
+              --query "StackResources[?ResourceType=='AWS::ImageBuilder::ImagePipeline'].PhysicalResourceId" \
+              --output text || true)
+          fi
+
+          if [ -z "$PIPELINE_ARN" ] || [ "$PIPELINE_ARN" = "None" ]; then
+            echo "WARNING: Pipeline ARN not found — CfnImage triggers build via CloudFormation."
+            echo "pipeline_arn=" >> "$GITHUB_OUTPUT"
+          else
+            echo "pipeline_arn=$PIPELINE_ARN" >> "$GITHUB_OUTPUT"
+            echo "Image Builder pipeline ARN: $PIPELINE_ARN"
+          fi
+
+      - name: Verify AMI ID in SSM
+        id: verify_ami
+        if: env.BUILD_AMI == 'true'
+        run: |
+          SSM_PATH="/k8s/${DEPLOY_ENV}/golden-ami/latest"
+          MAX_WAIT_SECONDS=1800
+          POLL_INTERVAL=30
+          ELAPSED=0
+
+          echo "Polling SSM parameter: $SSM_PATH"
+
+          while [ $ELAPSED -lt $MAX_WAIT_SECONDS ]; do
+            AMI_ID=$(aws ssm get-parameter \
+              --name "$SSM_PATH" \
+              --region eu-west-1 \
+              --query Parameter.Value \
+              --output text 2>/dev/null || echo "")
+
+            if [[ "$AMI_ID" == ami-* ]]; then
+              echo "AMI ID resolved: $AMI_ID"
+              echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+
+              STATE=$(aws ec2 describe-images \
+                --image-ids "$AMI_ID" \
+                --region eu-west-1 \
+                --query 'Images[0].State' \
+                --output text 2>/dev/null || echo "unknown")
+
+              echo "AMI state: $STATE"
+              if [ "$STATE" = "available" ]; then
+                echo "Golden AMI $AMI_ID is available."
+                exit 0
+              fi
+            fi
+
+            echo "Waiting for AMI... ($ELAPSED / $MAX_WAIT_SECONDS s)"
+            sleep $POLL_INTERVAL
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+
+          echo "ERROR: Timed out waiting for AMI ID in SSM after ${MAX_WAIT_SECONDS}s"
+          exit 1
+
+      - name: Job summary
+        if: always()
+        env:
+          VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
+          AMI_ID: ${{ steps.verify_ami.outputs.ami_id }}
+        run: |
+          {
+            echo "## Golden AMI Deployment Summary"
+            echo ""
+            echo "| Property        | Value |"
+            echo "|-----------------|-------|"
+            echo "| Environment     | \`${DEPLOY_ENV}\` |"
+            echo "| Stack           | \`K8s-GoldenAmi-${DEPLOY_ENV}\` |"
+            echo "| VPC ID          | \`${VPC_ID}\` |"
+            echo "| AMI ID          | \`${AMI_ID}\` |"
+            echo "| SSM Path        | \`/k8s/${DEPLOY_ENV}/golden-ami/latest\` |"
+            echo "| Build Triggered | \`${BUILD_AMI}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Pipeline summary (runs after all environments, regardless of outcome)
+  # ---------------------------------------------------------------------------
+  pipeline-summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [deploy-development, deploy-staging, deploy-production]
+    steps:
+      - name: Summarise pipeline results
+        env:
+          DEV_RESULT: ${{ needs.deploy-development.result }}
+          DEV_AMI: ${{ needs.deploy-development.outputs.ami_id }}
+          STG_RESULT: ${{ needs.deploy-staging.result }}
+          STG_AMI: ${{ needs.deploy-staging.outputs.ami_id }}
+          PRD_RESULT: ${{ needs.deploy-production.result }}
+          PRD_AMI: ${{ needs.deploy-production.outputs.ami_id }}
+        run: |
+          {
+            echo "## Golden AMI Pipeline — Final Summary"
+            echo ""
+            echo "| Environment | Result | AMI ID |"
+            echo "|-------------|--------|--------|"
+            echo "| development | ${DEV_RESULT} | ${DEV_AMI} |"
+            echo "| staging     | ${STG_RESULT} | ${STG_AMI} |"
+            echo "| production  | ${PRD_RESULT} | ${PRD_AMI} |"
+          } >> "$GITHUB_STEP_SUMMARY"

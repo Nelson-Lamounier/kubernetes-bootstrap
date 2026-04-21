@@ -1,0 +1,57 @@
+# @format
+# @description Deploy SSM Bootstrap to Development
+#
+# Dedicated pipeline for K8s bootstrap trigger (scripts sync + Step Functions).
+# The SSM Automation CDK stack is deployed by deploy-cdk.yml.
+#
+# Triggers:
+#   - Push to develop when bootstrap scripts change
+#   - Manual dispatch (workflow_dispatch)
+#
+# ─── Two Modes ─────────────────────────────────────────────────────
+#
+#   PUSH (automatic): S3 sync only — no Step Functions trigger.
+#     Keeps bootstrap + deploy scripts in S3 current so that ASG node
+#     replacement can recover using the latest committed scripts.
+#
+#   DISPATCH (manual, trigger_bootstrap=true): Full bootstrap.
+#     Use when manually re-bootstrapping a cluster node.
+#     SM-B fires automatically via EventBridge when SM-A succeeds.
+#     To inject config only (no bootstrap), use deploy-post-bootstrap.yml.
+
+name: Deploy SSM Bootstrap to Development
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'boot/**'
+      - 'deploy_helpers/**'
+      - 'system/**'
+      - 'scripts/cd/**'
+  workflow_dispatch:
+    inputs:
+      trigger_bootstrap:
+        description: "Trigger SM-A Step Functions bootstrap on nodes (full re-bootstrap — opt-in)"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write      # OIDC for aws-actions/configure-aws-credentials
+  contents: read       # actions/checkout
+
+concurrency:
+  group: deploy-ssm-bootstrap-development
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Bootstrap Development
+    uses: ./.github/workflows/_deploy-ssm-automation.yml
+    with:
+      environment: development
+      cdk-environment: development
+      # Push events: trigger_bootstrap input is absent → evaluates false → S3 sync only.
+      # Dispatch: honour the explicit toggle (default false — opt-in bootstrap).
+      trigger-bootstrap: ${{ github.event.inputs.trigger_bootstrap == 'true' }}
+    secrets: inherit

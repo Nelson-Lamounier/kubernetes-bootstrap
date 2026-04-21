@@ -1,5 +1,0 @@
-# Runtime dependencies for deploy_helpers.
-# Install on the control-plane instance before running any deploy.py script:
-#   pip3 install -q -r /data/k8s-bootstrap/deploy_helpers/requirements.txt
-boto3>=1.34.0
-kubernetes>=29.0.0

@@ -33,7 +33,7 @@ import {
   type FilteredLogEvent,
 } from '@aws-sdk/client-cloudwatch-logs';
 
-import log from '@repo/script-utils/logger.js';
+import log from './lib/logger.js';
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing

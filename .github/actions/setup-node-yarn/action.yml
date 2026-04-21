@@ -1,0 +1,45 @@
+# @format
+name: "Setup Node.js and Install Script Dependencies"
+description: "Installs Node.js and npm dependencies for the scripts/ directory."
+
+inputs:
+  node-version:
+    description: "Node.js version to install"
+    required: false
+    default: "22"
+
+outputs:
+  cache-hit:
+    description: "Whether dependency cache was hit"
+    value: ${{ steps.cache-deps.outputs.cache-hit }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Cache Script Dependencies
+      id: cache-deps
+      uses: actions/cache@v4
+      with:
+        path: scripts/node_modules
+        key: scripts-deps-${{ runner.os }}-node${{ inputs.node-version }}-${{ hashFiles('scripts/package.json') }}
+        restore-keys: |
+          scripts-deps-${{ runner.os }}-node${{ inputs.node-version }}-
+
+    - name: Install Script Dependencies
+      shell: bash
+      run: |
+        echo "Installing script dependencies..."
+        npm install --prefix scripts
+        echo "✓ Dependencies ready"
+
+    - name: Verify Installation
+      shell: bash
+      run: |
+        echo "Node version: $(node --version)"
+        echo "npm version: $(npm --version)"
+        echo "tsx available: $(npx --prefix scripts tsx --version 2>/dev/null || echo 'not found')"
