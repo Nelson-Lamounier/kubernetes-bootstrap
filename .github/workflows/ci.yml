@@ -1,3 +1,15 @@
+# @format
+# ============================================================================
+# ci.yml — Continuous Integration
+# ============================================================================
+#
+# Language split:
+#   TypeScript — infra CDK constructs, boot steps (control_plane/worker/
+#                orchestrator), scripts/cd, vitest unit tests
+#   Python     — system/argocd bootstrap, system/cert-manager helper,
+#                tests/argocd, tests/system (boot/ and deploy_helpers/
+#                were migrated to TypeScript and are no longer linted here)
+
 name: CI — Kubernetes Bootstrap
 
 on:
@@ -7,14 +19,82 @@ on:
     branches: [develop, main]
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # TypeScript: type-check (infra CDK constructs)
+  # ---------------------------------------------------------------------------
+  ts-typecheck:
+    name: TypeScript Typecheck (infra)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: infra/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Typecheck
+        run: yarn typecheck
+        working-directory: infra
+
+  # ---------------------------------------------------------------------------
+  # TypeScript: ESLint (infra CDK constructs)
+  # ---------------------------------------------------------------------------
+  ts-lint:
+    name: TypeScript Lint (infra)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: yarn
+          cache-dependency-path: infra/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: ESLint
+        run: yarn lint
+        working-directory: infra
+
+  # ---------------------------------------------------------------------------
+  # TypeScript: vitest unit tests
+  # ---------------------------------------------------------------------------
+  ts-test:
+    name: TypeScript Tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: "22"
+          install-infra: "true"
+
+      - name: Run tests
+        run: yarn test
+
+  # ---------------------------------------------------------------------------
+  # Python: Ruff lint + format check
+  # Scoped to system/ and tests/argocd, tests/system — boot/ and deploy_helpers/
+  # were migrated to TypeScript and removed.
+  # ---------------------------------------------------------------------------
   python-lint:
     name: Python Lint (Ruff)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
@@ -22,19 +102,21 @@ jobs:
         run: pip install ruff
 
       - name: Ruff check
-        run: ruff check boot/ deploy_helpers/ system/ tests/
+        run: ruff check system/ tests/argocd/ tests/system/
 
       - name: Ruff format check
-        run: ruff format --check boot/ deploy_helpers/ system/
+        run: ruff format --check system/
 
+  # ---------------------------------------------------------------------------
+  # Python: pytest (ArgoCD bootstrap + system scripts)
+  # ---------------------------------------------------------------------------
   pytest:
     name: Pytest Suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
@@ -42,8 +124,11 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/argocd/ tests/system/ -v --tb=short
 
+  # ---------------------------------------------------------------------------
+  # YAML lint (ArgoCD application manifests in system/)
+  # ---------------------------------------------------------------------------
   yaml-lint:
     name: YAML Lint
     runs-on: ubuntu-latest
@@ -56,14 +141,25 @@ jobs:
       - name: Lint YAML
         run: yamllint -c .yamllint.yml system/
 
+  # ---------------------------------------------------------------------------
+  # Shell script syntax check (system/ only — boot/*.sh removed)
+  # ---------------------------------------------------------------------------
   shell-lint:
     name: Shell Script Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find and lint shell scripts
+      - name: Syntax check shell scripts
         run: |
-          find boot/ system/ -name "*.sh" -type f | head -20
+          SCRIPTS=$(find system/ -name "*.sh" -type f)
+          if [ -z "$SCRIPTS" ]; then
+            echo "No shell scripts found"
+            exit 0
+          fi
+          echo "$SCRIPTS"
           echo "---"
-          find boot/ system/ -name "*.sh" -type f -exec bash -n {} \; && echo "✅ All shell scripts pass syntax check"
+          while IFS= read -r script; do
+            bash -n "$script" && echo "  ✓ $script"
+          done <<< "$SCRIPTS"
+          echo "All shell scripts pass syntax check"

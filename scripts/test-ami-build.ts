@@ -60,9 +60,12 @@ test('no alternatives --set python3 as command (breaks cloud-init)', () =>
 test('no pip install without venv (pollutes system python)', () =>
     absent(/^pip install/m));
 
-test('no curl | bash without version pin (except helm installer)', () => {
+test('no curl | bash without version pin (except helm installer and nodesource setup)', () => {
     const matches = yaml.match(/curl[^|]+\| *bash/g) ?? [];
-    const violations = matches.filter(m => !m.includes('get-helm-3'));
+    const violations = matches.filter(m =>
+        !m.includes('get-helm-3') &&
+        !m.includes('nodesource.com/setup_'),
+    );
     return violations.length === 0 || `Found: ${violations.join(', ')}`;
 });
 
