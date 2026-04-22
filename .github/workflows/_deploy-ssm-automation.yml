@@ -53,7 +53,6 @@ on:
 permissions:
   id-token: write        # Required for OIDC → aws-actions/configure-aws-credentials
   contents: read         # Required for actions/checkout
-  administration: read   # Required for check-runner: list self-hosted runners API
 
 # One active run per environment. A new dispatch cancels any stuck/in-progress
 # run (including hung ARC runner jobs that ignore timeout-minutes).
@@ -214,43 +213,6 @@ jobs:
             --region "$AWS_REGION"
 
   # ===========================================================================
-  # Phase 4b: Preflight — Check k8s-runner availability before Phase 5
-  #
-  # Runs on ubuntu-latest so it always gets a runner immediately.
-  # Queries the GitHub Actions runner API for any online k8s-runner.
-  # If none are online, emits available=false and Phase 5 is skipped,
-  # preventing an indefinite "Waiting for runner" hang.
-  # ===========================================================================
-  check-runner:
-    name: "Phase 4b — Check k8s-runner availability"
-    needs: [trigger-bootstrap]
-    if: >-
-      always()
-      && (needs.trigger-bootstrap.result == 'success'
-       || needs.trigger-bootstrap.result == 'skipped'
-       || needs.trigger-bootstrap.result == 'failure')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      available: ${{ steps.check.outputs.available }}
-
-    steps:
-      - name: Check for online k8s-runner
-        id: check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          ONLINE=$(gh api "repos/${{ github.repository }}/actions/runners" \
-            --jq '[.runners[] | select(.labels[].name == "k8s-runner") | select(.status == "online")] | length')
-          if [ "${ONLINE:-0}" -gt 0 ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "k8s-runner: ${ONLINE} online"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No k8s-runner online — verify-bootstrap will be skipped"
-          fi
-
-  # ===========================================================================
   # Phase 5: Verify Bootstrap — Node Readiness & Cluster Health (k8s-runner)
   #
   # Hard failures (exit 1) = SM-A must deliver these:
@@ -258,13 +220,15 @@ jobs:
   #
   # Warnings only (::warning::) = SM-B territory (fires after SM-A via EventBridge):
   #   node labels/taints, Traefik, monitoring, Next.js, app sync status
+  #
+  # NOTE: If k8s-runner is offline this job hangs waiting for a runner.
+  # Use `just gh-cancel-queued` to bulk force-cancel stuck runs.
   # ===========================================================================
   verify-bootstrap:
     name: "Phase 5 — Verify Bootstrap (k8s-runner)"
-    needs: [trigger-bootstrap, check-runner]
+    needs: [trigger-bootstrap]
     if: >-
       always()
-      && needs.check-runner.outputs.available == 'true'
       && (needs.trigger-bootstrap.result == 'success'
        || needs.trigger-bootstrap.result == 'skipped'
        || needs.trigger-bootstrap.result == 'failure')
