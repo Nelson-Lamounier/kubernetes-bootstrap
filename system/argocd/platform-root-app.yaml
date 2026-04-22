@@ -8,6 +8,9 @@
 #   - Utilities (ecr-token-refresh, argocd-image-updater, argocd-notifications, aws-ebs-csi-driver)
 #
 # Must be 100% healthy before the workloads root app deploys business apps.
+#
+# Source: kubernetes-platform (decoupled from cdk-monitoring as of Apr 2026)
+# ArgoCD repo secret: repo-kubernetes-platform (same SSH key as cdk-monitoring)
 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -26,10 +29,10 @@ spec:
   project: default
 
   source:
-    repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
     # PRODUCTION: Change to 'main' when deploying to production.
     targetRevision: develop
-    path: kubernetes-app/platform/argocd-apps
+    path: argocd-apps
     directory:
       recurse: false
 
