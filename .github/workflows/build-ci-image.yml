@@ -1,0 +1,94 @@
+# @format
+# ============================================================================
+# build-ci-image.yml — Build and Push ARC Runner Container Image
+# ============================================================================
+#
+# Builds the custom ARC runner image and pushes it to GHCR whenever the
+# Dockerfile changes on main or develop.
+#
+# Image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/arc-runner
+# Tags:  :latest (rolling, main only), :develop (rolling, develop only),
+#        :<short-sha> (immutable)
+#
+# The image is referenced by the ARC runner scale set ArgoCD Application
+# and enables setup-node-yarn/action.yml to detect the CI container and
+# skip redundant tool installation (node + aws + yarn present).
+
+name: Build CI Runner Image
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - ".github/docker/arc-runner/Dockerfile"
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Push image to GHCR (default: true)"
+        required: false
+        default: "true"
+
+jobs:
+  build:
+    name: Build and Push ARC Runner
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── QEMU + Buildx (layer caching support) ───────────────────────────────
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Authenticate to GHCR ────────────────────────────────────────────────
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Image metadata (tags + labels) ─────────────────────────────────────
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/kubernetes-bootstrap/arc-runner
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+            type=raw,value=develop,enable=${{ github.ref_name == 'develop' }}
+            type=sha,prefix=,format=short
+
+      # ── Build and push ──────────────────────────────────────────────────────
+      - name: Build and Push
+        id: build-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/docker/arc-runner
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Summary ─────────────────────────────────────────────────────────────
+      - name: Image Summary
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE_DIGEST: ${{ steps.build-push.outputs.digest }}
+        run: |
+          echo "## ARC Runner Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags pushed:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$IMAGE_TAGS" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
