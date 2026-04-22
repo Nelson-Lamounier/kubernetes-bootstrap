@@ -31,8 +31,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: yarn
-          cache-dependency-path: infra/yarn.lock
+
+      - name: Enable Corepack (Yarn v4)
+        run: corepack enable
+
+      - name: Cache Infra Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            infra/node_modules
+            infra/.yarn/cache
+          key: infra-deps-${{ runner.os }}-node22-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: infra-deps-${{ runner.os }}-node22-
 
       - name: Install dependencies
         run: yarn install --immutable
@@ -54,8 +64,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: yarn
-          cache-dependency-path: infra/yarn.lock
+
+      - name: Enable Corepack (Yarn v4)
+        run: corepack enable
+
+      - name: Cache Infra Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            infra/node_modules
+            infra/.yarn/cache
+          key: infra-deps-${{ runner.os }}-node22-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: infra-deps-${{ runner.os }}-node22-
 
       - name: Install dependencies
         run: yarn install --immutable
