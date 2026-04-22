@@ -1016,11 +1016,11 @@ const configureKubectl = async (_cfg: BootConfig): Promise<void> => {
 // =============================================================================
 
 const bootstrapArgocd = async (_cfg: BootConfig): Promise<void> => {
-    const bootstrapScript = '/opt/k8s-bootstrap/system/argocd/bootstrap-argocd.sh';
-    if (!existsSync(bootstrapScript)) {
-        throw new Error(`ArgoCD bootstrap script not found at ${bootstrapScript} — AMI bake may be missing system/ manifests`);
+    const bootstrapTs = '/opt/k8s-bootstrap/system/argocd/bootstrap_argocd.ts';
+    if (!existsSync(bootstrapTs)) {
+        throw new Error(`ArgoCD bootstrap script not found at ${bootstrapTs} — AMI bake may be missing system/ manifests`);
     }
-    run([bootstrapScript], {
+    run(['npx', 'tsx', bootstrapTs], {
         env: { KUBECONFIG: ADMIN_CONF, ARGOCD_DIR: '/opt/k8s-bootstrap/system/argocd' },
         capture: false,
         timeout: 800_000,
