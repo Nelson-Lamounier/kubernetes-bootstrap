@@ -86,6 +86,23 @@ jobs:
         working-directory: infra
 
   # ---------------------------------------------------------------------------
+  # TypeScript: type-check (ArgoCD bootstrap)
+  # ---------------------------------------------------------------------------
+  ts-argocd-typecheck:
+    name: TypeScript Typecheck (argocd bootstrap)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: "22"
+
+      - name: Typecheck argocd bootstrap
+        run: yarn workspace k8s-argocd-bootstrap typecheck
+
+  # ---------------------------------------------------------------------------
   # TypeScript: vitest unit tests
   # ---------------------------------------------------------------------------
   ts-test:
