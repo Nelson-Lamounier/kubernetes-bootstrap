@@ -83,7 +83,8 @@ jobs:
             infra-deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-
 
       - name: Install Infra Dependencies
-        run: yarn --cwd infra install --immutable
+        run: yarn install --immutable
+        working-directory: infra
 
       - name: Configure AWS Credentials
         uses: ./.github/actions/configure-aws
@@ -92,7 +93,8 @@ jobs:
           aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
 
       - name: TypeScript Check
-        run: yarn --cwd infra tsc --noEmit
+        run: yarn tsc --noEmit
+        working-directory: infra
 
       - name: CDK Bootstrap (deploy only)
         env:
