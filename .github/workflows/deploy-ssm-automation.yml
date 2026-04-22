@@ -14,8 +14,9 @@
 #     Keeps bootstrap + deploy scripts in S3 current so that ASG node
 #     replacement can recover using the latest committed scripts.
 #
-#   DISPATCH (manual, trigger_bootstrap=true): Full bootstrap.
+#   DISPATCH (manual): Full bootstrap by default (trigger_bootstrap=true).
 #     Use when manually re-bootstrapping a cluster node.
+#     Uncheck trigger_bootstrap to do an S3-sync-only dispatch.
 #     SM-B fires automatically via EventBridge when SM-A succeeds.
 #     To inject config only (no bootstrap), use deploy-post-bootstrap.yml.
 
@@ -32,9 +33,9 @@ on:
   workflow_dispatch:
     inputs:
       trigger_bootstrap:
-        description: "Trigger SM-A Step Functions bootstrap on nodes (full re-bootstrap — opt-in)"
+        description: "Trigger SM-A Step Functions bootstrap on nodes (full re-bootstrap)"
         type: boolean
-        default: false
+        default: true
 
 permissions:
   id-token: write      # OIDC for aws-actions/configure-aws-credentials
@@ -52,6 +53,6 @@ jobs:
       environment: development
       cdk-environment: development
       # Push events: trigger_bootstrap input is absent → evaluates false → S3 sync only.
-      # Dispatch: honour the explicit toggle (default false — opt-in bootstrap).
+      # Dispatch: honour the explicit toggle (default true — bootstrap runs unless unchecked).
       trigger-bootstrap: ${{ github.event.inputs.trigger_bootstrap == 'true' }}
     secrets: inherit

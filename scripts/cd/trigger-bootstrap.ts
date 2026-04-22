@@ -29,15 +29,12 @@
  */
 
 import {
-    DescribeInstancesCommand,
     EC2Client,
     RebootInstancesCommand,
 } from '@aws-sdk/client-ec2';
 import {
     SFNClient,
     StartExecutionCommand,
-    DescribeExecutionCommand,
-    ListExecutionsCommand,
 } from '@aws-sdk/client-sfn';
 import {
     DescribeInstanceInformationCommand,
@@ -48,6 +45,14 @@ import {
 import { parseArgs, buildAwsConfig } from '../lib/aws.js';
 import { setOutput, writeSummary, emitAnnotation } from '../lib/github.js';
 import logger from '../lib/logger.js';
+import {
+    buildTargets,
+    findRunningExecution,
+    resolveAsgNameByTag,
+    resolveInstanceByTag,
+    waitForExecution as libWaitForExecution,
+} from './bootstrap-trigger-lib.js';
+import type { TriggerResult, TriggerTarget } from './bootstrap-trigger-lib.js';
 
 // =============================================================================
 // CLI argument parsing
@@ -114,40 +119,6 @@ const sfn = new SFNClient({
 });
 
 // =============================================================================
-// Node Trigger Target Definitions
-// =============================================================================
-
-interface TriggerTarget {
-    role: string;
-    execParam: string;
-    outputKey: string;
-    targetTagValue: string;
-}
-
-function buildTargets(prefix: string): TriggerTarget[] {
-    return [
-        {
-            role: 'control-plane',
-            execParam: `${prefix}/bootstrap/execution-id`,
-            outputKey: 'cp_execution_id',
-            targetTagValue: 'control-plane',
-        },
-        {
-            role: 'general-pool',
-            execParam: `${prefix}/bootstrap/general-pool-execution-id`,
-            outputKey: 'general_pool_execution_id',
-            targetTagValue: 'general-pool',
-        },
-        {
-            role: 'monitoring-pool',
-            execParam: `${prefix}/bootstrap/monitoring-pool-execution-id`,
-            outputKey: 'monitoring_pool_execution_id',
-            targetTagValue: 'monitoring-pool',
-        },
-    ];
-}
-
-// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -157,49 +128,6 @@ async function getParam(name: string): Promise<string | undefined> {
         const value = result.Parameter?.Value;
         if (value && value !== 'None') return value;
         return undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-async function resolveInstanceByTag(tagValue: string): Promise<string | undefined> {
-    try {
-        const result = await ec2.send(
-            new DescribeInstancesCommand({
-                Filters: [
-                    { Name: 'tag:k8s:bootstrap-role', Values: [tagValue] },
-                    { Name: 'instance-state-name', Values: ['running'] },
-                ],
-            }),
-        );
-
-        const instances = result.Reservations?.flatMap((r) => r.Instances ?? []) ?? [];
-        if (instances.length === 0) return undefined;
-
-        return instances[0].InstanceId;
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn(`EC2 describe-instances failed for tag k8s:bootstrap-role=${tagValue}: ${message}`);
-        return undefined;
-    }
-}
-
-async function resolveAsgNameByTag(tagValue: string): Promise<string | undefined> {
-    try {
-        const result = await ec2.send(
-            new DescribeInstancesCommand({
-                Filters: [
-                    { Name: 'tag:k8s:bootstrap-role', Values: [tagValue] },
-                    { Name: 'instance-state-name', Values: ['running'] },
-                ],
-            }),
-        );
-
-        const instance = result.Reservations?.flatMap((r) => r.Instances ?? [])?.[0];
-        if (!instance) return undefined;
-
-        const asgTag = instance.Tags?.find((t) => t.Key === 'aws:autoscaling:groupName');
-        return asgTag?.Value;
     } catch {
         return undefined;
     }
@@ -276,46 +204,8 @@ async function checkSsmAgentHealth(
 }
 
 // =============================================================================
-// Execution Deduplication
-// =============================================================================
-
-/**
- * Returns the ARN of any currently-RUNNING execution for this role.
- * Execution names from this script follow the pattern `github-{role}-{timestamp}`.
- * EventBridge-auto-triggered executions have generated names — those are excluded
- * since the SM-A router handles deduplication for ASG launch events natively.
- */
-async function findRunningExecution(
-    stateMachineArn: string,
-    role: string,
-): Promise<string | undefined> {
-    try {
-        const result = await sfn.send(
-            new ListExecutionsCommand({
-                stateMachineArn,
-                statusFilter: 'RUNNING',
-                maxResults: 20,
-            }),
-        );
-        return result.executions
-            ?.find((e) => e.name?.includes(`-${role}-`))
-            ?.executionArn;
-    } catch {
-        return undefined;
-    }
-}
-
-// =============================================================================
 // Core Functions
 // =============================================================================
-
-interface TriggerResult {
-    role: string;
-    status: 'triggered' | 'skipped';
-    executionArn?: string;
-    instanceId?: string;
-    reason?: string;
-}
 
 async function triggerNode(
     target: TriggerTarget,
@@ -324,14 +214,14 @@ async function triggerNode(
 ): Promise<TriggerResult> {
     logger.task(`${target.role}${isDryRun ? ' [DRY-RUN]' : ''}`);
 
-    const instanceId = await resolveInstanceByTag(target.targetTagValue);
+    const instanceId = await resolveInstanceByTag(ec2, target.targetTagValue);
     if (!instanceId) {
         logger.info(`[SKIP] No running instance with tag k8s:bootstrap-role=${target.targetTagValue}`);
         return { role: target.role, status: 'skipped', reason: 'no running instance' };
     }
     logger.keyValue('Instance', instanceId);
 
-    const asgName = await resolveAsgNameByTag(target.targetTagValue);
+    const asgName = await resolveAsgNameByTag(ec2, target.targetTagValue);
     if (!asgName) {
         logger.warn(`[SKIP] Could not resolve ASG name for tag ${target.targetTagValue}`);
         return { role: target.role, status: 'skipped', reason: 'no ASG name' };
@@ -341,7 +231,7 @@ async function triggerNode(
     // Check for an already-running execution before starting a new one.
     // Prevents duplicate runs when the workflow is re-triggered while a prior
     // execution is still in progress (e.g. re-run on a slow bootstrap).
-    const runningArn = await findRunningExecution(stateMachineArn, target.role);
+    const runningArn = await findRunningExecution(sfn, stateMachineArn, target.role);
     if (runningArn) {
         logger.warn(
             `[DEDUP] Found running execution for ${target.role} — skipping new start.` +
@@ -413,50 +303,31 @@ async function triggerNode(
     return { role: target.role, status: 'triggered', executionArn, instanceId };
 }
 
-const TERMINAL_SUCCESS = new Set(['SUCCEEDED']);
-const TERMINAL_FAILURE = new Set(['FAILED', 'TIMED_OUT', 'ABORTED']);
-
 async function waitForExecution(
     role: string,
     executionArn: string,
     maxWaitSeconds: number,
 ): Promise<boolean> {
-    const pollInterval = 15_000;
-    let waited = 0;
-
     logger.blank();
     logger.task(`Waiting for ${role} execution`);
     logger.keyValue('ARN', executionArn);
 
-    while (waited < maxWaitSeconds * 1000) {
-        let status = 'UNKNOWN';
+    const succeeded = await libWaitForExecution(
+        sfn,
+        executionArn,
+        maxWaitSeconds,
+        sleep,
+        (status, elapsed) => {
+            logger.info(`${role} status: ${status} (${elapsed}s / ${maxWaitSeconds}s)`);
+        },
+    );
 
-        try {
-            const result = await sfn.send(
-                new DescribeExecutionCommand({ executionArn }),
-            );
-            status = result.status ?? 'UNKNOWN';
-        } catch {
-            // Transient error — keep polling
-        }
-
-        if (TERMINAL_SUCCESS.has(status)) {
-            logger.success(`${role} execution SUCCEEDED (${waited / 1000}s)`);
-            return true;
-        }
-
-        if (TERMINAL_FAILURE.has(status)) {
-            logger.warn(`${role} execution finished with status: ${status} (${waited / 1000}s)`);
-            return false;
-        }
-
-        logger.info(`${role} status: ${status} (${waited / 1000}s / ${maxWaitSeconds}s)`);
-        await sleep(pollInterval);
-        waited += pollInterval;
+    if (succeeded) {
+        logger.success(`${role} execution SUCCEEDED`);
+    } else {
+        logger.warn(`${role} execution did not complete within ${maxWaitSeconds}s`);
     }
-
-    logger.warn(`${role} execution did not complete within ${maxWaitSeconds}s`);
-    return false;
+    return succeeded;
 }
 
 // =============================================================================
