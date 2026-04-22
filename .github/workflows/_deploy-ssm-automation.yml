@@ -54,6 +54,12 @@ permissions:
   id-token: write        # Required for OIDC → aws-actions/configure-aws-credentials
   contents: read         # Required for actions/checkout
 
+# One active run per environment. A new dispatch cancels any stuck/in-progress
+# run (including hung ARC runner jobs that ignore timeout-minutes).
+concurrency:
+  group: deploy-ssm-automation-${{ inputs.environment }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: "22"
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
