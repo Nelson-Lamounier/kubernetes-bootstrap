@@ -48,6 +48,12 @@ runs:
       shell: bash
       run: corepack enable
 
+    # ─── Corepack in CI container (yarn v1 may be on PATH; activate v4) ─
+    - name: Activate Corepack shim (CI container)
+      if: steps.detect-env.outputs.in-container == 'true'
+      shell: bash
+      run: corepack enable
+
     # ─── Dependency cache ─────────────────────────────────────────────
     - name: Cache Dependencies
       id: cache-deps
