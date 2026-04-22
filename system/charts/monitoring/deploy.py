@@ -25,21 +25,21 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Ensure deploy_helpers is importable from the k8s-bootstrap directory.
-# On EC2: /data/k8s-bootstrap/deploy_helpers/
-# Locally: relative to this file's grandparent (kubernetes-app/k8s-bootstrap/)
+# deploy_helpers lives at the repo root (kubernetes-bootstrap/).
+# This file is at system/charts/monitoring/deploy.py → parents[3] is the repo root.
+# On EC2: S3-synced to /data/k8s-bootstrap/ — override via DEPLOY_HELPERS_PATH.
 _BOOTSTRAP_DIR = os.environ.get(
     "DEPLOY_HELPERS_PATH",
-    str(Path(__file__).resolve().parents[2] / "k8s-bootstrap"),
+    str(Path(__file__).resolve().parents[3]),
 )
 if _BOOTSTRAP_DIR not in sys.path:
     sys.path.insert(0, _BOOTSTRAP_DIR)
 
-from deploy_helpers.config import DeployConfig
-from deploy_helpers.k8s import ensure_namespace, load_k8s, upsert_secret
-from deploy_helpers.logging import log_info, log_warn
-from deploy_helpers.s3 import sync_from_s3
-from deploy_helpers.ssm import resolve_secrets
+from deploy_helpers.config import DeployConfig  # noqa: E402
+from deploy_helpers.k8s import ensure_namespace, load_k8s, upsert_secret  # noqa: E402
+from deploy_helpers.logging import log_info, log_warn  # noqa: E402
+from deploy_helpers.s3 import sync_from_s3  # noqa: E402
+from deploy_helpers.ssm import resolve_secrets  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -392,8 +392,6 @@ def create_monitoring_k8s_secrets(v1: object, cfg: MonitoringConfig) -> None:
     # Prometheus Basic Auth credentials
     prometheus_auth = secrets.get("PROMETHEUS_BASIC_AUTH")
     if prometheus_auth:
-        import base64
-        # Traefik requires basic auth string to be formatted like user:password_hash
         upsert_secret(
             v1,
             name="prometheus-basic-auth-secret",
