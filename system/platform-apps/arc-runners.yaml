@@ -63,7 +63,7 @@ spec:
           namespace: arc-systems
           name: arc-controller
 
-        githubConfigUrl: "https://github.com/Nelson-Lamounier/cdk-monitoring"
+        githubConfigUrl: "https://github.com/Nelson-Lamounier/kubernetes-bootstrap"
 
         # Created manually — see header comment for kubectl command.
         githubConfigSecret: arc-github-secret
@@ -89,9 +89,9 @@ spec:
             containers:
               - name: runner
                 # Custom runner image with AWS CLI v2, python3+pip+venv, kubectl
-                # pre-installed. Built by .github/workflows/build-ci-image.yml
-                # (build-arc-runner job) and pushed to GHCR.
-                image: ghcr.io/nelson-lamounier/cdk-monitoring/arc-runner:latest
+                # pre-installed. Built by kubernetes-bootstrap/.github/workflows/build-ci-image.yml
+                # and pushed to GHCR under the kubernetes-bootstrap package namespace.
+                image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/arc-runner:latest
                 command: ["/home/runner/run.sh"]
 
   destination:
