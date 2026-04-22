@@ -67,7 +67,7 @@ typeCheckingMode = "basic"
 [tool.ruff]
 target-version = "py39"
 line-length = 100
-src = ["boot", "deploy_helpers", "system/argocd", "system/cert-manager", "system/dr", "tests"]
+src = ["boot", "deploy_helpers", "system/argocd", "system/cert-manager", "system/charts/monitoring", "system/dr", "tests"]
 
 [tool.ruff.lint]
 select = [

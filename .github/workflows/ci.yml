@@ -119,6 +119,73 @@ jobs:
         run: yarn test
 
   # ---------------------------------------------------------------------------
+  # Helm template validation (charts merged from kubernetes-platform)
+  # ---------------------------------------------------------------------------
+  helm-validate:
+    name: Helm Template Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.16.0"
+
+      - name: Validate monitoring chart (development)
+        run: |
+          helm template monitoring system/charts/monitoring/chart/ \
+            -f system/charts/monitoring/chart/values.yaml \
+            -f system/charts/monitoring/chart/values-development.yaml \
+            --debug > /dev/null
+
+      - name: Validate crossplane-xrds chart
+        run: |
+          helm template crossplane-xrds system/charts/crossplane-xrds/chart/ \
+            --debug > /dev/null
+
+  # ---------------------------------------------------------------------------
+  # Python lint (deploy_helpers + monitoring deploy script)
+  # ---------------------------------------------------------------------------
+  python-lint:
+    name: Python Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint deploy_helpers
+        run: ruff check deploy_helpers/
+
+      - name: Lint monitoring deploy.py
+        run: ruff check system/charts/monitoring/deploy.py
+
+  # ---------------------------------------------------------------------------
+  # Grafana dashboard JSON validation
+  # ---------------------------------------------------------------------------
+  dashboard-validation:
+    name: Grafana Dashboard Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install tsx
+        run: npm install -g tsx
+
+      - name: Validate dashboard JSON files
+        run: npx tsx --test system/charts/monitoring/tests/validate-dashboards.test.ts
+
+  # ---------------------------------------------------------------------------
   # YAML lint (ArgoCD application manifests in system/)
   # ---------------------------------------------------------------------------
   yaml-lint:
