@@ -91,7 +91,7 @@ spec:
                 # Custom runner image with AWS CLI v2, python3+pip+venv, kubectl
                 # pre-installed. Built by kubernetes-bootstrap/.github/workflows/build-ci-image.yml
                 # and pushed to GHCR under the kubernetes-bootstrap package namespace.
-                image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/arc-runner:latest
+                image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/arc-runner:develop
                 command: ["/home/runner/run.sh"]
 
   destination:
