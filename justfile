@@ -281,6 +281,22 @@ build-golden-ami env="development" region="eu-west-1":
 gh-dispatch workflow *ARGS:
     gh workflow run {{workflow}} {{ARGS}}
 
+# Force-cancel a stuck/pending GitHub Actions run that normal cancel won't clear.
+# Use when verify-bootstrap is pending (k8s-runner unavailable) or a run is
+# perpetually queued (runner_id=0, never acknowledged the cancel signal).
+# Usage: just gh-force-cancel <run-id>
+#        just gh-force-cancel 24771683384
+[group('ci')]
+gh-force-cancel run-id:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    REPO="Nelson-Lamounier/kubernetes-bootstrap"
+    echo "Force-cancelling run {{run-id}} in ${REPO}..."
+    gh api "repos/${REPO}/actions/runs/{{run-id}}/force-cancel" --method POST
+    sleep 2
+    RESULT=$(gh run view {{run-id}} --repo "${REPO}" --json status,conclusion 2>/dev/null || echo '{"status":"unknown"}')
+    echo "Result: ${RESULT}"
+
 # Trigger the deploy-golden-ami GitHub Actions workflow
 # Requires: gh CLI authenticated (gh auth login)
 # Usage: just ami-workflow production
@@ -1016,3 +1032,90 @@ clean-untracked:
 [group('util')]
 clean-untracked-force:
     git clean -fd
+
+# =============================================================================
+# CI — GITOPS & INTEGRATION
+# =============================================================================
+
+# Verify ArgoCD sync — polls API until all Applications are Synced + Healthy
+# Usage: just ci-verify-argocd --environment development --region eu-west-1
+[group('ci')]
+ci-verify-argocd *ARGS:
+    npx tsx scripts/cd/verify-argocd-sync.ts {{ARGS}}
+
+# ArgoCD health check — quick reachability check via SSM send-command
+# Usage: just ci-argocd-health --environment development --region eu-west-1
+[group('ci')]
+ci-argocd-health *ARGS:
+    npx tsx scripts/cd/verify-argocd-sync.ts --mode health {{ARGS}}
+
+# Deploy monitoring manifests via SSM Run Command
+# Usage: just ci-deploy-manifests development --region eu-west-1
+[group('ci')]
+ci-deploy-manifests *ARGS:
+    npx tsx system/charts/monitoring/scripts/deploy-manifests.ts {{ARGS}}
+
+# Run CDK integration tests (requires AWS credentials)
+# Usage: just ci-integration-test kubernetes/bootstrap-orchestrator development --verbose
+[group('ci')]
+ci-integration-test project environment *ARGS:
+    cd infra && NODE_OPTIONS='--experimental-vm-modules' CDK_ENV={{environment}} npx jest \
+      --config jest.integration.config.js \
+      --testPathPattern="tests/integration/{{project}}" \
+      {{ARGS}}
+
+# Validate Helm charts in system/charts/
+# Lints and template-renders monitoring + crossplane-xrds charts.
+[group('ci')]
+helm-validate-charts:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ERRORS=0
+
+    echo "=== Helm Chart Validation ==="
+    echo ""
+
+    # --- Monitoring chart ---
+    echo "--- Monitoring chart ---"
+    if helm lint system/charts/monitoring/chart \
+         -f system/charts/monitoring/chart/values-development.yaml 2>&1; then
+      echo "  ✓ lint passed"
+    else
+      echo "  ✗ lint FAILED"
+      ERRORS=$((ERRORS + 1))
+    fi
+
+    if helm template monitoring-stack system/charts/monitoring/chart \
+         -f system/charts/monitoring/chart/values-development.yaml > /dev/null 2>&1; then
+      echo "  ✓ template render passed"
+    else
+      echo "  ✗ template render FAILED"
+      helm template monitoring-stack system/charts/monitoring/chart \
+        -f system/charts/monitoring/chart/values-development.yaml 2>&1 || true
+      ERRORS=$((ERRORS + 1))
+    fi
+    echo ""
+
+    # --- Crossplane XRDs chart ---
+    echo "--- Crossplane XRDs chart ---"
+    if helm lint system/charts/crossplane-xrds/chart 2>&1; then
+      echo "  ✓ lint passed"
+    else
+      echo "  ✗ lint FAILED"
+      ERRORS=$((ERRORS + 1))
+    fi
+
+    if helm template crossplane-xrds system/charts/crossplane-xrds/chart > /dev/null 2>&1; then
+      echo "  ✓ template render passed"
+    else
+      echo "  ✗ template render FAILED"
+      helm template crossplane-xrds system/charts/crossplane-xrds/chart 2>&1 || true
+      ERRORS=$((ERRORS + 1))
+    fi
+    echo ""
+
+    if [ $ERRORS -gt 0 ]; then
+      echo "✗ $ERRORS chart validations FAILED"
+      exit 1
+    fi
+    echo "✓ All chart validations passed"
