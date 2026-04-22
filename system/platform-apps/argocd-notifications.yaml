@@ -31,10 +31,10 @@ spec:
   project: default
 
   source:
-    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
     # PRODUCTION: Change to 'main' when deploying to production.
     targetRevision: develop
-    path: charts/argocd-notifications
+    path: system/charts/argocd-notifications
 
   destination:
     server: https://kubernetes.default.svc

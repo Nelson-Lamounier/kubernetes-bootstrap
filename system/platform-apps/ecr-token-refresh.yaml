@@ -26,9 +26,9 @@ spec:
   project: default
 
   source:
-    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
     targetRevision: develop
-    path: charts/ecr-token-refresh
+    path: system/charts/ecr-token-refresh
 
   destination:
     server: https://kubernetes.default.svc

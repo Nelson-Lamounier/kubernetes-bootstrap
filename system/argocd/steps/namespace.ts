@@ -49,7 +49,7 @@ export const createRepoSecret = (cfg: Config, deployKey: string): void => {
         return;
     }
     if (cfg.dryRun) {
-        log('  [DRY-RUN] Would create repo-cdk-monitoring and repo-kubernetes-platform secrets in argocd namespace\n');
+        log('  [DRY-RUN] Would create repo-cdk-monitoring and repo-kubernetes-bootstrap secrets in argocd namespace\n');
         return;
     }
     // Indent each line of the private key for YAML block scalar
@@ -73,11 +73,11 @@ ${indentedKey}
     // cdk-monitoring: workloads ApplicationSet still sources charts from this repo
     kubectlApplyStdin(makeRepoSecret('repo-cdk-monitoring', 'git@github.com:Nelson-Lamounier/cdk-monitoring.git'), cfg);
 
-    // kubernetes-platform: platform ArgoCD Applications (arc, traefik, monitoring, etc.)
-    // Same deploy key — add the public key as a deploy key in kubernetes-platform repo settings.
-    kubectlApplyStdin(makeRepoSecret('repo-kubernetes-platform', 'git@github.com:Nelson-Lamounier/kubernetes-platform.git'), cfg);
+    // kubernetes-bootstrap: platform ArgoCD Applications + charts now live here after merge.
+    // Same deploy key — add the public key as a deploy key in kubernetes-bootstrap repo settings.
+    kubectlApplyStdin(makeRepoSecret('repo-kubernetes-bootstrap', 'git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git'), cfg);
 
-    log('  ✓ SSH Deploy Key repo credentials applied (cdk-monitoring + kubernetes-platform)\n');
+    log('  ✓ SSH Deploy Key repo credentials applied (cdk-monitoring + kubernetes-bootstrap)\n');
 };
 
 // Step 3b: Preserve JWT signing key before ArgoCD re-install blanks argocd-secret

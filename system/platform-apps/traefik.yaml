@@ -28,8 +28,8 @@ spec:
 
   # Multi-source: Helm chart from upstream + values from Git
   sources:
-    # Source 1: Traefik values from the kubernetes-platform repo
-    - repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
+    # Source 1: Traefik values from this repo (kubernetes-bootstrap)
+    - repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
       # PRODUCTION: Change to 'main' when deploying to production.
       targetRevision: develop
       ref: values
@@ -40,7 +40,7 @@ spec:
       targetRevision: "36.*"
       helm:
         valueFiles:
-          - $values/charts/traefik/traefik-values.yaml
+          - $values/system/charts/traefik/traefik-values.yaml
 
   destination:
     server: https://kubernetes.default.svc

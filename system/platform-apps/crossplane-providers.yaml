@@ -33,10 +33,10 @@ spec:
   project: default
 
   source:
-    # Points to the dedicated kubernetes-platform repository
-    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
+    # Manifests live in system/charts/crossplane-providers/ (merged from kubernetes-platform)
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
     targetRevision: develop
-    path: charts/crossplane-providers/manifests
+    path: system/charts/crossplane-providers/manifests
 
   destination:
     server: https://kubernetes.default.svc

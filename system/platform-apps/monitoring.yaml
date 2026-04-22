@@ -38,10 +38,10 @@ spec:
         - /data
 
   source:
-    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
     # PRODUCTION: Change to 'main' when deploying to production.
     targetRevision: develop
-    path: charts/monitoring/chart
+    path: system/charts/monitoring/chart
     helm:
       valueFiles:
         - values-development.yaml
