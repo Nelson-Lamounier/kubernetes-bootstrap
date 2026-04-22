@@ -1,28 +1,70 @@
 #!/usr/bin/env tsx
 /**
  * @format
- * Bootstrap Orchestrator — dispatches to control_plane.ts or worker.ts main().
+ * @module orchestrator
+ * Bootstrap Orchestrator — dispatches to {@link control_plane} or {@link worker}
+ * based on the `--mode` CLI flag.
  *
- * Usage:
- *   npx tsx orchestrator.ts                   # control-plane (default)
- *   npx tsx orchestrator.ts --mode worker     # worker node
- *   npx tsx orchestrator.ts --dry-run         # print target without executing
+ * This thin entry point exists so a single binary (this file) can be invoked by
+ * the SSM Automation document for both node types.  The actual bootstrap logic
+ * lives in the mode-specific modules to keep concerns separated.
+ *
+ * @example
+ * ```bash
+ * # Control-plane bootstrap (default)
+ * npx tsx orchestrator.ts
+ *
+ * # Worker-node bootstrap
+ * npx tsx orchestrator.ts --mode worker
+ *
+ * # Dry-run: print target module without executing
+ * npx tsx orchestrator.ts --dry-run
+ * npx tsx orchestrator.ts --mode worker --dry-run
+ * ```
  */
 
 import { info } from './common.js';
 
-const parseArgs = (): { mode: 'control-plane' | 'worker'; dryRun: boolean } => {
+// =============================================================================
+// CLI argument parsing
+// =============================================================================
+
+/**
+ * Parsed CLI arguments for the orchestrator.
+ */
+interface OrchestratorArgs {
+    /** Target bootstrap mode. */
+    mode: 'control-plane' | 'worker';
+    /** When `true`, logs the target module and exits without executing. */
+    dryRun: boolean;
+}
+
+/**
+ * Parses `process.argv` and returns the orchestrator's runtime arguments.
+ *
+ * @remarks
+ * `--mode` accepts exactly `"control-plane"` or `"worker"`.  Any other value
+ * is treated as an error and the process exits with code 1.
+ *
+ * @returns Parsed {@link OrchestratorArgs}.
+ */
+const parseArgs = (): OrchestratorArgs => {
     const args = process.argv.slice(2);
-    const mode = args.includes('--mode')
-        ? (args[args.indexOf('--mode') + 1] as 'control-plane' | 'worker')
-        : 'control-plane';
-    const dryRun = args.includes('--dry-run');
-    if (mode !== 'control-plane' && mode !== 'worker') {
-        process.stderr.write(`Invalid --mode: ${mode}. Must be 'control-plane' or 'worker'.\n`);
+    const modeIdx = args.indexOf('--mode');
+    const rawMode = modeIdx >= 0 ? args[modeIdx + 1] : 'control-plane';
+    const dryRun  = args.includes('--dry-run');
+
+    if (rawMode !== 'control-plane' && rawMode !== 'worker') {
+        process.stderr.write(`Invalid --mode: ${rawMode}. Must be 'control-plane' or 'worker'.\n`);
         process.exit(1);
     }
-    return { mode, dryRun };
+
+    return { mode: rawMode as OrchestratorArgs['mode'], dryRun };
 };
+
+// =============================================================================
+// Entry point
+// =============================================================================
 
 const { mode, dryRun } = parseArgs();
 

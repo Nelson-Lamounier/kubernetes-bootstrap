@@ -1,14 +1,33 @@
 #!/usr/bin/env tsx
+// @format
+
 /**
- * @format
- * Control Plane Bootstrap — all 10 steps, single file.
+ * @module control_plane
+ * Control Plane Bootstrap — ten idempotent steps, single file.
  *
- * Migrated from boot/steps/cp/ (11 Python files, ~2200 lines).
+ * Migrated from `boot/steps/cp/` (11 Python files, ~2 200 lines).
  * AWS SDK v3 replaces all 15 subprocess AWS CLI calls.
- * Arrow functions throughout for consistency.
  *
- * Run: npx tsx boot/steps/control_plane.ts
- * Entry: orchestrator.py calls `npx tsx control_plane.ts`
+ * **Step sequence:**
+ * 0. Mount the EBS data volume (NVMe-aware, ext4, fstab).
+ * 1. DR restore from S3 (PKI + etcd snapshot).
+ * 2. `kubeadm init` (fresh) or second-run reconstruction.
+ * 3. Install Calico CNI via Tigera operator.
+ * 4. Install AWS Cloud Controller Manager via Helm.
+ * 5. Configure `kubectl` for root / ec2-user / ssm-user.
+ * 6. Bootstrap ArgoCD.
+ * 7. Verify cluster (nodes + system namespaces + NLB connectivity).
+ * 8. Install etcd backup systemd timer.
+ * 9. Install kubeadm join-token rotator (12 h).
+ *
+ * @example
+ * ```bash
+ * # Direct execution (called by orchestrator.ts)
+ * npx tsx boot/steps/control_plane.ts
+ *
+ * # Dry-run (logs steps without side-effects)
+ * npx tsx boot/steps/control_plane.ts --dry-run
+ * ```
  */
 
 import {
@@ -37,19 +56,85 @@ const runStep = makeRunStep('control_plane');
 // Types
 // =============================================================================
 
+/**
+ * Immutable runtime configuration for the control-plane bootstrap.
+ *
+ * Populated once at startup by {@link fromEnv} and threaded through every
+ * step function.  All fields have safe defaults suitable for local development
+ * so the bootstrap can be exercised without a live cluster.
+ */
 export interface BootConfig {
+    /**
+     * SSM Parameter Store key prefix (e.g. `/k8s/development`).
+     * All bootstrap parameters, join tokens, and status records live under this prefix.
+     */
     readonly ssmPrefix: string;
+
+    /** AWS region for SSM, S3, Route 53, and IMDS calls (e.g. `"eu-west-1"`). */
     readonly awsRegion: string;
+
+    /**
+     * Kubernetes version string passed to `kubeadm init --kubernetes-version`.
+     * Format: `MAJOR.MINOR.PATCH` (e.g. `"1.35.1"`).
+     */
     readonly k8sVersion: string;
+
+    /**
+     * Absolute path to the persistent data directory.
+     * etcd data and other cluster state are stored here on the EBS volume so
+     * they survive instance replacement.
+     */
     readonly dataDir: string;
+
+    /**
+     * CIDR block for the pod network (e.g. `"192.168.0.0/16"`).
+     * Passed to `kubeadm init --pod-network-cidr` and the Calico `Installation` CR.
+     */
     readonly podCidr: string;
+
+    /**
+     * CIDR block for Kubernetes `Service` objects (e.g. `"10.96.0.0/12"`).
+     * Passed to `kubeadm init --service-cidr` and `kubeadm init phase addon coredns`.
+     */
     readonly serviceCidr: string;
+
+    /**
+     * Route 53 hosted zone ID.  When non-empty, the API server's private IP is
+     * upserted into the zone as an `A` record on every bootstrap run.
+     */
     readonly hostedZoneId: string;
+
+    /**
+     * DNS name registered as the control-plane endpoint (e.g. `"k8s-api.k8s.internal"`).
+     * Must be resolvable by worker nodes at join time.
+     */
     readonly apiDnsName: string;
+
+    /** S3 bucket used for DR backups (PKI archives) and etcd snapshots. */
     readonly s3Bucket: string;
+
+    /**
+     * Mount point for the EBS data volume (e.g. `"/data"`).
+     * The bootstrap creates `kubernetes/`, `k8s-bootstrap/`, and `app-deploy/` subdirectories here.
+     */
     readonly mountPoint: string;
+
+    /**
+     * Calico CNI version to install via the Tigera operator (e.g. `"v3.29.3"`).
+     * Used when the pre-cached operator YAML is absent from the golden AMI.
+     */
     readonly calicoVersion: string;
+
+    /**
+     * Short environment name applied as a node label (e.g. `"development"`, `"production"`).
+     * Derived from `ENVIRONMENT` env var, defaulting to `"development"`.
+     */
     readonly environment: string;
+
+    /**
+     * CloudWatch log group name for bootstrap log forwarding.
+     * When empty, log forwarding is skipped.
+     */
     readonly logGroupName: string;
 }
 
@@ -57,21 +142,50 @@ export interface BootConfig {
 // Constants
 // =============================================================================
 
-const ADMIN_CONF = '/etc/kubernetes/admin.conf';
+const ADMIN_CONF       = '/etc/kubernetes/admin.conf';
 const SUPER_ADMIN_CONF = '/etc/kubernetes/super-admin.conf';
-const KUBECONFIG = { KUBECONFIG: ADMIN_CONF };
+const KUBECONFIG       = { KUBECONFIG: ADMIN_CONF };
 const DR_BACKUP_PREFIX = 'dr-backups';
 
-const DATA_MOUNT_MARKER = '/etc/kubernetes/.data-mounted';
-const DR_RESTORE_MARKER = '/etc/kubernetes/.dr-restored';
-const CALICO_MARKER = '/etc/kubernetes/.calico-installed';
-const CCM_MARKER = '/etc/kubernetes/.ccm-installed';
+const DATA_MOUNT_MARKER    = '/etc/kubernetes/.data-mounted';
+const DR_RESTORE_MARKER    = '/etc/kubernetes/.dr-restored';
+const CALICO_MARKER        = '/etc/kubernetes/.calico-installed';
+const CCM_MARKER           = '/etc/kubernetes/.ccm-installed';
 const TOKEN_ROTATOR_MARKER = '/etc/systemd/system/kubeadm-token-rotator.timer';
 
 // =============================================================================
 // Config
 // =============================================================================
 
+/**
+ * Reads environment variables and returns an immutable {@link BootConfig}.
+ *
+ * @remarks
+ * All fields have safe defaults for local development:
+ *
+ * | Env var               | Default                      |
+ * |-----------------------|------------------------------|
+ * | `SSM_PREFIX`          | `/k8s/development`           |
+ * | `AWS_REGION`          | `eu-west-1`                  |
+ * | `K8S_VERSION`         | `1.35.1`                     |
+ * | `DATA_DIR`            | `/data/kubernetes`           |
+ * | `POD_CIDR`            | `192.168.0.0/16`             |
+ * | `SERVICE_CIDR`        | `10.96.0.0/12`               |
+ * | `HOSTED_ZONE_ID`      | `""` (DNS update skipped)    |
+ * | `API_DNS_NAME`        | `k8s-api.k8s.internal`       |
+ * | `S3_BUCKET`           | `""` (DR skipped)            |
+ * | `MOUNT_POINT`         | `/data`                      |
+ * | `CALICO_VERSION`      | `v3.29.3`                    |
+ * | `ENVIRONMENT`         | `development`                |
+ * | `LOG_GROUP_NAME`      | `""` (log forwarding skipped)|
+ *
+ * @returns Populated, immutable {@link BootConfig}.
+ *
+ * @example
+ * ```bash
+ * SSM_PREFIX=/k8s/production AWS_REGION=eu-west-1 npx tsx control_plane.ts
+ * ```
+ */
 export const fromEnv = (): BootConfig => ({
     ssmPrefix:    process.env.SSM_PREFIX      ?? '/k8s/development',
     awsRegion:    process.env.AWS_REGION      ?? 'eu-west-1',
@@ -89,14 +203,14 @@ export const fromEnv = (): BootConfig => ({
 });
 
 // =============================================================================
-// AWS SDK clients — lazy-initialized once cfg.awsRegion is known
+// AWS SDK clients — lazy singletons, initialised once cfg.awsRegion is known
 // =============================================================================
 
-let _s3: S3Client | undefined;
+let _s3:  S3Client      | undefined;
 let _r53: Route53Client | undefined;
 
-const s3Client   = (region: string): S3Client      => (_s3  ??= new S3Client({ region }));
-const r53Client  = (region: string): Route53Client => (_r53 ??= new Route53Client({ region }));
+const s3Client  = (region: string): S3Client      => (_s3  ??= new S3Client({ region }));
+const r53Client = (region: string): Route53Client => (_r53 ??= new Route53Client({ region }));
 
 // =============================================================================
 // S3 helpers
@@ -150,11 +264,10 @@ const updateDns = async (privateIp: string, cfg: BootConfig): Promise<void> => {
     info(`DNS updated: ${cfg.apiDnsName} → ${privateIp}`);
 };
 
-
 const patchProviderID = (kubeconfig: string): void => {
     const instanceId = imds('instance-id');
-    const az = imds('placement/availability-zone');
-    const hostname = imds('hostname');
+    const az         = imds('placement/availability-zone');
+    const hostname   = imds('hostname');
     if (!instanceId || !az || !hostname) {
         warn('Could not retrieve instance metadata from IMDS — skipping providerID patch');
         return;
@@ -172,7 +285,7 @@ const bootstrapKubeconfigEnv = (): Record<string, string> =>
     existsSync(SUPER_ADMIN_CONF) ? { KUBECONFIG: SUPER_ADMIN_CONF } : KUBECONFIG;
 
 const setupKubeconfigForUser = (user: string, home: string): void => {
-    const kubeDir = `${home}/.kube`;
+    const kubeDir    = `${home}/.kube`;
     const configPath = `${kubeDir}/config`;
     mkdirSync(kubeDir, { recursive: true });
     run(['cp', '-f', ADMIN_CONF, configPath]);
@@ -185,10 +298,30 @@ const setupKubeconfigForUser = (user: string, home: string): void => {
 // Step 0: Mount data volume (NVMe-aware, ext4, fstab)
 // =============================================================================
 
+/**
+ * Resolves the EBS data volume block device path.
+ *
+ * @remarks
+ * On older EC2 instance types the volume appears as `/dev/xvdf` (Xen).  On
+ * Nitro-based instances (all current-gen types) the NVMe controller enumerates
+ * it as `/dev/nvme[1-9]n1` — `nvme0n1` is the root volume, so the first
+ * non-root NVMe device is used.  The list is sorted to produce a stable pick
+ * when multiple additional volumes are attached.
+ *
+ * @returns The resolved device path (e.g. `"/dev/nvme1n1"`), or `""` when no
+ *          matching device is visible yet (caller should retry).
+ *
+ * @example
+ * ```typescript
+ * let device = '';
+ * await waitUntil(() => { device = resolveNvmeDevice(); return device !== ''; },
+ *     { timeoutMs: 60_000, label: 'data volume block device' });
+ * ```
+ */
 export const resolveNvmeDevice = (): string => {
     if (existsSync('/dev/xvdf')) return '/dev/xvdf';
     const lsResult = run(['ls', '/dev/'], { check: false });
-    const devices = lsResult.stdout.split('\n')
+    const devices  = lsResult.stdout.split('\n')
         .map(d => d.trim())
         .filter(d => /^nvme[1-9]n1$/.test(d))
         .sort()
@@ -196,6 +329,26 @@ export const resolveNvmeDevice = (): string => {
     return devices[0] ?? '';
 };
 
+/**
+ * Creates the standard subdirectory layout under `mountPoint`.
+ *
+ * @remarks
+ * Three directories are created (all `recursive: true` so they are idempotent):
+ * - `kubernetes/` — etcd data and kubelet state symlinked here by kubeadm.
+ * - `k8s-bootstrap/` — bootstrap scripts and manifests copied from the AMI.
+ * - `app-deploy/` — writable by the `ssm-user` group for operator use.
+ *
+ * The `app-deploy/` directory is group-writable for `ssm-user` so operators can
+ * deploy manifests without `sudo`.
+ *
+ * @param mountPoint - Absolute path to the mounted EBS volume (e.g. `"/data"`).
+ *
+ * @example
+ * ```typescript
+ * ensureDataDirectories('/data');
+ * // → /data/kubernetes, /data/k8s-bootstrap, /data/app-deploy (g+w, root:ssm-user)
+ * ```
+ */
 export const ensureDataDirectories = (mountPoint: string): void => {
     for (const sub of ['kubernetes', 'k8s-bootstrap', 'app-deploy']) {
         mkdirSync(nodePath.join(mountPoint, sub), { recursive: true });
@@ -279,7 +432,7 @@ const restoreEtcdSnapshot = async (cfg: BootConfig): Promise<boolean> => {
         return false;
     }
     const snapshotPath = '/tmp/etcd-restore.db';
-    const etcdDataDir = `${cfg.dataDir}/etcd`;
+    const etcdDataDir  = `${cfg.dataDir}/etcd`;
     try {
         info(`Downloading etcd snapshot from s3://${cfg.s3Bucket}/${key}`);
         await s3Download(cfg.s3Bucket, key, snapshotPath, cfg.awsRegion);
@@ -402,6 +555,25 @@ const publishSsmParams = async (
     info('Cluster credentials published to SSM');
 };
 
+/**
+ * Ensures the `cluster-info` ConfigMap and related bootstrap resources exist.
+ *
+ * @remarks
+ * After a DR restore or an etcd compaction, the `cluster-info` ConfigMap in
+ * `kube-public` can be absent, which prevents new workers from joining.  This
+ * function checks for its presence and re-runs the relevant `kubeadm init`
+ * phases if it is missing:
+ * - `upload-config kubeadm` — writes the kubeadm config into `kube-system`.
+ * - `upload-config kubelet` — writes kubelet config.
+ * - `bootstrap-token` — recreates `cluster-info`, RBAC, and bootstrap token secrets.
+ *
+ * @example
+ * ```typescript
+ * ensureBootstrapToken();
+ * // If cluster-info was missing: re-runs three kubeadm phases and logs restoration.
+ * // If present: logs "cluster-info ConfigMap present" and returns immediately.
+ * ```
+ */
 export const ensureBootstrapToken = (): void => {
     const check = run(
         ['kubectl', 'get', 'configmap', 'cluster-info', '-n', 'kube-public'],
@@ -415,6 +587,28 @@ export const ensureBootstrapToken = (): void => {
     info('Bootstrap resources restored (cluster-info, kubeadm-config, kubelet-config, RBAC)');
 };
 
+/**
+ * Ensures the `kube-proxy` DaemonSet is present in `kube-system`.
+ *
+ * @remarks
+ * After a DR restore from an etcd snapshot taken before kube-proxy was
+ * deployed, or after etcd data loss, the DaemonSet can be absent.  This
+ * function deploys it via `kubeadm init phase addon kube-proxy` when missing.
+ *
+ * After deployment, it waits up to 60 s for at least one pod to reach
+ * `Running` state before returning.
+ *
+ * @param cfg - Bootstrap config supplying `awsRegion`, `podCidr`, and `ssmPrefix`.
+ * @throws {Error} When the private IP cannot be retrieved from IMDS (required
+ *                 for the `--apiserver-advertise-address` flag).
+ *
+ * @example
+ * ```typescript
+ * await ensureKubeProxy(cfg);
+ * // If DaemonSet missing: deploys via kubeadm + waits for Running.
+ * // If present: logs "kube-proxy DaemonSet present" and returns.
+ * ```
+ */
 export const ensureKubeProxy = async (cfg: BootConfig): Promise<void> => {
     const check = run(
         ['kubectl', 'get', 'daemonset', 'kube-proxy', '-n', 'kube-system'],
@@ -433,6 +627,26 @@ export const ensureKubeProxy = async (cfg: BootConfig): Promise<void> => {
     );
 };
 
+/**
+ * Ensures the CoreDNS deployment is present in `kube-system`.
+ *
+ * @remarks
+ * Same failure mode as {@link ensureKubeProxy}: a DR restore from a snapshot
+ * taken before CoreDNS was deployed leaves the cluster without in-cluster DNS.
+ * This function re-deploys it via `kubeadm init phase addon coredns` when missing.
+ *
+ * Unlike `ensureKubeProxy`, this is synchronous — `kubeadm init phase addon coredns`
+ * blocks until the deployment is created (not until pods are running).
+ *
+ * @param cfg - Bootstrap config supplying `serviceCidr`.
+ *
+ * @example
+ * ```typescript
+ * ensureCoreDns(cfg);
+ * // If deployment missing: re-deploys via kubeadm and logs restoration.
+ * // If present: logs "CoreDNS deployment present" and returns.
+ * ```
+ */
 export const ensureCoreDns = (cfg: BootConfig): void => {
     const check = run(
         ['kubectl', 'get', 'deployment', 'coredns', '-n', 'kube-system'],
@@ -546,9 +760,9 @@ const initCluster = async (cfg: BootConfig): Promise<void> => {
     run(['systemctl', 'start', 'containerd']);
     ensureEcrCredentialProvider();
 
-    const privateIp = imds('local-ipv4');
+    const privateIp  = imds('local-ipv4');
     if (!privateIp) throw new Error('Failed to retrieve private IP from IMDS');
-    const publicIp  = imds('public-ipv4');
+    const publicIp   = imds('public-ipv4');
     const instanceId = imds('instance-id');
 
     mkdirSync('/etc/sysconfig', { recursive: true });
@@ -610,32 +824,33 @@ const initOrReconstruct = async (cfg: BootConfig): Promise<void> => {
 // =============================================================================
 
 const CACHED_CALICO_OPERATOR = '/opt/calico/tigera-operator.yaml';
-const CALICO_PDB_MANIFEST = '/opt/k8s-bootstrap/system/calico-pdbs.yaml';
+const CALICO_PDB_MANIFEST    = '/opt/k8s-bootstrap/system/calico-pdbs.yaml';
 
-const calicoInstallationYaml = (podCidr: string): string =>
-    'apiVersion: operator.tigera.io/v1\n' +
-    'kind: Installation\n' +
-    'metadata:\n' +
-    '  name: default\n' +
-    'spec:\n' +
-    '  calicoNetwork:\n' +
-    '    bgp: Disabled\n' +
-    '    ipPools:\n' +
-    `      - cidr: ${podCidr}\n` +
-    '        encapsulation: VXLAN\n' +
-    '        natOutgoing: Enabled\n' +
-    '        nodeSelector: all()\n' +
-    '    linuxDataplane: Iptables\n' +
-    '  calicoNodeDaemonSet:\n' +
-    '    spec:\n' +
-    '      template:\n' +
-    '        spec:\n' +
-    '          containers:\n' +
-    '            - name: calico-node\n' +
-    '              resources:\n' +
-    '                requests:\n' +
-    '                  cpu: "25m"\n' +
-    '                  memory: "160Mi"\n';
+const calicoInstallationYaml = (podCidr: string): string => `\
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    bgp: Disabled
+    ipPools:
+      - cidr: ${podCidr}
+        encapsulation: VXLAN
+        natOutgoing: Enabled
+        nodeSelector: all()
+    linuxDataplane: Iptables
+  calicoNodeDaemonSet:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: calico-node
+              resources:
+                requests:
+                  cpu: "25m"
+                  memory: "160Mi"
+`;
 
 const installCalico = async (cfg: BootConfig): Promise<void> => {
     const source = existsSync(CACHED_CALICO_OPERATOR)
@@ -843,7 +1058,7 @@ const verifyCluster = async (cfg: BootConfig): Promise<void> => {
     for (const ns of ['kube-system', 'calico-system', 'tigera-operator']) {
         const r = run(['kubectl', 'get', 'pods', '-n', ns, '--no-headers'], { check: false, env: KUBECONFIG });
         if (!r.ok || !r.stdout.trim()) { results[`ns_${ns}`] = true; continue; }
-        const lines = r.stdout.trim().split('\n');
+        const lines   = r.stdout.trim().split('\n');
         const healthy = lines.filter(l => l.includes('Running') || l.includes('Completed')).length;
         results[`ns_${ns}`] = healthy === lines.length;
         healthy === lines.length
@@ -894,7 +1109,7 @@ const installEtcdBackup = async (_cfg: BootConfig): Promise<void> => {
 };
 
 // =============================================================================
-// Step 9: Install kubeadm token rotator systemd timer (12h rotation)
+// Step 9: Install kubeadm token rotator systemd timer (12 h rotation)
 // =============================================================================
 
 const installTokenRotator = async (cfg: BootConfig): Promise<void> => {
@@ -941,7 +1156,7 @@ const installTokenRotator = async (cfg: BootConfig): Promise<void> => {
         'Description=Run kubeadm token rotator every 12 hours',
         '',
         '[Timer]',
-        // Fire early after boot so a fresh 24h rolling token is in SSM quickly
+        // Fire early after boot so a fresh 24 h rolling token is in SSM quickly
         'OnBootSec=10min',
         'OnUnitActiveSec=12h',
         'RandomizedDelaySec=5m',
@@ -960,20 +1175,42 @@ const installTokenRotator = async (cfg: BootConfig): Promise<void> => {
 // main
 // =============================================================================
 
+/**
+ * Control-plane bootstrap entry point — runs ten idempotent steps in sequence.
+ *
+ * @remarks
+ * Each step is wrapped by {@link makeRunStep} / `runStep`, which:
+ * - Checks a filesystem marker before running (skips if already done).
+ * - Writes the marker on success so the step is not re-executed on reboot.
+ * - Emits structured JSON log lines compatible with CloudWatch Logs Insights.
+ *
+ * Steps without a marker argument (`init-kubeadm`, `configure-kubectl`,
+ * `bootstrap-argocd`, `verify-cluster`) run unconditionally on every boot
+ * because they perform idempotent checks internally.
+ *
+ * @throws {Error} On any unrecovered step failure (process exits with code 1).
+ *
+ * @example
+ * ```typescript
+ * // Called by orchestrator.ts when --mode control-plane (default)
+ * const { main } = await import('./control_plane.js');
+ * await main();
+ * ```
+ */
 export const main = async (): Promise<void> => {
     const cfg = fromEnv();
     info('Control plane bootstrap starting', { ssmPrefix: cfg.ssmPrefix, awsRegion: cfg.awsRegion });
 
-    await runStep('mount-data-volume',     () => mountDataVolume(cfg),      cfg, DATA_MOUNT_MARKER);
-    await runStep('dr-restore',            () => drRestore(cfg),             cfg, DR_RESTORE_MARKER);
-    await runStep('init-kubeadm',          () => initOrReconstruct(cfg),    cfg);
-    await runStep('install-calico',        () => installCalico(cfg),         cfg, CALICO_MARKER);
-    await runStep('install-ccm',           () => installCcm(cfg),            cfg, CCM_MARKER);
-    await runStep('configure-kubectl',     () => configureKubectl(cfg),     cfg);
-    await runStep('bootstrap-argocd',      () => bootstrapArgocd(cfg),      cfg);
-    await runStep('verify-cluster',        () => verifyCluster(cfg),        cfg);
-    await runStep('install-etcd-backup',   () => installEtcdBackup(cfg),    cfg, '/etc/systemd/system/etcd-backup.timer');
-    await runStep('install-token-rotator', () => installTokenRotator(cfg),  cfg, TOKEN_ROTATOR_MARKER);
+    await runStep('mount-data-volume',     () => mountDataVolume(cfg),     cfg, DATA_MOUNT_MARKER);
+    await runStep('dr-restore',            () => drRestore(cfg),            cfg, DR_RESTORE_MARKER);
+    await runStep('init-kubeadm',          () => initOrReconstruct(cfg),   cfg);
+    await runStep('install-calico',        () => installCalico(cfg),        cfg, CALICO_MARKER);
+    await runStep('install-ccm',           () => installCcm(cfg),           cfg, CCM_MARKER);
+    await runStep('configure-kubectl',     () => configureKubectl(cfg),    cfg);
+    await runStep('bootstrap-argocd',      () => bootstrapArgocd(cfg),     cfg);
+    await runStep('verify-cluster',        () => verifyCluster(cfg),       cfg);
+    await runStep('install-etcd-backup',   () => installEtcdBackup(cfg),   cfg, '/etc/systemd/system/etcd-backup.timer');
+    await runStep('install-token-rotator', () => installTokenRotator(cfg), cfg, TOKEN_ROTATOR_MARKER);
 
     info('Control plane bootstrap complete');
 };

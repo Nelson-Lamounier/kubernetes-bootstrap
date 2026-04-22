@@ -1,14 +1,22 @@
 #!/usr/bin/env tsx
 /**
  * @format
+ * @module worker
  * Worker Node Bootstrap — all 6 steps, single file.
  *
  * Migrated from boot/steps/wk/ (5 Python files, ~600 lines).
  * AWS SDK v3 (SSM) replaces boto3 subprocess calls.
- * Arrow functions throughout for consistency.
  *
- * Run: npx tsx boot/steps/worker.ts
- * Entry: orchestrator.py calls `npx tsx worker.ts`
+ * **Step sequence**
+ * 1. `validate-ami`              — assert required binaries, kernel modules, sysctl.
+ * 2. `join-cluster`              — CA mismatch check, kubeadm join with retry, kubelet wait.
+ * 3. `register-instance`         — write instance-id → hostname mapping to SSM.
+ * 4. `install-cloudwatch-agent`  — configure and start CW agent for log shipping.
+ * 5. `clean-stale-pvs`           — delete PVs pinned to dead monitoring nodes.
+ * 6. `verify-cluster-membership` — confirm registration and correct label drift.
+ *
+ * Run: `npx tsx boot/steps/worker.ts`
+ * Entry: orchestrator dispatches here when `--mode worker` is passed.
  */
 
 import {
@@ -25,8 +33,19 @@ import { PutParameterCommand } from '@aws-sdk/client-ssm';
 
 import {
     ECR_PROVIDER_CONFIG,
-    ensureEcrCredentialProvider, error, imds, info, makeRunStep, run,
-    sleep, ssmClient, ssmGet, ssmPut, validateKubeadmToken, warn,
+    ensureEcrCredentialProvider,
+    error,
+    imds,
+    info,
+    makeRunStep,
+    poll,
+    run,
+    sleep,
+    ssmClient,
+    ssmGet,
+    ssmPut,
+    validateKubeadmToken,
+    warn,
 } from './common.js';
 
 const runStep = makeRunStep('worker');
@@ -35,47 +54,102 @@ const runStep = makeRunStep('worker');
 // Types
 // =============================================================================
 
+/**
+ * Immutable runtime configuration for the worker bootstrap.
+ * Populated by {@link fromEnv} from environment variables.
+ */
 export interface WorkerConfig {
+    /** SSM key prefix, e.g. `/k8s/development`. */
     readonly ssmPrefix: string;
+    /** AWS region for all SDK calls. */
     readonly awsRegion: string;
+    /** Short environment name (e.g. `"development"`). */
     readonly environment: string;
+    /** CloudWatch log group name for worker log shipping. */
     readonly logGroupName: string;
+    /**
+     * Comma-separated `key=value` node label string applied via `kubelet --node-labels`.
+     * Example: `"role=worker,workload=frontend"`.
+     */
     readonly nodeLabel: string;
+    /**
+     * Node pool identifier appended to {@link nodeLabel} when set.
+     * Used by Helm `nodeSelector` rules to schedule pods on the correct pool.
+     * Example: `"general"`, `"monitoring"`.
+     */
     readonly nodePool: string;
+    /** Maximum number of `kubeadm join` attempts before the step fails. */
     readonly joinMaxRetries: number;
+    /** Seconds to wait between `kubeadm join` retry attempts. */
     readonly joinRetryInterval: number;
+}
+
+/**
+ * A stale PersistentVolume entry — a PV bound to a monitoring PVC whose
+ * node affinity points to a node that no longer exists in the cluster.
+ */
+export interface StalePvEntry {
+    /** Name of the PersistentVolume resource. */
+    pvName: string;
+    /** Name of the bound PersistentVolumeClaim. */
+    pvcName: string;
+    /** Namespace containing the PVC (always `"monitoring"`). */
+    pvcNamespace: string;
+    /** Hostname of the dead node the PV is pinned to. */
+    deadNode: string;
 }
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-const KUBELET_CONF          = '/etc/kubernetes/kubelet.conf';
-const CA_CERT_PATH          = '/etc/kubernetes/pki/ca.crt';
-const KUBELET_CONFIG_FILE   = '/var/lib/kubelet/config.yaml';
+/** Path written by `kubeadm join` on success; used for idempotency checks. */
+const KUBELET_CONF            = '/etc/kubernetes/kubelet.conf';
+/** Path to the cluster CA certificate (used for hash comparison). */
+const CA_CERT_PATH            = '/etc/kubernetes/pki/ca.crt';
+/** Path written by kubelet after a successful join. */
+const KUBELET_CONFIG_FILE     = '/var/lib/kubelet/config.yaml';
+/** Marker path for the stale PV cleanup step. */
 const STALE_PV_CLEANUP_MARKER = '/tmp/.stale-pv-cleanup-done';
-const CW_AGENT_MARKER       = '/tmp/.cw-agent-installed';
-const CW_AGENT_CTL          = '/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl';
-const CW_AGENT_CONFIG_PATH  = '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json';
-const K8S_ENV_FILE          = '/etc/profile.d/k8s-env.sh';
-const ADMIN_KUBECONFIG_TMP  = '/tmp/worker-admin.conf';
+/** Marker path for the CloudWatch agent installation step. */
+const CW_AGENT_MARKER         = '/tmp/.cw-agent-installed';
+/** CloudWatch agent control binary path. */
+const CW_AGENT_CTL            = '/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl';
+/** CloudWatch agent JSON config file path. */
+const CW_AGENT_CONFIG_PATH    = '/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json';
+/** Profile script that exports `LOG_GROUP_NAME` and other env vars. */
+const K8S_ENV_FILE            = '/etc/profile.d/k8s-env.sh';
+/** Temporary path for the admin kubeconfig fetched from SSM. */
+const ADMIN_KUBECONFIG_TMP    = '/tmp/worker-admin.conf';
 
-const CP_MAX_WAIT_MS            = 300_000;
-const API_REACHABLE_TIMEOUT_MS  = 300_000;
-const API_REACHABLE_POLL_MS     = 10_000;
+/** Total deadline for resolving the control-plane endpoint from SSM. */
+const CP_MAX_WAIT_MS           = 300_000;
+/** Total deadline for establishing TCP connectivity to the API server. */
+const API_REACHABLE_TIMEOUT_MS = 300_000;
+/** Poll interval for TCP reachability probes. */
+const API_REACHABLE_POLL_MS    = 10_000;
 
-const REQUIRED_BINARIES        = ['containerd', 'kubeadm', 'kubelet', 'kubectl', 'helm'];
-const REQUIRED_KERNEL_MODULES  = ['overlay', 'br_netfilter'];
+/** Binaries that must be pre-baked into the Golden AMI. */
+const REQUIRED_BINARIES       = ['containerd', 'kubeadm', 'kubelet', 'kubectl', 'helm'];
+/** Kernel modules required for pod networking. */
+const REQUIRED_KERNEL_MODULES = ['overlay', 'br_netfilter'];
+/** Sysctl settings required for pod networking. */
 const REQUIRED_SYSCTL: Record<string, string> = {
-    'net.bridge.bridge-nf-call-iptables': '1',
+    'net.bridge.bridge-nf-call-iptables':  '1',
     'net.bridge.bridge-nf-call-ip6tables': '1',
-    'net.ipv4.ip_forward': '1',
+    'net.ipv4.ip_forward':                 '1',
 };
+
+/**
+ * Node label values that identify a monitoring worker.
+ * Only monitoring workers trigger stale PV cleanup.
+ */
 const MONITORING_LABELS = new Set(['workload=monitoring', 'node-pool=monitoring']);
 
+/** Log files to ship to CloudWatch for each worker instance. */
 const CW_LOG_FILES = [
-    { filePath: '/var/log/messages',          logStreamName: '{instance_id}/messages'  },
-    { filePath: '/var/log/user-data.log',     logStreamName: '{instance_id}/user-data' },
+    { filePath: '/var/log/messages',              logStreamName: '{instance_id}/messages'   },
+    { filePath: '/var/log/user-data.log',         logStreamName: '{instance_id}/user-data'  },
     { filePath: '/var/log/cloud-init-output.log', logStreamName: '{instance_id}/cloud-init' },
 ];
 
@@ -83,6 +157,21 @@ const CW_LOG_FILES = [
 // Config
 // =============================================================================
 
+/**
+ * Builds a {@link WorkerConfig} from environment variables.
+ *
+ * @remarks
+ * All fields have defaults so the bootstrap can be tested locally without
+ * a full SSM/EC2 environment:
+ * - `SSM_PREFIX` → `/k8s/development`
+ * - `AWS_REGION` → `eu-west-1`
+ * - `ENVIRONMENT` → `development`
+ * - `NODE_LABEL` → `role=worker`
+ * - `JOIN_MAX_RETRIES` → `5`
+ * - `JOIN_RETRY_INTERVAL` → `30` (seconds)
+ *
+ * @returns Populated, immutable {@link WorkerConfig}.
+ */
 export const fromEnv = (): WorkerConfig => ({
     ssmPrefix:         process.env.SSM_PREFIX          ?? '/k8s/development',
     awsRegion:         process.env.AWS_REGION          ?? 'eu-west-1',
@@ -90,15 +179,24 @@ export const fromEnv = (): WorkerConfig => ({
     logGroupName:      process.env.LOG_GROUP_NAME      ?? '',
     nodeLabel:         process.env.NODE_LABEL          ?? 'role=worker',
     nodePool:          process.env.NODE_POOL           ?? '',
-    joinMaxRetries:    parseInt(process.env.JOIN_MAX_RETRIES    ?? '5', 10),
+    joinMaxRetries:    parseInt(process.env.JOIN_MAX_RETRIES    ?? '5',  10),
     joinRetryInterval: parseInt(process.env.JOIN_RETRY_INTERVAL ?? '30', 10),
 });
-
 
 // =============================================================================
 // Hostname resolution
 // =============================================================================
 
+/**
+ * Resolves the fully-qualified hostname for this worker node.
+ *
+ * @remarks
+ * Prefers `hostname -f` so the FQDN is used (consistent with what kubeadm
+ * registers in the cluster).  Falls back to the IMDS `local-hostname` when
+ * `hostname -f` returns `localhost` or fails.
+ *
+ * @returns FQDN string, or `""` when neither source is available.
+ */
 const resolveHostname = (): string => {
     const r = run(['hostname', '-f'], { check: false });
     if (r.ok && r.stdout.trim() && r.stdout.trim() !== 'localhost') return r.stdout.trim();
@@ -109,6 +207,19 @@ const resolveHostname = (): string => {
 // providerID patch (worker uses kubelet.conf, not admin.conf)
 // =============================================================================
 
+/**
+ * Patches the Kubernetes `Node` object's `spec.providerID` field with the
+ * AWS provider ID for this EC2 instance.
+ *
+ * @remarks
+ * The provider ID format is `aws:///{availability-zone}/{instance-id}`.
+ * This field is required by the AWS Cloud Controller Manager to associate the
+ * Kubernetes node with the corresponding EC2 instance.
+ *
+ * Workers use `kubelet.conf` (not `admin.conf`) because they are not cluster
+ * admins.  Patch failures are non-fatal — the AWS CCM will set the field
+ * during node initialisation if it is absent.
+ */
 const patchProviderId = (): void => {
     const instanceId = imds('instance-id');
     const az         = imds('placement/availability-zone');
@@ -140,9 +251,18 @@ const patchProviderId = (): void => {
 // CA mismatch detection
 // =============================================================================
 
+/**
+ * Computes the SHA-256 hash of the local cluster CA public key.
+ *
+ * @remarks
+ * The hash is computed using a shell pipe (`openssl x509 | openssl rsa |
+ * openssl dgst | awk`) — there is no single-binary alternative for this
+ * specific computation.  The shell string contains only static file paths,
+ * not user input.
+ *
+ * @returns Hash string in the form `sha256:<hex>`, or `""` on failure.
+ */
 export const computeLocalCaHash = (): string => {
-    // Shell pipe is unavoidable: openssl x509 | openssl rsa | openssl dgst | awk
-    // Binary is /bin/sh, args are string constants — not user input.
     const res = run(
         ['/bin/sh', '-c',
             `openssl x509 -pubkey -in ${CA_CERT_PATH} | openssl rsa -pubin -outform der 2>/dev/null | openssl dgst -sha256 -hex | awk '{print $2}'`],
@@ -152,6 +272,25 @@ export const computeLocalCaHash = (): string => {
     return `sha256:${res.stdout.trim()}`;
 };
 
+/**
+ * Detects a CA certificate mismatch between the local node and the current
+ * control plane, then resets the node if a mismatch is found.
+ *
+ * @remarks
+ * A CA mismatch occurs when the control plane was replaced with a new
+ * certificate authority (e.g. after a DR restore from a different cluster).
+ * In this case the worker's existing PKI files are stale and `kubeadm join`
+ * will fail with a TLS error — reset clears them so a clean re-join can proceed.
+ *
+ * Returns `false` (no mismatch) in three early-exit cases:
+ * - No local CA cert found (fresh worker, first join).
+ * - No `kubelet.conf` (never previously joined).
+ * - CA hash not available in SSM (graceful degradation).
+ *
+ * @param cfg - Worker config supplying `ssmPrefix` and `awsRegion`.
+ * @returns `true` when a mismatch was detected and the node was reset;
+ *          `false` otherwise.
+ */
 export const checkCaMismatch = async (cfg: WorkerConfig): Promise<boolean> => {
     if (!existsSync(CA_CERT_PATH)) {
         info('No local CA cert found — fresh worker, proceeding normally');
@@ -192,28 +331,47 @@ export const checkCaMismatch = async (cfg: WorkerConfig): Promise<boolean> => {
 // Control plane endpoint resolution
 // =============================================================================
 
+/**
+ * Waits for the control plane endpoint to appear in SSM Parameter Store,
+ * then returns it.
+ *
+ * @remarks
+ * Uses {@link poll} with a 10-second interval and a {@link CP_MAX_WAIT_MS}
+ * deadline.  The worker may start before the control plane has finished
+ * publishing its endpoint, so polling is necessary.
+ *
+ * @param cfg - Worker config supplying `ssmPrefix` and `awsRegion`.
+ * @returns The resolved endpoint string (e.g. `"k8s-api.k8s.internal:6443"`).
+ * @throws {Error} When the endpoint is not found within the deadline.
+ */
 export const resolveControlPlaneEndpoint = async (cfg: WorkerConfig): Promise<string> => {
     info('Resolving control plane endpoint from SSM...');
     const paramName = `${cfg.ssmPrefix}/control-plane-endpoint`;
-    const deadline  = Date.now() + CP_MAX_WAIT_MS;
 
-    while (Date.now() < deadline) {
-        const endpoint = await ssmGet(paramName, cfg.awsRegion);
-        if (endpoint && endpoint !== 'None') {
-            info(`Control plane endpoint: ${endpoint}`);
-            return endpoint;
-        }
-        const waited = Math.round((Date.now() - (deadline - CP_MAX_WAIT_MS)) / 1000);
-        info(`Waiting for control plane endpoint... (${waited}s / ${CP_MAX_WAIT_MS / 1000}s)`);
-        await sleep(10_000);
-    }
-
-    throw new Error(
-        `Control plane endpoint not found in SSM after ${CP_MAX_WAIT_MS / 1000}s. ` +
-        `The control plane must be running and published its endpoint to ${paramName}.`,
+    const endpoint = await poll(
+        async () => {
+            const v = await ssmGet(paramName, cfg.awsRegion);
+            return (v && v !== 'None') ? v : null;
+        },
+        {
+            timeoutMs:      CP_MAX_WAIT_MS,
+            intervalMs:     10_000,
+            label:          `control-plane-endpoint in SSM (${paramName})`,
+            throwOnTimeout: true,
+        },
     );
+
+    // poll throws when throwOnTimeout=true, so endpoint is never null here.
+    info(`Control plane endpoint: ${endpoint!}`);
+    return endpoint!;
 };
 
+/**
+ * Splits a `host:port` endpoint string into its components.
+ *
+ * @param endpoint - Endpoint string (e.g. `"k8s-api.k8s.internal:6443"`).
+ * @returns Tuple of `[host, port]`. Port defaults to `6443` when absent.
+ */
 const parseHostPort = (endpoint: string): [string, number] => {
     const idx = endpoint.lastIndexOf(':');
     if (idx > 0) return [endpoint.slice(0, idx), parseInt(endpoint.slice(idx + 1), 10)];
@@ -221,53 +379,96 @@ const parseHostPort = (endpoint: string): [string, number] => {
 };
 
 // =============================================================================
-// TCP probe (uses node:net — no subprocess overhead)
+// TCP probe — uses node:net to avoid subprocess overhead
 // =============================================================================
 
+/**
+ * Probes TCP connectivity to `host:port` with a 5-second timeout.
+ *
+ * @remarks
+ * Uses `node:net` directly rather than spawning `nc` or `curl` — no subprocess
+ * overhead and no dependency on external binaries being present.
+ *
+ * @param host - Target hostname or IP address.
+ * @param port - Target TCP port.
+ * @returns `true` when the connection succeeds; `false` on error or timeout.
+ */
 const tcpProbe = (host: string, port: number): Promise<boolean> =>
     new Promise(resolve => {
         const socket = net.createConnection({ host, port });
-        socket.setTimeout(5000);
+        socket.setTimeout(5_000);
         socket.on('connect', () => { socket.destroy(); resolve(true);  });
         socket.on('error',   () => resolve(false));
         socket.on('timeout', () => { socket.destroy(); resolve(false); });
     });
 
+/**
+ * Waits for TCP connectivity to the API server, polling with
+ * {@link API_REACHABLE_POLL_MS} intervals up to {@link API_REACHABLE_TIMEOUT_MS}.
+ *
+ * @param endpoint - API server endpoint string (e.g. `"k8s-api.k8s.internal:6443"`).
+ * @throws {Error} When the server is not reachable within the deadline.
+ */
 const waitForApiServerReachable = async (endpoint: string): Promise<void> => {
     const [host, port] = parseHostPort(endpoint);
     info(`Waiting for API server TCP connectivity: ${host}:${port} (timeout=${API_REACHABLE_TIMEOUT_MS / 1000}s)`);
-    const deadline = Date.now() + API_REACHABLE_TIMEOUT_MS;
 
-    while (Date.now() < deadline) {
-        if (await tcpProbe(host, port)) {
-            const waited = Math.round((Date.now() - (deadline - API_REACHABLE_TIMEOUT_MS)) / 1000);
-            info(`API server is reachable at ${host}:${port} (waited ${waited}s)`);
-            return;
-        }
-        const waited = Math.round((Date.now() - (deadline - API_REACHABLE_TIMEOUT_MS)) / 1000);
-        info(`API server not yet reachable (${waited}s / ${API_REACHABLE_TIMEOUT_MS / 1000}s) — retrying in ${API_REACHABLE_POLL_MS / 1000}s`);
-        await sleep(API_REACHABLE_POLL_MS);
-    }
-
-    throw new Error(
-        `API server at ${host}:${port} not reachable after ${API_REACHABLE_TIMEOUT_MS / 1000}s. ` +
-        `Check the control plane is running, DNS has propagated, and security groups allow TCP ${port}.`,
+    await poll(
+        async () => (await tcpProbe(host, port)) ? true as const : null,
+        {
+            timeoutMs:      API_REACHABLE_TIMEOUT_MS,
+            intervalMs:     API_REACHABLE_POLL_MS,
+            label:          `API server TCP ${host}:${port}`,
+            throwOnTimeout: true,
+        },
     );
+
+    info(`API server is reachable at ${host}:${port}`);
 };
 
 // =============================================================================
 // Node label helpers
 // =============================================================================
 
+/**
+ * Builds the complete node label string for the `--node-labels` kubelet flag.
+ *
+ * @remarks
+ * When `NODE_POOL` is set and `node-pool` is not already present in
+ * {@link WorkerConfig.nodeLabel}, `node-pool={nodePool}` is appended.
+ * This gate ensures Helm `nodeSelector` rules can schedule pods on the
+ * correct worker pool.
+ *
+ * @param cfg - Worker config supplying `nodeLabel` and `nodePool`.
+ * @returns Combined label string (e.g. `"role=worker,node-pool=monitoring"`).
+ *
+ * @example
+ * ```typescript
+ * // NODE_LABEL=role=worker, NODE_POOL=monitoring
+ * buildNodeLabels(cfg); // "role=worker,node-pool=monitoring"
+ * ```
+ */
 export const buildNodeLabels = (cfg: WorkerConfig): string => {
     let labels = cfg.nodeLabel;
     if (cfg.nodePool && !labels.includes('node-pool')) {
         labels = labels ? `${labels},node-pool=${cfg.nodePool}` : `node-pool=${cfg.nodePool}`;
-        info(`NODE_POOL=${cfg.nodePool} set — appended 'node-pool=${cfg.nodePool}' to node labels (scheduling gate for Helm nodeSelectors)`);
+        info(`NODE_POOL=${cfg.nodePool} set — appended 'node-pool=${cfg.nodePool}' to node labels`);
     }
     return labels;
 };
 
+/**
+ * Parses a comma-separated `key=value` label string into a plain object.
+ *
+ * @param labelStr - Label string (e.g. `"role=worker,node-pool=general"`).
+ * @returns Record mapping label keys to values.
+ *
+ * @example
+ * ```typescript
+ * parseLabelString('role=worker,node-pool=monitoring');
+ * // → { role: 'worker', 'node-pool': 'monitoring' }
+ * ```
+ */
 export const parseLabelString = (labelStr: string): Record<string, string> => {
     const out: Record<string, string> = {};
     for (const pair of labelStr.split(',')) {
@@ -281,30 +482,48 @@ export const parseLabelString = (labelStr: string): Record<string, string> => {
 // Wait for kubelet post-join
 // =============================================================================
 
+/**
+ * Waits for the kubelet service to become active and for `kubelet.conf` to
+ * appear on disk after a `kubeadm join`.
+ *
+ * @remarks
+ * Uses {@link poll} with a 1-second interval and a 60-second deadline.
+ *
+ * **Early-exit heuristic**: if 10 seconds have elapsed and `kubelet.conf` is
+ * still absent, `kubeadm join` likely did not complete successfully.  In that
+ * case polling is halted and the last 20 kubelet journal lines are logged to
+ * aid diagnosis — but the function does not throw so the outer step can still
+ * report the failure via the run summary.
+ *
+ * @returns Resolves when the kubelet is active, or after a timeout/early exit.
+ */
 export const waitForKubelet = async (): Promise<void> => {
     info('Waiting for kubelet to become active...');
+    const startedAt = Date.now();
+    let earlyExit = false;
 
-    for (let i = 1; i <= 60; i++) {
-        // Fail fast: if kubelet has been running >10s but config still absent,
-        // kubeadm join did not complete — log and bail rather than spinning.
-        if (i > 10 && !existsSync(KUBELET_CONFIG_FILE)) {
-            warn('kubelet config not found after >10s — kubeadm join likely did not complete');
-            run(['journalctl', '-u', 'kubelet', '--no-pager', '-n', '20'], { check: false });
-            return;
-        }
+    const reached = await poll(
+        async () => {
+            // Fail fast: if kubelet config is still absent after 10s, kubeadm join
+            // did not write its output files — stop spinning and diagnose below.
+            if (Date.now() - startedAt > 10_000 && !existsSync(KUBELET_CONFIG_FILE)) {
+                earlyExit = true;
+                return true as const; // truthy → stops poll; earlyExit flag carries intent
+            }
+            const active = run(['systemctl', 'is-active', '--quiet', 'kubelet'], { check: false });
+            return (active.ok && existsSync(KUBELET_CONFIG_FILE)) ? true as const : null;
+        },
+        { timeoutMs: 60_000, intervalMs: 1_000, label: 'kubelet active', throwOnTimeout: false },
+    );
 
-        const active = run(['systemctl', 'is-active', '--quiet', 'kubelet'], { check: false });
-        if (active.ok && existsSync(KUBELET_CONFIG_FILE)) {
-            info(`kubelet is active (waited ${i}s)`);
-            return;
-        }
-
-        if (i === 60) {
-            warn('kubelet did not become active in 60s');
-            run(['journalctl', '-u', 'kubelet', '--no-pager', '-n', '20'], { check: false });
-        }
-
-        await sleep(1_000);
+    if (earlyExit) {
+        warn('kubelet config absent after >10s — kubeadm join likely did not complete');
+        run(['journalctl', '-u', 'kubelet', '--no-pager', '-n', '20'], { check: false });
+    } else if (!reached) {
+        warn('kubelet did not become active in 60s');
+        run(['journalctl', '-u', 'kubelet', '--no-pager', '-n', '20'], { check: false });
+    } else {
+        info('kubelet is active');
     }
 };
 
@@ -312,6 +531,23 @@ export const waitForKubelet = async (): Promise<void> => {
 // Admin kubeconfig resolution (workers don't have admin.conf)
 // =============================================================================
 
+/**
+ * Resolves an env record containing a kubeconfig path for admin-level kubectl
+ * operations on a worker node.
+ *
+ * @remarks
+ * Workers do not have `/etc/kubernetes/admin.conf`.  This function fetches a
+ * base64-encoded admin kubeconfig from SSM, writes it to a temp file, and
+ * returns an env record pointing to it.
+ *
+ * Fall-back chain:
+ * 1. SSM `{ssmPrefix}/admin-kubeconfig-b64` (decrypted, base64-decoded).
+ * 2. `kubelet.conf` (read-only; label corrections will be skipped by the caller).
+ * 3. No kubeconfig (bare `process.env`; admin operations will fail).
+ *
+ * @param cfg - Worker config supplying `ssmPrefix` and `awsRegion`.
+ * @returns An env record with `KUBECONFIG` set, or bare `process.env` as fallback.
+ */
 const resolveWorkerKubeconfig = async (cfg: WorkerConfig): Promise<Record<string, string>> => {
     const base = { ...process.env } as Record<string, string>;
 
@@ -337,6 +573,18 @@ const resolveWorkerKubeconfig = async (cfg: WorkerConfig): Promise<Record<string
 // CloudWatch log group resolution
 // =============================================================================
 
+/**
+ * Resolves the CloudWatch log group name for this worker.
+ *
+ * @remarks
+ * Prefers `cfg.logGroupName` (set from `LOG_GROUP_NAME` env var).  When empty,
+ * parses {@link K8S_ENV_FILE} for an `export LOG_GROUP_NAME=...` line.
+ * This fallback handles the case where the env file is written by the cloud-init
+ * user-data script but not exported into the bootstrap process environment.
+ *
+ * @param cfg - Worker config.
+ * @returns Log group name string, or `""` when not found.
+ */
 const resolveLogGroupName = (cfg: WorkerConfig): string => {
     if (cfg.logGroupName) return cfg.logGroupName;
     if (existsSync(K8S_ENV_FILE)) {
@@ -355,6 +603,23 @@ const resolveLogGroupName = (cfg: WorkerConfig): string => {
 // Step 1 — Validate Golden AMI
 // =============================================================================
 
+/**
+ * Asserts that all required binaries, kernel modules, and sysctl settings are
+ * present on this EC2 instance.
+ *
+ * @remarks
+ * The bootstrap script does **not** install packages — everything must be
+ * pre-baked into the Golden AMI.  Validation runs first so an AMI that is
+ * missing components fails fast with a descriptive error rather than failing
+ * later with an opaque `command not found`.
+ *
+ * Checks:
+ * - {@link REQUIRED_BINARIES} via `which`.
+ * - {@link REQUIRED_KERNEL_MODULES} via `/proc/modules`.
+ * - {@link REQUIRED_SYSCTL} via `/proc/sys/{key}`.
+ *
+ * @throws {Error} When any check fails, listing all missing items.
+ */
 const validateAmi = async (): Promise<void> => {
     info('Checking required binaries...');
     const missingBins: string[] = [];
@@ -391,9 +656,9 @@ const validateAmi = async (): Promise<void> => {
     }
 
     const allErrors: string[] = [
-        ...(missingBins.length  ? [`Missing binaries: ${missingBins.join(', ')}`]             : []),
-        ...(missingMods.length  ? [`Missing kernel modules: ${missingMods.join(', ')}`]        : []),
-        ...(sysctlErrors.length ? [`Sysctl errors: ${sysctlErrors.join('; ')}`]               : []),
+        ...(missingBins.length  ? [`Missing binaries: ${missingBins.join(', ')}`]      : []),
+        ...(missingMods.length  ? [`Missing kernel modules: ${missingMods.join(', ')}`] : []),
+        ...(sysctlErrors.length ? [`Sysctl errors: ${sysctlErrors.join('; ')}`]        : []),
     ];
 
     if (allErrors.length) {
@@ -410,9 +675,31 @@ const validateAmi = async (): Promise<void> => {
 };
 
 // =============================================================================
-// Step 2 — Join cluster (inner retry loop, called by joinCluster and self-healing)
+// Step 2 — Join cluster (inner retry loop)
 // =============================================================================
 
+/**
+ * Performs the core `kubeadm join` sequence with retry logic.
+ *
+ * @remarks
+ * **Parameter resolution strategy**
+ * - `caHash` — stable for the cluster lifetime; resolved **once before the
+ *   retry loop** (via a short {@link poll}) rather than re-fetched on every
+ *   attempt.  This avoids 5× redundant SSM calls and makes the loop body smaller.
+ * - `joinToken` — fetched **inside** every attempt because the token rotator
+ *   refreshes SSM every 12 h.  On token expiry the loop discards the old token
+ *   and the next attempt picks up the fresh one.
+ *
+ * **Error classification**
+ * - Token not available → warn and retry (token may not be in SSM yet).
+ * - Token expired → reset node and retry (token rotator will refresh SSM).
+ * - API not reachable → retry after interval.
+ * - All other failures → reset node and retry; throw after final attempt.
+ *
+ * @param endpoint - Control plane endpoint (e.g. `"k8s-api.k8s.internal:6443"`).
+ * @param cfg      - Worker config.
+ * @throws {Error} After {@link WorkerConfig.joinMaxRetries} failed attempts.
+ */
 const doJoin = async (endpoint: string, cfg: WorkerConfig): Promise<void> => {
     run(['systemctl', 'start', 'containerd']);
     info('containerd started');
@@ -437,10 +724,24 @@ const doJoin = async (endpoint: string, cfg: WorkerConfig): Promise<void> => {
     const caHashSsm = `${cfg.ssmPrefix}/ca-hash`;
     const [host, port] = parseHostPort(endpoint);
 
+    // CA hash is stable for the cluster lifetime — resolve once with a short
+    // poll to handle transient SSM propagation delays, then reuse across all
+    // join attempts.
+    const caHash = await poll(
+        () => ssmGet(caHashSsm, cfg.awsRegion).then(v => v || null),
+        {
+            timeoutMs:      30_000,
+            intervalMs:     5_000,
+            label:          `CA hash in SSM (${caHashSsm})`,
+            throwOnTimeout: true,
+        },
+    );
+
     for (let attempt = 1; attempt <= cfg.joinMaxRetries; attempt++) {
         info(`=== kubeadm join attempt ${attempt}/${cfg.joinMaxRetries} ===`);
 
-        // Token resolution: env var (user-data at launch) → SSM fallback
+        // Join token is resolved per attempt: the token rotator refreshes SSM
+        // every 12 h, so re-fetching here picks up a rotated token automatically.
         const envToken = (process.env.KUBEADM_JOIN_TOKEN ?? '').trim();
         const rawToken = envToken
             ? (info(`Join token sourced from KUBEADM_JOIN_TOKEN env var (attempt ${attempt})`), envToken)
@@ -455,13 +756,6 @@ const doJoin = async (endpoint: string, cfg: WorkerConfig): Promise<void> => {
 
         const joinToken = validateKubeadmToken(rawToken, 'SSM');
         info(`Join token validated (length=${joinToken.length})`);
-
-        const caHash = await ssmGet(caHashSsm, cfg.awsRegion);
-        if (!caHash) {
-            warn(`CA hash not available (attempt ${attempt}/${cfg.joinMaxRetries})`);
-            if (attempt < cfg.joinMaxRetries) { await sleep(cfg.joinRetryInterval * 1000); continue; }
-            throw new Error(`CA hash never became available after ${cfg.joinMaxRetries} attempts`);
-        }
 
         const reachable = await tcpProbe(host, port);
         info(`Pre-join TCP probe: ${host}:${port} → ${reachable ? 'reachable' : 'UNREACHABLE'}`);
@@ -485,7 +779,7 @@ const doJoin = async (endpoint: string, cfg: WorkerConfig): Promise<void> => {
         const joinRes = run(
             ['kubeadm', 'join', endpoint,
                 '--token', joinToken,
-                '--discovery-token-ca-cert-hash', caHash],
+                '--discovery-token-ca-cert-hash', caHash!],
             { check: false, timeout: 300_000 },
         );
 
@@ -494,8 +788,9 @@ const doJoin = async (endpoint: string, cfg: WorkerConfig): Promise<void> => {
             return;
         }
 
-        // Token expiry: returncode 1 with "token has expired" / "unknown bootstrap token" in output.
-        // Without detection, retry loop burns all attempts against a permanently-invalid token.
+        // Token expiry detection: `kubeadm join` exits 1 with "token has expired"
+        // or "unknown bootstrap token" in stderr/stdout.  Without this check the
+        // loop would burn all remaining attempts against a permanently-invalid token.
         const combined     = (joinRes.stderr + joinRes.stdout).toLowerCase();
         const tokenExpired = combined.includes('token') && (
             combined.includes('expired') ||
@@ -506,7 +801,7 @@ const doJoin = async (endpoint: string, cfg: WorkerConfig): Promise<void> => {
         if (tokenExpired) {
             warn(
                 `Join token EXPIRED on attempt ${attempt}/${cfg.joinMaxRetries}. ` +
-                `Control plane token rotator refreshes SSM every 12h. ` +
+                `Token rotator refreshes SSM every 12h. ` +
                 `Waiting ${cfg.joinRetryInterval}s for a fresh token...`,
             );
             run(['kubeadm', 'reset', '-f'], { check: false });
@@ -527,12 +822,21 @@ const doJoin = async (endpoint: string, cfg: WorkerConfig): Promise<void> => {
     }
 };
 
-// Outer join step: CA mismatch guard + idempotency check + resolve endpoint + doJoin
+/**
+ * Outer join step: CA mismatch guard + idempotency check + endpoint resolution
+ * + {@link doJoin} inner retry loop.
+ *
+ * @remarks
+ * Idempotency: `kubelet.conf` is written by `kubeadm join` on success.  When
+ * it already exists the node is already joined and the step is skipped.
+ *
+ * @param cfg - Worker config.
+ * @throws {Error} When `doJoin` exhausts all retry attempts.
+ */
 const joinCluster = async (cfg: WorkerConfig): Promise<void> => {
     const caReset = await checkCaMismatch(cfg);
     if (caReset) info('CA mismatch handled — proceeding to re-join cluster');
 
-    // Idempotency: kubelet.conf written by kubeadm join on success
     if (existsSync(KUBELET_CONF)) {
         info('[join-cluster] skip — kubelet.conf exists (already joined)');
         return;
@@ -552,6 +856,21 @@ const joinCluster = async (cfg: WorkerConfig): Promise<void> => {
 // Step 3b — Register ASG instance in SSM
 // =============================================================================
 
+/**
+ * Registers this worker's `instance-id → hostname` mapping in SSM Parameter Store.
+ *
+ * @remarks
+ * Only runs when `NODE_POOL` is set — statically-provisioned workers (no ASG)
+ * do not need pool-level discovery.
+ *
+ * The SSM path follows the convention:
+ * `{ssmPrefix}/nodes/{nodePool}/{instanceId}` = `hostname`.
+ *
+ * This record is used by the pool discovery script to find all live nodes in a
+ * pool without querying the Kubernetes API.  Failures are non-fatal.
+ *
+ * @param cfg - Worker config.
+ */
 const registerInstance = async (cfg: WorkerConfig): Promise<void> => {
     if (!cfg.nodePool) {
         info('NODE_POOL not set — skipping SSM instance registration (legacy statically-provisioned worker)');
@@ -574,13 +893,12 @@ const registerInstance = async (cfg: WorkerConfig): Promise<void> => {
             Type:      'String',
             Overwrite: true,
             Tags: [
-                { Key: 'node-pool',    Value: cfg.nodePool    },
-                { Key: 'environment',  Value: cfg.environment },
+                { Key: 'node-pool',   Value: cfg.nodePool    },
+                { Key: 'environment', Value: cfg.environment },
             ],
         }));
         info(`✓ Instance registered: ${instanceId} → ${hostname} (pool=${cfg.nodePool})`);
     } catch (e) {
-        // Non-fatal: node is already in the cluster; registration is for pool discovery only.
         warn(`SSM instance registration failed (non-fatal): ${e}`);
     }
 };
@@ -589,6 +907,19 @@ const registerInstance = async (cfg: WorkerConfig): Promise<void> => {
 // Step 3 — Install CloudWatch Agent
 // =============================================================================
 
+/**
+ * Installs, configures, and starts the Amazon CloudWatch Agent on this worker.
+ *
+ * @remarks
+ * Skipped when the log group name cannot be resolved (see {@link resolveLogGroupName}).
+ *
+ * Agent config ships the following log streams per instance:
+ * - `{instance_id}/messages` — system messages
+ * - `{instance_id}/user-data` — user-data script output
+ * - `{instance_id}/cloud-init` — cloud-init output
+ *
+ * @param cfg - Worker config.
+ */
 const installCloudwatchAgent = async (cfg: WorkerConfig): Promise<void> => {
     const logGroupName = resolveLogGroupName(cfg);
     if (!logGroupName) {
@@ -604,9 +935,9 @@ const installCloudwatchAgent = async (cfg: WorkerConfig): Promise<void> => {
     );
 
     const collectList = CW_LOG_FILES.map(lf => ({
-        file_path:        lf.filePath,
-        log_group_name:   logGroupName,
-        log_stream_name:  lf.logStreamName,
+        file_path:         lf.filePath,
+        log_group_name:    logGroupName,
+        log_stream_name:   lf.logStreamName,
         retention_in_days: 30,
     }));
 
@@ -634,13 +965,21 @@ const installCloudwatchAgent = async (cfg: WorkerConfig): Promise<void> => {
 // Step 4 — Clean stale PVs / PVCs (monitoring workers only)
 // =============================================================================
 
-export interface StalePvEntry {
-    pvName: string;
-    pvcName: string;
-    pvcNamespace: string;
-    deadNode: string;
-}
-
+/**
+ * Scans the cluster's PersistentVolume list and returns entries whose node
+ * affinity references a hostname that is no longer in `liveNodes`.
+ *
+ * @remarks
+ * Only PVs bound to the `monitoring` namespace are considered — other namespaces
+ * use storage classes that do not pin to specific nodes.
+ *
+ * The PV object traversal uses typed casts (`as`) because the `kubectl get pv -o json`
+ * output is untyped.  Each cast is guarded with a null-coalescing default.
+ *
+ * @param pvListJson - Raw JSON string from `kubectl get pv -o json`.
+ * @param liveNodes  - Set of currently registered node hostnames.
+ * @returns Array of {@link StalePvEntry} objects (may be empty).
+ */
 export const findStalePvs = (pvListJson: string, liveNodes: Set<string>): StalePvEntry[] => {
     const stale: StalePvEntry[] = [];
     let pvList: { items: unknown[] };
@@ -648,12 +987,12 @@ export const findStalePvs = (pvListJson: string, liveNodes: Set<string>): StaleP
     catch { warn('Failed to parse PV list JSON — skipping stale PV cleanup'); return stale; }
 
     for (const pv of pvList.items as Record<string, unknown>[]) {
-        const meta      = pv.metadata as Record<string, string> | undefined;
-        const pvName    = meta?.name ?? '';
-        const spec      = (pv.spec ?? {}) as Record<string, unknown>;
-        const claimRef  = (spec.claimRef ?? {}) as Record<string, string>;
-        const pvcNs     = claimRef.namespace ?? '';
-        const pvcName   = claimRef.name ?? '';
+        const meta     = pv.metadata as Record<string, string> | undefined;
+        const pvName   = meta?.name ?? '';
+        const spec     = (pv.spec ?? {}) as Record<string, unknown>;
+        const claimRef = (spec.claimRef ?? {}) as Record<string, string>;
+        const pvcNs    = claimRef.namespace ?? '';
+        const pvcName  = claimRef.name ?? '';
         if (pvcNs !== 'monitoring') continue;
 
         const terms = (
@@ -677,6 +1016,17 @@ export const findStalePvs = (pvListJson: string, liveNodes: Set<string>): StaleP
     return stale;
 };
 
+/**
+ * Deletes PersistentVolumes and their bound PVCs that are pinned to dead nodes.
+ *
+ * @remarks
+ * Only runs on monitoring workers (checked via {@link MONITORING_LABELS}).
+ * Requires an admin kubeconfig for PV/PVC delete RBAC.
+ *
+ * After cleanup, ArgoCD will recreate the PVs on the next sync cycle.
+ *
+ * @param cfg - Worker config.
+ */
 const cleanStalePvs = async (cfg: WorkerConfig): Promise<void> => {
     if (!MONITORING_LABELS.has(cfg.nodeLabel)) {
         info(`Skipping stale PV cleanup — NODE_LABEL=${cfg.nodeLabel} (only monitoring workers trigger PV cleanup: ${[...MONITORING_LABELS].sort().join(', ')})`);
@@ -686,7 +1036,6 @@ const cleanStalePvs = async (cfg: WorkerConfig): Promise<void> => {
     info('Waiting 10s for node registration before PV cleanup...');
     await sleep(10_000);
 
-    // Admin kubeconfig required for PV/PVC delete RBAC
     const adminB64 = await ssmGet(`${cfg.ssmPrefix}/admin-kubeconfig-b64`, cfg.awsRegion, true);
     const kcEnv = { ...process.env } as Record<string, string>;
     if (adminB64) {
@@ -742,6 +1091,25 @@ const cleanStalePvs = async (cfg: WorkerConfig): Promise<void> => {
 // Step 5 — Verify cluster membership and correct label drift
 // =============================================================================
 
+/**
+ * Verifies this worker is registered in the cluster and corrects any label
+ * drift from the expected values.
+ *
+ * @remarks
+ * **Happy path** — node registered with correct labels → logs and returns.
+ *
+ * **Label drift** — node registered but labels differ from expected:
+ * applies corrections via `kubectl label node --overwrite`.  Requires an admin
+ * kubeconfig with write access to the `nodes` resource.
+ *
+ * **Node not registered** — triggers a self-healing re-join:
+ * 1. Checks for CA mismatch and resets if needed.
+ * 2. Removes stale `kubelet.conf`.
+ * 3. Resolves endpoint and calls {@link doJoin}.
+ * Failures in re-join are non-fatal (warns and returns).
+ *
+ * @param cfg - Worker config.
+ */
 const verifyClusterMembership = async (cfg: WorkerConfig): Promise<void> => {
     const hostname = resolveHostname();
     if (!hostname) { warn('Could not resolve hostname — skipping membership verification'); return; }
@@ -787,7 +1155,6 @@ const verifyClusterMembership = async (cfg: WorkerConfig): Promise<void> => {
         return;
     }
 
-    // Node NOT registered — self-healing re-join
     warn(`Node ${hostname} is NOT registered in the cluster — triggering self-healing re-join`);
 
     await checkCaMismatch(cfg);
@@ -813,15 +1180,27 @@ const verifyClusterMembership = async (cfg: WorkerConfig): Promise<void> => {
 // main
 // =============================================================================
 
+/**
+ * Entry point for the worker node bootstrap.
+ *
+ * @remarks
+ * Runs the six steps in sequence using the {@link makeRunStep} step runner,
+ * which provides SSM status tracking, idempotency via marker files, and
+ * structured logging for every step.
+ *
+ * @throws {Error} When a non-idempotent step fails (e.g. `validate-ami`,
+ *                 `join-cluster`).  The SSM Automation state machine will
+ *                 catch this and mark the execution as failed.
+ */
 export const main = async (): Promise<void> => {
     const cfg = fromEnv();
 
-    await runStep('validate-ami',              () => validateAmi(),                     cfg);
-    await runStep('join-cluster',              () => joinCluster(cfg),                  cfg);
-    await runStep('register-instance',         () => registerInstance(cfg),             cfg);
-    await runStep('install-cloudwatch-agent',  () => installCloudwatchAgent(cfg),       cfg, CW_AGENT_MARKER);
-    await runStep('clean-stale-pvs',           () => cleanStalePvs(cfg),               cfg, STALE_PV_CLEANUP_MARKER);
-    await runStep('verify-cluster-membership', () => verifyClusterMembership(cfg),      cfg);
+    await runStep('validate-ami',              () => validateAmi(),                    cfg);
+    await runStep('join-cluster',              () => joinCluster(cfg),                 cfg);
+    await runStep('register-instance',         () => registerInstance(cfg),            cfg);
+    await runStep('install-cloudwatch-agent',  () => installCloudwatchAgent(cfg),      cfg, CW_AGENT_MARKER);
+    await runStep('clean-stale-pvs',           () => cleanStalePvs(cfg),              cfg, STALE_PV_CLEANUP_MARKER);
+    await runStep('verify-cluster-membership', () => verifyClusterMembership(cfg),     cfg);
 };
 
 if (fileURLToPath(import.meta.url) === process.argv[1]) {
