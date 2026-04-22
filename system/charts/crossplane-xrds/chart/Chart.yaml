@@ -1,0 +1,11 @@
+apiVersion: v2
+name: crossplane-xrds
+description: Crossplane Composite Resource Definitions — golden-path AWS resources
+version: 0.1.0
+appVersion: "1.0.0"
+type: application
+keywords:
+  - crossplane
+  - xrd
+  - platform-engineering
+  - golden-path

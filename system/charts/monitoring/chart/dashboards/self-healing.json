@@ -1,0 +1,380 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "🤖 Agent Execution — Real-Time Logs",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "description": "Live stream of the self-healing agent Lambda execution. Shows tool discovery, Bedrock iterations, tool invocations, and remediation reports in real time.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 1 },
+      "id": 1,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| filter @message like /level/\n| sort @timestamp desc\n| limit 200",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-agent", "name": "/aws/lambda/self-healing-dev-agent", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Agent Lambda — Live Execution Log",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "id": 200,
+      "title": "🔧 Tool Execution Logs",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "description": "CloudWatch Logs from the diagnose-alarm tool Lambda. Shows alarm analysis and diagnostic data.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "id": 2,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-tool-diagnose-alarm", "name": "/aws/lambda/self-healing-dev-tool-diagnose-alarm", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Diagnose Alarm Tool",
+      "type": "logs"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "description": "CloudWatch Logs from the EBS detach tool Lambda. Shows volume detach operations and results.",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "id": 3,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "fields @timestamp, @message, @logStream\n| sort @timestamp desc\n| limit 100",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-tool-ebs-detach", "name": "/aws/lambda/self-healing-dev-tool-ebs-detach", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "EBS Detach Tool",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "id": 300,
+      "title": "📊 FinOps Metrics — Token Usage & Performance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "description": "Bedrock token consumption over time (input vs output tokens per 5-minute window).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "scheme",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "inputTokens" },
+            "properties": [
+              { "id": "displayName", "value": "Input Tokens" },
+              { "id": "color", "value": { "fixedColor": "#6ED0E0", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "outputTokens" },
+            "properties": [
+              { "id": "displayName", "value": "Output Tokens" },
+              { "id": "color", "value": { "fixedColor": "#EF843C", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "id": 4,
+      "options": {
+        "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "filter @message like /Iteration.*completed/\n| parse @message '\"inputTokens\":*,' as inputTokens\n| parse @message '\"outputTokens\":*}' as outputTokens\n| stats sum(inputTokens) as inputTokens, sum(outputTokens) as outputTokens by bin(5m)",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-agent", "name": "/aws/lambda/self-healing-dev-agent", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": ["bin(5m)"]
+        }
+      ],
+      "title": "Token Usage Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "description": "Total number of agent invocations and tool calls in the selected time range.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red", "value": 50 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 23 },
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "filter @message like /Agent completed successfully|Agent execution failed/\n| stats count(*) as invocations",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-agent", "name": "/aws/lambda/self-healing-dev-agent", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Total Invocations",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "description": "Total tool calls made by the agent across all invocations.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "purple", "value": 10 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 23 },
+      "id": 6,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "filter @message like /Invoking tool:/\n| stats count(*) as toolCalls",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-agent", "name": "/aws/lambda/self-healing-dev-agent", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": []
+        }
+      ],
+      "title": "Total Tool Calls",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "description": "Agent execution duration over time (including tool calls and Bedrock inference).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "lineWidth": 2,
+            "pointSize": 6,
+            "showPoints": "always",
+            "thresholdsStyle": {
+              "mode": "line+area",
+              "lineColor": "red",
+              "fillColor": "red"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "red", "value": 60000 }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 27 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+          "expression": "filter @message like /Agent completed successfully|Agent execution failed/\n| parse @message '\"durationMs\":*,' as durationMs\n| stats avg(durationMs) as avgDuration, max(durationMs) as maxDuration by bin(5m)",
+          "id": "",
+          "logGroups": [
+            { "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/lambda/self-healing-dev-agent", "name": "/aws/lambda/self-healing-dev-agent", "accountId": "771826808455" }
+          ],
+          "queryMode": "Logs",
+          "refId": "A",
+          "region": "eu-west-1",
+          "statsGroups": ["bin(5m)"]
+        }
+      ],
+      "title": "Agent Duration Over Time",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["self-healing", "bedrock", "cloudwatch", "agent"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Self-Healing Pipeline",
+  "uid": "self-healing-pipeline",
+  "version": 1
+}

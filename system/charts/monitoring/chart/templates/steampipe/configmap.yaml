@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: steampipe-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "steampipe" | nindent 4 }}
+data:
+  steampipe.spc: |
+    connection "aws" {
+      plugin  = "aws"
+      regions = ["eu-west-1", "us-east-1"]
+    }

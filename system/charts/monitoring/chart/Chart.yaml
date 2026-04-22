@@ -1,0 +1,7 @@
+# @format
+apiVersion: v2
+name: monitoring-stack
+description: Kubernetes monitoring stack (Prometheus, Grafana, Loki, Tempo, Promtail, Node Exporter, Kube-State-Metrics)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
