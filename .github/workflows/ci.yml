@@ -5,10 +5,8 @@
 #
 # Language split:
 #   TypeScript — infra CDK constructs, boot steps (control_plane/worker/
-#                orchestrator), scripts/cd, vitest unit tests
-#   Python     — system/argocd bootstrap, system/cert-manager helper,
-#                tests/argocd, tests/system (boot/ and deploy_helpers/
-#                were migrated to TypeScript and are no longer linted here)
+#                orchestrator), scripts/cd, system/argocd bootstrap, vitest tests
+#   Python     — system/cert-manager helper, tests/system
 
 name: CI — Kubernetes Bootstrap
 
@@ -122,8 +120,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Python: Ruff lint + format check
-  # Scoped to system/ and tests/argocd, tests/system — boot/ and deploy_helpers/
-  # were migrated to TypeScript and removed.
+  # Scoped to system/cert-manager and tests/system — argocd bootstrap migrated
+  # to TypeScript.
   # ---------------------------------------------------------------------------
   python-lint:
     name: Python Lint (Ruff)
@@ -139,13 +137,13 @@ jobs:
         run: pip install ruff
 
       - name: Ruff check
-        run: ruff check system/ tests/argocd/ tests/system/
+        run: ruff check system/ tests/system/
 
       - name: Ruff format check
         run: ruff format --check system/
 
   # ---------------------------------------------------------------------------
-  # Python: pytest (ArgoCD bootstrap + system scripts)
+  # Python: pytest (system scripts — cert-manager, DR helpers)
   # ---------------------------------------------------------------------------
   pytest:
     name: Pytest Suite
@@ -161,7 +159,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Run tests
-        run: pytest tests/argocd/ tests/system/ -v --tb=short
+        run: pytest tests/system/ -v --tb=short
 
   # ---------------------------------------------------------------------------
   # YAML lint (ArgoCD application manifests in system/)
