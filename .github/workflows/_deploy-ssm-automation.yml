@@ -53,6 +53,7 @@ on:
 permissions:
   id-token: write        # Required for OIDC → aws-actions/configure-aws-credentials
   contents: read         # Required for actions/checkout
+  administration: read   # Required for check-runner: list self-hosted runners API
 
 # One active run per environment. A new dispatch cancels any stuck/in-progress
 # run (including hung ARC runner jobs that ignore timeout-minutes).
