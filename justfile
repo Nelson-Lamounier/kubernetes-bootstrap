@@ -297,6 +297,32 @@ gh-force-cancel run-id:
     RESULT=$(gh run view {{run-id}} --repo "${REPO}" --json status,conclusion 2>/dev/null || echo '{"status":"unknown"}')
     echo "Result: ${RESULT}"
 
+# Force-cancel all queued or in_progress runs across the repo.
+# Useful after k8s-runner goes offline and multiple runs pile up waiting.
+# Usage: just gh-cancel-queued
+#        just gh-cancel-queued deploy-ssm-automation.yml
+[group('ci')]
+gh-cancel-queued workflow="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    REPO="Nelson-Lamounier/kubernetes-bootstrap"
+    FILTER='(.status == "queued" or .status == "in_progress" or .status == "pending")'
+    if [ -n "{{workflow}}" ]; then
+      FILTER="${FILTER} and .name == \"{{workflow}}\""
+    fi
+    RUNS=$(gh run list --repo "${REPO}" --limit 50 \
+      --json databaseId,status,name \
+      --jq ".[] | select(${FILTER}) | .databaseId")
+    if [ -z "$RUNS" ]; then
+      echo "No queued/pending/in_progress runs found."
+      exit 0
+    fi
+    for RUN_ID in $RUNS; do
+      echo "Force-cancelling run ${RUN_ID}..."
+      gh api "repos/${REPO}/actions/runs/${RUN_ID}/force-cancel" --method POST || true
+    done
+    echo "Done. Cancelled $(echo "$RUNS" | wc -l | tr -d ' ') run(s)."
+
 # Trigger the deploy-golden-ami GitHub Actions workflow
 # Requires: gh CLI authenticated (gh auth login)
 # Usage: just ami-workflow production
