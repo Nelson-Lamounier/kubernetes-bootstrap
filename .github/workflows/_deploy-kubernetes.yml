@@ -1,0 +1,1155 @@
+# @format
+# @description Reusable Kubernetes Infrastructure Deployment Workflow
+#
+# ─── Purpose ───────────────────────────────────────────────────────
+# Deploys ALL K8s (kubeadm) infrastructure stacks via CDK, including
+# the SSM Automation stack. This pipeline provisions AWS resources
+# but does NOT bootstrap Kubernetes or trigger SSM Automation.
+#
+# ─── Two-Pipeline Architecture ─────────────────────────────────────
+# Kubernetes deployment is split across two independent pipelines:
+#
+#   Pipeline 1: _deploy-kubernetes.yml (this file)
+#     - Deploys ALL CDK stacks: networking, compute, IAM, API, edge,
+#       AND SSM Automation (documents + IAM role)
+#     - EC2 user data exports env vars, publishes instance IDs to SSM,
+#       and sends cfn-signal to confirm infrastructure readiness
+#     - Does NOT download scripts from S3 or trigger SSM Automation
+#
+#   Pipeline 2: _deploy-ssm-automation.yml
+#     - Bootstrap-only: syncs scripts to S3, triggers SSM Automation,
+#       observes progress, deploys secrets, and verifies ArgoCD
+#     - Does NOT deploy any CDK stacks (that's handled here)
+#
+# ─── Day-1 Deployment ──────────────────────────────────────────────
+# For a fresh cluster, run both pipelines in sequence:
+#   1. deploy-kubernetes.yml  → provisions all infrastructure + SSM docs
+#   2. deploy-ssm-automation.yml → syncs scripts + triggers bootstrap
+#
+# ─── Day-2+ Updates ───────────────────────────────────────────────
+# - Infrastructure changes: push to trigger deploy-kubernetes.yml
+# - Bootstrap script changes: push to trigger deploy-ssm-automation.yml
+#   (syncs scripts, re-triggers bootstrap — no CDK deploy needed)
+#
+# ─── Stack Deployment Order ────────────────────────────────────────
+#   0.  ✅ Verify BFF ECR  (pre-flight: confirm public-api + admin-api ECR repos exist
+#                           in Shared-Infra before any container push job)
+#   1.  Data             (DynamoDB + S3 + SSM Parameters)
+#   1b. ✅ Verify Data    (Integration test — DynamoDB, S3, SSM, CFn outputs)
+#   2.  Base             (VPC networking + SG + KMS + EBS + EIP + S3 Scripts)
+#   2b. ✅ Verify Base    (Integration test — VPC, SGs, KMS, EBS, EIP, Route53)
+#   2c. Golden AMI       (Bake containerd + kubeadm into AMI)
+#   2d. SSM Automation   (SSM Automation documents + IAM role) [parallel with 2c]
+#   2e. API              (API Gateway + Lambda) [parallel with 2, depends on 1]
+#   2f. Observability    (CloudWatch dashboard) [parallel with 2c/2d, depends on 2b]
+#   3.  Compute          (Control Plane EC2 + ASG)
+#   3b. General Pool ASG (Kubernetes-native worker nodes — general purpose)
+#   3c. Monitoring Pool  (Kubernetes-native worker nodes — observability taint)
+#   4.  AppIam           (Application-tier IAM grants)
+#   5.  Edge             (CloudFront + ACM + WAF in us-east-1)
+#   5b. ✅ Verify Edge    (Integration test — behaviour order, auth cookies, Set-Cookie)
+#
+# ─── Post-Deploy (manifests managed by ArgoCD GitOps) ──────────────
+#   6.  ArgoCD Health Gate          (wait for GitOps sync)
+#   7.  Verify & Smoke Tests
+#   8.  Deployment Failure Alert    (halt + preserve + alert)
+#   9.  Summary
+#
+# ─── Concurrency ───────────────────────────────────────────────────
+#   This is a workflow_call (reusable) workflow — concurrency MUST be set
+#   on the caller (e.g., deploy-kubernetes.yml).
+#   Each caller defines: concurrency: { group: deploy-k8s-<env>, cancel-in-progress: false }
+
+name: Deploy K8s (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (development, staging, production)"
+        required: true
+        type: string
+      cdk-environment:
+        description: "CDK environment name"
+        required: true
+        type: string
+      require-approval:
+        description: "CDK deployment approval mode"
+        required: false
+        default: "never"
+        type: string
+      skip-verification:
+        description: "Skip post-deployment verification"
+        required: false
+        default: false
+        type: boolean
+      domain-name:
+        description: "Domain name for CloudFront Edge stack (optional — falls back to vars.DOMAIN_NAME)"
+        required: false
+        type: string
+        default: ""
+      hosted-zone-id:
+        description: "Route53 Hosted Zone ID (optional — falls back to vars.HOSTED_ZONE_ID)"
+        required: false
+        type: string
+        default: ""
+      cross-account-role-arn:
+        description: "Cross-account IAM role for Route53 (optional — falls back to vars.DNS_VALIDATION_ROLE)"
+        required: false
+        type: string
+        default: ""
+
+
+    secrets:
+      AWS_OIDC_ROLE:
+        description: "AWS OIDC role ARN"
+        required: false
+      VERIFICATION_SECRET:
+        required: false
+      ALLOW_IPV4:
+        description: "IPv4 CIDR to allowlist in WAF (e.g., 203.0.113.42/32)"
+        required: false
+      ALLOW_IPV6:
+        description: "IPv6 CIDR to allowlist in WAF (e.g., 2a02:8084::/128)"
+        required: false
+
+env:
+  NODE_VERSION: "22"
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+  DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+  # Force Node 24 for actions that haven't released Node 24-native versions yet
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ===========================================================================
+  # Setup, Build & Synthesize
+  # ===========================================================================
+  setup:
+    name: Setup & Synthesize
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+    outputs:
+      commit-sha: ${{ github.sha }}
+      commit-short-sha: ${{ steps.pipeline-setup.outputs.short-sha }}
+      node-version: ${{ steps.setup-tools.outputs.node-version }}
+      # Stack names from synthesize-ci.ts (14-stack architecture)
+      data-stack: ${{ steps.synth.outputs.data }}
+      base-stack: ${{ steps.synth.outputs.base }}
+      goldenami-stack: ${{ steps.synth.outputs.goldenAmi }}
+      controlplane-stack: ${{ steps.synth.outputs.controlPlane }}
+      ssmautomation-stack: ${{ steps.synth.outputs.ssmAutomation }}
+      # ASG pool stacks — Kubernetes-native worker nodes
+      general-pool-stack: ${{ steps.synth.outputs.generalPool }}
+      monitoring-pool-stack: ${{ steps.synth.outputs.monitoringPool }}
+      appiam-stack: ${{ steps.synth.outputs.appIam }}
+      api-stack: ${{ steps.synth.outputs.api }}
+      edge-stack: ${{ steps.synth.outputs.edge }}
+      observability-stack: ${{ steps.synth.outputs.observability }}
+
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Environment and Dependencies
+        id: setup-tools
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build TypeScript
+        run: just build
+
+      - name: Pipeline Setup (validate, resolve, mask)
+        id: pipeline-setup
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          INPUT_DOMAIN: ${{ inputs.domain-name }}
+          INPUT_HZ_ID: ${{ inputs.hosted-zone-id }}
+          INPUT_ROLE_ARN: ${{ inputs.cross-account-role-arn }}
+          VARS_DOMAIN: ${{ vars.DOMAIN_NAME }}
+          VARS_HZ_ID: ${{ vars.HOSTED_ZONE_ID }}
+          VARS_ROLE_ARN: ${{ vars.DNS_VALIDATION_ROLE }}
+        run: just ci-pipeline-setup
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Synthesize & Determine Stack Names
+        id: synth
+        env:
+          DOMAIN_NAME: ${{ steps.pipeline-setup.outputs.domain-name }}
+          HOSTED_ZONE_ID: ${{ steps.pipeline-setup.outputs.hosted-zone-id }}
+          CROSS_ACCOUNT_ROLE_ARN: ${{ steps.pipeline-setup.outputs.cross-account-role-arn }}
+          NOTIFICATION_EMAIL: ${{ vars.NOTIFICATION_EMAIL }}
+          SES_FROM_EMAIL: ${{ vars.SES_FROM_EMAIL }}
+          VERIFICATION_SECRET: ${{ secrets.VERIFICATION_SECRET }}
+          VERIFICATION_BASE_URL: ${{ vars.VERIFICATION_BASE_URL }}
+          # ── WAF IP Allowlist (Pre-launch Access Restriction) ─────────
+          # Restricts CloudFront access to listed IPs only.
+          #
+          # GitHub Environment settings (Settings → Environments → development):
+          #   Variable: RESTRICT_ACCESS = "true" | "false"
+          #   Secret:   ALLOW_IPV4 = "<your-ipv4>/32"  (e.g., "203.0.113.42/32")
+          #   Secret:   ALLOW_IPV6 = "<your-ipv6>/128"  (e.g., "2a02:8084::/128")
+          #
+          # To go live: set RESTRICT_ACCESS to "false" in GitHub Environment
+          # variables and re-run the pipeline. No code change, commit, or PR
+          # needed — the WAF default action flips from BLOCK to ALLOW.
+          #
+          # To lock down again: set RESTRICT_ACCESS back to "true".
+          # ──────────────────────────────────────────────────────────────
+          RESTRICT_ACCESS: ${{ vars.RESTRICT_ACCESS }}
+          ALLOW_IPV4: ${{ secrets.ALLOW_IPV4 }}
+          ALLOW_IPV6: ${{ secrets.ALLOW_IPV6 }}
+        run: just ci-synth kubernetes ${{ inputs.cdk-environment }}
+
+      - name: Cache Synthesized Templates
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: infra/cdk.out/
+          key: cdk-synth-k8s-${{ inputs.cdk-environment }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+
+
+
+  # ===========================================================================
+  # Template Validation (cfn-lint)
+  # ===========================================================================
+  validate-templates:
+    name: Validate Templates
+    needs: [setup]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Config
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .cfnlintrc
+          sparse-checkout-cone-mode: false
+
+      - name: Restore Synthesized Templates
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: infra/cdk.out/
+          key: cdk-synth-k8s-${{ inputs.cdk-environment }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Validate CloudFormation Templates
+        shell: python3 {0}
+        run: |
+          import sys, glob
+          sys.setrecursionlimit(10000)
+          from cfnlint import decode, runner
+          from cfnlint.config import ConfigMixIn
+
+          templates = sorted(glob.glob("infra/cdk.out/**/*.template.json", recursive=True))
+          print(f"Validating {len(templates)} templates...")
+          total_errors = 0
+          for tpl in templates:
+              print(f"\n--- {tpl} ---")
+              try:
+                  config = ConfigMixIn(["--template", tpl])
+                  matches = list(runner.Runner(config).run())
+                  if matches:
+                      total_errors += len(matches)
+                      for match in matches:
+                          print(f"  {match}")
+                  else:
+                      print("  PASS")
+              except RecursionError:
+                  print(f"  SKIP (template too deeply nested)")
+              except Exception as e:
+                  print(f"  SKIP ({type(e).__name__}: {e})")
+
+          if total_errors > 0:
+              print(f"\n{total_errors} validation errors found")
+              sys.exit(1)
+          else:
+              print(f"\nAll {len(templates)} templates passed validation")
+
+  # ===========================================================================
+  # Verify BFF ECR Repositories — Pre-flight Gate (0)
+  #
+  # Confirms that both BFF ECR repositories (public-api and admin-api) exist
+  # in the Shared-Infra stack BEFORE any downstream deploy jobs run. Reads the
+  # SSM parameters published by SharedVpcStack:
+  #   /shared/ecr-public-api/{env}/repository-uri
+  #   /shared/ecr-admin-api/{env}/repository-uri
+  #
+  # If either parameter is missing the Shared-Infra stack has not been deployed
+  # yet. Run deploy-shared.yml first, then re-trigger this pipeline.
+  # ===========================================================================
+  verify-bff-ecr:
+    name: "Verify BFF ECR"
+    needs: [setup, validate-templates]
+    if: always() && needs.setup.result == 'success' && needs.validate-templates.result == 'success'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 5
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Confirm BFF ECR repositories exist in SSM
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        # Reads both BFF ECR SSM parameters to provide information about the repositories.
+        # These are written by SharedVpcStack when Shared-Infra is deployed.
+        # This will not block the pipeline during a day 0 launch.
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          PUBLIC_API_SSM="/shared/ecr-public-api/${CDK_ENV}/repository-uri"
+          ADMIN_API_SSM="/shared/ecr-admin-api/${CDK_ENV}/repository-uri"
+
+          echo "Checking SSM parameter: ${PUBLIC_API_SSM}"
+          PUBLIC_API_URI=$(aws ssm get-parameter \
+            --name "${PUBLIC_API_SSM}" \
+            --region "${AWS_REGION}" \
+            --query 'Parameter.Value' \
+            --output text 2>&1) || {
+            echo "::warning::public-api ECR repository not found in SSM."
+            echo "::warning::SSM path: ${PUBLIC_API_SSM}"
+            echo "::warning::Day 0 deployment - assuming cluster launch."
+            PUBLIC_API_URI="not-found"
+          }
+
+          echo "Checking SSM parameter: ${ADMIN_API_SSM}"
+          ADMIN_API_URI=$(aws ssm get-parameter \
+            --name "${ADMIN_API_SSM}" \
+            --region "${AWS_REGION}" \
+            --query 'Parameter.Value' \
+            --output text 2>&1) || {
+            echo "::warning::admin-api ECR repository not found in SSM."
+            echo "::warning::SSM path: ${ADMIN_API_SSM}"
+            echo "::warning::Day 0 deployment - assuming cluster launch."
+            ADMIN_API_URI="not-found"
+          }
+
+          echo "public-api ECR URI : ${PUBLIC_API_URI}"
+          echo "admin-api  ECR URI : ${ADMIN_API_URI}"
+          echo "BFF ECR pre-flight check completed."
+
+  # ===========================================================================
+  # Deploy Data Stack (1/6) — DynamoDB + S3 + SSM Parameters
+  # ===========================================================================
+  deploy-data:
+    name: Deploy Data
+    needs: [setup, validate-templates, verify-bff-ecr]
+    if: >-
+      always()
+      && needs.setup.result == 'success'
+      && needs.validate-templates.result == 'success'
+      && needs.verify-bff-ecr.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.data-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+    secrets: inherit
+
+  # ===========================================================================
+  # Verify Data Stack — Integration Tests Gate
+  #
+  # Runs integration tests that call real AWS APIs to validate the data
+  # stack deployment. Reads SSM parameters published by the stack and
+  # confirms DynamoDB, S3, and CloudFormation outputs are correctly
+  # configured. Gates the base stack deployment.
+  # ===========================================================================
+  verify-data-stack:
+    name: Verify Data Stack
+    needs: [setup, deploy-data]
+    if: always() && needs.deploy-data.result == 'success'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Run Data Stack Integration Tests
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: just ci-integration-test kubernetes/data-stack $CDK_ENV --verbose
+
+  # ===========================================================================
+  # Deploy API Stack — API Gateway + Lambda (depends on Data only)
+  #
+  # Deploys in parallel with Base. The API stack only depends on the Data
+  # stack (DynamoDB table + SSM parameters). It is an application-layer
+  # stack that can be deployed independently from core infrastructure.
+  # ===========================================================================
+  deploy-api:
+    name: Deploy API
+    needs: [setup, deploy-data, verify-data-stack]
+    if: always() && needs.deploy-data.result == 'success' && needs.verify-data-stack.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.api-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+      # Email config — passed to CDK synth inside _deploy-stack.yml
+      notification-email: ${{ vars.NOTIFICATION_EMAIL }}
+      ses-from-email: ${{ vars.SES_FROM_EMAIL }}
+    secrets: inherit
+
+  # ===========================================================================
+  # Verify Golden AMI (post-deploy) — AMI metadata + package verification
+  #
+  # Runs after deploy-goldenami completes. Verifies the AMI exists, has
+  # correct tags, and all expected packages are present in build logs.
+  # Replaces the previous golden-ami-observer.ts streaming script.
+  # ===========================================================================
+  verify-goldenami:
+    name: Verify Golden AMI
+    needs: [setup, deploy-goldenami]
+    if: >-
+      always()
+      && (needs.deploy-goldenami.result == 'success' || needs.deploy-goldenami.result == 'skipped')
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Run Golden AMI Integration Tests
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: just ci-integration-test kubernetes/golden-ami-stack $CDK_ENV --verbose
+
+  # ===========================================================================
+  # Deploy Base Stack (2/6) — VPC networking + SG + KMS + EBS + EIP
+  # ===========================================================================
+  deploy-base:
+    name: Deploy Base
+    needs: [setup, deploy-data, verify-data-stack]
+    if: always() && needs.deploy-data.result == 'success' && needs.verify-data-stack.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.base-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+    secrets: inherit
+
+  # ===========================================================================
+  # Verify Base Stack — Integration Tests Gate
+  #
+  # Runs integration tests that call real AWS APIs to validate the base
+  # stack deployment. Reads SSM parameters published by the stack and
+  # confirms VPC, SGs, KMS, EBS, EIP, S3, and Route 53 resources exist
+  # and are correctly configured. Gates all downstream stacks.
+  # ===========================================================================
+  verify-base-stack:
+    name: Verify Base Stack
+    needs: [setup, deploy-base]
+    if: always() && needs.deploy-base.result == 'success'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Run Base Stack Integration Tests
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: just ci-integration-test kubernetes/base-stack $CDK_ENV --verbose
+
+  # ===========================================================================
+  # Deploy Golden AMI Stack (Image Builder Pipeline)
+  #
+  # Creates the CfnImage resource that builds the Golden AMI inline.
+  # CloudFormation triggers Image Builder and waits for the AMI to be
+  # built (~15-25 min). The AMI ID is stored in SSM by CloudFormation.
+  # ===========================================================================
+  deploy-goldenami:
+    name: Deploy Golden AMI
+    needs: [setup, deploy-base, verify-base-stack]
+    if: >-
+      always()
+      && needs.deploy-base.result == 'success'
+      && needs.verify-base-stack.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.goldenami-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      timeout-minutes: 35
+      outputs-directory: "deployment-outputs"
+    secrets: inherit
+
+  # ===========================================================================
+  # Deploy SSM Automation Stack (2d) — SSM Documents + IAM Role
+  #
+  # Runs in parallel with Golden AMI bake. Deploys the SSM Automation
+  # documents and IAM role that the bootstrap-only pipeline uses.
+  # ===========================================================================
+  deploy-ssm:
+    name: Deploy SSM Automation
+    needs: [setup, deploy-base, verify-base-stack]
+    if: >-
+      always()
+      && needs.deploy-base.result == 'success'
+      && needs.verify-base-stack.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.ssmautomation-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+    secrets: inherit
+
+
+  # ===========================================================================
+  # Deploy Compute Stack — Control Plane EC2 + ASG
+  #
+  # Waits for Golden AMI bake (or skip) so the Launch Template
+  # resolves to the latest baked AMI.
+  # ===========================================================================
+  deploy-controlplane:
+    name: Deploy Control Plane
+    needs: [setup, deploy-base, verify-base-stack, deploy-goldenami]
+    if: >-
+      always()
+      && needs.deploy-base.result == 'success'
+      && needs.verify-base-stack.result == 'success'
+      && (needs.deploy-goldenami.result == 'success' || needs.deploy-goldenami.result == 'skipped')
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.controlplane-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+    secrets: inherit
+
+  # ===========================================================================
+  # Verify Control Plane Stack — Integration Tests Gate
+  #
+  # Runs integration tests that call real AWS APIs to validate the control
+  # plane deployment. Verifies EIP association to the running instance,
+  # security group attachment (cluster base, control plane, ingress), port
+  # rules on each SG, and CloudFormation outputs. Gates worker deployments.
+  # ===========================================================================
+  verify-controlplane-stack:
+    name: Verify Control Plane
+    needs: [setup, deploy-controlplane]
+    if: always() && needs.deploy-controlplane.result == 'success'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Run Control Plane Integration Tests
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: just ci-integration-test kubernetes/control-plane-stack $CDK_ENV --verbose
+
+  # ===========================================================================
+  # ===========================================================================
+  # Deploy General Pool ASG Stack (3b) — General-Purpose ASG Pool
+  #
+  # Kubernetes-native KubernetesWorkerAsgStack (no taint).
+  # Hosts Next.js, start-admin, ArgoCD, and system components.
+  # ===========================================================================
+  deploy-general-pool:
+    name: Deploy General Pool ASG
+    needs: [setup, deploy-controlplane, verify-controlplane-stack]
+    if: always() && needs.deploy-controlplane.result == 'success' && needs.verify-controlplane-stack.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.general-pool-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+    secrets: inherit
+
+  # ===========================================================================
+  # Verify General Pool ASG Stack — Validate Launch Template, ASG, IAM, SSM tags
+  # ===========================================================================
+  verify-general-pool-stack:
+    name: Verify General Pool ASG
+    needs: [setup, deploy-general-pool]
+    if: always() && needs.deploy-general-pool.result == 'success'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Run General Pool Integration Tests
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+          WORKER_POOL: general
+        run: just ci-integration-test kubernetes/worker-asg-stack $CDK_ENV --testNamePattern="general-pool" --verbose
+
+  # ===========================================================================
+  # Deploy Monitoring Pool ASG Stack (3f) — Observability ASG Pool
+  #
+  # Parameterised KubernetesWorkerAsgStack for the monitoring pool.
+  # Tainted `dedicated=monitoring:NoSchedule` by the bootstrap script.
+  # Hosts Prometheus, Grafana, Loki, Tempo, and Alloy.
+  # ===========================================================================
+  deploy-monitoring-pool:
+    name: Deploy Monitoring Pool ASG
+    needs: [setup, deploy-controlplane, verify-controlplane-stack]
+    if: always() && needs.deploy-controlplane.result == 'success' && needs.verify-controlplane-stack.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.monitoring-pool-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+    secrets: inherit
+
+  # ===========================================================================
+  # Verify Monitoring Pool ASG Stack — Validate Launch Template, ASG, IAM, SNS, SSM tags
+  # ===========================================================================
+  verify-monitoring-pool-stack:
+    name: Verify Monitoring Pool ASG
+    needs: [setup, deploy-monitoring-pool]
+    if: always() && needs.deploy-monitoring-pool.result == 'success'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Run Monitoring Pool Integration Tests
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+          WORKER_POOL: monitoring
+        run: just ci-integration-test kubernetes/worker-asg-stack $CDK_ENV --testNamePattern="monitoring-pool" --verbose
+
+  # ===========================================================================
+  # Deploy AppIam Stack (4/8) — Application-tier IAM grants
+  #
+  # Hard-gated on both ASG pool verify jobs. If either pool stack fails,
+  # IAM grants must not proceed.
+  # ===========================================================================
+  deploy-appiam:
+    name: Deploy App IAM
+    needs:
+      - setup
+      - verify-bff-ecr
+      - deploy-general-pool
+      - deploy-monitoring-pool
+      - verify-general-pool-stack
+      - verify-monitoring-pool-stack
+    if: >-
+      always()
+      && needs.verify-bff-ecr.result == 'success'
+      && needs.deploy-general-pool.result == 'success'
+      && needs.deploy-monitoring-pool.result == 'success'
+      && needs.verify-general-pool-stack.result == 'success'
+      && needs.verify-monitoring-pool-stack.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.appiam-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+    secrets: inherit
+
+
+  # ===========================================================================
+  # Deploy Edge Stack (5/6) — CloudFront + ACM + WAF (us-east-1)
+  # Origin: Elastic IP → Traefik
+  #
+  # PREREQUISITE: /k8s/{env}/cloudfront-origin-secret must exist in
+  # eu-west-1 SSM before this job runs.  The secret is seeded (once) by
+  # the "Phase 1b — Seed CloudFront Origin Secret" step in the SSM
+  # automation pipeline (_deploy-ssm-automation.yml).  Run that pipeline
+  # first on any new environment.
+  # ===========================================================================
+  deploy-edge:
+    name: Deploy Edge
+    needs: [setup, deploy-appiam, deploy-data]
+    if: always() && needs.deploy-appiam.result == 'success' && needs.deploy-data.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.edge-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.ROUTE53_REGION || 'us-east-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+      restrict-access: ${{ vars.RESTRICT_ACCESS }}
+    secrets: inherit
+
+  # ===========================================================================
+  # Verify Edge Stack (5b) — Auth Cookie Forwarding + Behaviour Ordering
+  #
+  # Post-deployment integration tests that validate the LIVE CloudFront
+  # distribution against the three CSRF root causes:
+  #   1. Auth/admin behaviours use CookieBehavior: all (Set-Cookie passthrough)
+  #   2. OriginRequestPolicy cookie names contain no wildcards
+  #   3. Auth-sensitive patterns appear before /api/* catch-all
+  #
+  # This gate prevents auth regressions from reaching production.
+  # ===========================================================================
+  verify-edge-stack:
+    name: Verify Edge Stack
+    needs: [setup, deploy-edge]
+    if: always() && needs.deploy-edge.result == 'success'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Run Edge Stack Integration Tests
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: just ci-integration-test kubernetes/edge-stack $CDK_ENV --verbose
+
+  # ===========================================================================
+  # Deploy Observability Stack (2f) — CloudWatch Pre-Deployment Dashboard
+  #
+  # Runs in parallel with Golden AMI, SSM Automation, and API stacks.
+  # Depends only on Base stack (SSM parameters must exist).
+  # Cost: $3.00/month — all metrics are standard AWS service metrics.
+  # ===========================================================================
+  deploy-observability:
+    name: Deploy Observability
+    needs: [setup, deploy-base, verify-base-stack]
+    if: >-
+      always()
+      && needs.deploy-base.result == 'success'
+      && needs.verify-base-stack.result == 'success'
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: ${{ needs.setup.outputs.observability-stack }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: ${{ inputs.require-approval }}
+      outputs-directory: "deployment-outputs"
+    secrets: inherit
+
+  # ===========================================================================
+  # Verify Bootstrap Orchestrator — Step Function Health Gate
+  #
+  # When compute stacks deploy and the ASG replaces an EC2 instance,
+  # EventBridge triggers the bootstrap orchestrator Step Function.
+  # This job polls for recent executions and waits for completion,
+  # failing the pipeline if any bootstrap execution fails.
+  #
+  # If no compute stacks changed (no ASG replacement), the job
+  # succeeds immediately with "no executions found".
+  # ===========================================================================
+  verify-bootstrap:
+    name: Verify Bootstrap Orchestrator
+    needs:
+      - setup
+      - deploy-controlplane
+      - deploy-general-pool
+      - deploy-monitoring-pool
+    if: >-
+      always()
+      && (
+        needs.deploy-controlplane.result == 'success'
+        || needs.deploy-general-pool.result == 'success'
+        || needs.deploy-monitoring-pool.result == 'success'
+      )
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Run Bootstrap Orchestrator Integration Tests
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: just ci-integration-test kubernetes/bootstrap-orchestrator $CDK_ENV --verbose
+
+  # ===========================================================================
+  # Deployment Failure Alert (staging/production only)
+  #
+  # For K8s/GitOps environments, automated CFn rollbacks on stateful infra
+  # (EC2 nodes running ArgoCD) risk split-brain state. Instead we:
+  #   1. Halt the pipeline
+  #   2. Preserve artifacts and diagnostics
+  #   3. Alert engineers with actionable context
+  #   4. Let them "roll forward" with a targeted fix
+  # ===========================================================================
+  deployment-failure-alert:
+    name: "Deployment Failed — Alert"
+    needs:
+      [
+        setup,
+        verify-bff-ecr,
+        deploy-ssm,
+        deploy-controlplane,
+        deploy-general-pool,
+        deploy-monitoring-pool,
+        deploy-api,
+        deploy-edge,
+        verify-edge-stack,
+        deploy-observability,
+        verify-bootstrap,
+      ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    if: |
+      always()
+      && (
+        needs.verify-bff-ecr.result == 'failure'
+        || needs.deploy-ssm.result == 'failure'
+        || needs.deploy-controlplane.result == 'failure'
+        || needs.deploy-general-pool.result == 'failure'
+        || needs.deploy-monitoring-pool.result == 'failure'
+        || needs.deploy-api.result == 'failure'
+        || needs.deploy-edge.result == 'failure'
+        || needs.verify-edge-stack.result == 'failure'
+        || needs.deploy-observability.result == 'failure'
+        || needs.verify-bootstrap.result == 'failure'
+      )
+      && inputs.cdk-environment != 'development'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        run: yarn install --immutable
+        working-directory: ./
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: "Generate Deployment Failure Report"
+        continue-on-error: true
+        env:
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          COMMIT_SHA: ${{ needs.setup.outputs.commit-sha }}
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          JOB_RESULTS: >-
+            {
+              "control-plane": "${{ needs.deploy-controlplane.result }}",
+              "general-pool": "${{ needs.deploy-general-pool.result }}",
+              "monitoring-pool": "${{ needs.deploy-monitoring-pool.result }}",
+              "edge": "${{ needs.deploy-edge.result || 'skipped' }}"
+            }
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          COMMIT_URL: "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+        run: |
+          just ci-failure-report \
+            --stacks "${{ needs.setup.outputs.data-stack }},${{ needs.setup.outputs.base-stack }},${{ needs.setup.outputs.controlplane-stack }},${{ needs.setup.outputs.general-pool-stack }},${{ needs.setup.outputs.monitoring-pool-stack }},${{ needs.setup.outputs.appiam-stack }},${{ needs.setup.outputs.api-stack }},${{ needs.setup.outputs.edge-stack }}" \
+            --region ${{ env.AWS_REGION }} \
+            --ssm-prefix "/k8s/${{ inputs.cdk-environment }}"
+
+  # ===========================================================================
+  # Deployment Summary (TypeScript)
+  # ===========================================================================
+  summary:
+    name: Deployment Summary
+    needs:
+      - setup
+      # - drift-detection  # disabled — uncomment when re-enabling
+      - verify-bff-ecr
+      - deploy-data
+      - deploy-ssm
+      - deploy-controlplane
+      - deploy-goldenami
+      - deploy-general-pool
+      - deploy-monitoring-pool
+      - deploy-api
+      - deploy-edge
+      - verify-edge-stack
+      - deploy-observability
+      - verify-bootstrap
+      - deployment-failure-alert
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always()
+    environment: ${{ inputs.environment }}
+    permissions:
+      id-token: write # OIDC for DescribeStacks verification
+      contents: read
+
+    steps:
+      # Guard: if setup was cancelled/failed, write minimal fallback
+      - name: Check Prerequisites
+        id: prereqs
+        run: |
+          if [ "${{ needs.setup.result }}" != "success" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Pipeline Aborted
+
+          **Reason**: Setup job did not complete successfully (`${{ needs.setup.result }}`)
+          **Commit**: `${{ github.sha }}`
+          **Environment**: ${{ inputs.environment }}
+
+          No stacks were deployed. Check the setup job logs for details.
+          EOF
+            echo "::warning::Setup did not succeed (${{ needs.setup.result }}), skipping full summary"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout
+        if: steps.prereqs.outputs.skip != 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Environment and Dependencies
+        if: steps.prereqs.outputs.skip != 'true'
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ needs.setup.outputs.node-version }}
+
+      - name: Install Dependencies
+        if: steps.prereqs.outputs.skip != 'true'
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Configure AWS Credentials
+        if: steps.prereqs.outputs.skip != 'true'
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Audit CloudWatch Log Groups
+        if: steps.prereqs.outputs.skip != 'true'
+        continue-on-error: true
+        run: just ci-log-audit --region ${{ env.AWS_REGION }}
+
+      - name: Generate Summary
+        if: steps.prereqs.outputs.skip != 'true'
+        env:
+          DEPLOY_DATA_RESULT: ${{ needs.deploy-data.result }}
+          DEPLOY_CONTROLPLANE_RESULT: ${{ needs.deploy-controlplane.result }}
+          DEPLOY_GENERAL_POOL_RESULT: ${{ needs.deploy-general-pool.result || 'skipped' }}
+
+          DEPLOY_MON_POOL_RESULT: ${{ needs.deploy-monitoring-pool.result || 'skipped' }}
+          DEPLOY_API_RESULT: ${{ needs.deploy-api.result || 'skipped' }}
+          DEPLOY_EDGE_RESULT: ${{ needs.deploy-edge.result || 'skipped' }}
+          VERIFY_EDGE_RESULT: ${{ needs.verify-edge-stack.result || 'skipped' }}
+          DEPLOY_OBSERVABILITY_RESULT: ${{ needs.deploy-observability.result || 'skipped' }}
+          VERIFY_RESULT: "moved-to-ssm-pipeline"
+          SMOKE_TESTS_RESULT: "moved-to-ssm-pipeline"
+          ALERT_RESULT: ${{ needs.deployment-failure-alert.result || 'skipped' }}
+          COMMIT_SHORT_SHA: ${{ needs.setup.outputs.commit-short-sha }}
+        run: just ci-summary kubernetes ${{ inputs.cdk-environment }}

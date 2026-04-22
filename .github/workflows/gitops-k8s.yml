@@ -1,0 +1,145 @@
+# @format
+# @description Pipeline B: GitOps Application Pipeline (Development)
+#
+# CI gate for platform-layer changes managed by ArgoCD.
+# ArgoCD watches this Git repo and auto-syncs chart/manifest changes (~3 min).
+# This pipeline adds validation BEFORE ArgoCD picks up changes and
+# post-merge verification to confirm sync succeeded.
+#
+# What ArgoCD syncs from this repo:
+#   - system/platform-apps/   → platform Application manifests (platform-root-app)
+#   - system/charts/          → Helm charts for platform services
+#   - system/charts/traefik/traefik-values.yaml → Traefik multi-source values
+
+name: "GitOps: K8s Platform (Dev)"
+
+on:
+  workflow_call:
+    secrets:
+      AWS_OIDC_ROLE:
+        description: "AWS OIDC role ARN"
+        required: false
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: gitops-k8s-development
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ===========================================================================
+  # 0. Build Steampipe Image
+  # ===========================================================================
+  build-steampipe-image:
+    name: Build Steampipe Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: development
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+
+      - name: Build and Push Steampipe Image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 \
+            -t "${ECR_REGISTRY}/steampipe-aws:latest" \
+            -t "${ECR_REGISTRY}/steampipe-aws:${IMAGE_TAG}" \
+            system/charts/monitoring/steampipe/
+
+          docker push "${ECR_REGISTRY}/steampipe-aws:latest"
+          docker push "${ECR_REGISTRY}/steampipe-aws:${IMAGE_TAG}"
+
+          echo "## Steampipe Image Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Property | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|:---|:---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Registry | \`${ECR_REGISTRY}/steampipe-aws\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tags | \`latest\`, \`${IMAGE_TAG}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # 1. Validate — Catch errors BEFORE ArgoCD auto-syncs from Git
+  # ===========================================================================
+  validate:
+    name: Validate Charts & Manifests
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate Helm Charts
+        run: just helm-validate-charts
+
+      - name: Validate YAML Syntax
+        run: |
+          ERRORS=0
+
+          for f in system/charts/traefik/traefik-values.yaml $(find system/charts -name 'values*.yaml' -type f 2>/dev/null); do
+            [ -f "$f" ] || continue
+            if python3 -c "import yaml; yaml.safe_load(open('$f'))" 2>/dev/null; then
+              echo "  ✓ $f"
+            else
+              echo "  ✗ $f — invalid YAML"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
+          [ "$ERRORS" -gt 0 ] && { echo "ERROR: $ERRORS YAML files failed"; exit 1; }
+          echo "✓ All YAML files passed"
+
+  # ===========================================================================
+  # 2. Verify ArgoCD Sync Status
+  # ===========================================================================
+  verify-argocd:
+    name: Verify ArgoCD Sync
+    needs: validate
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    timeout-minutes: 15
+    environment: development
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node & Yarn Cache
+        uses: ./.github/actions/setup-node-yarn
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify ArgoCD Sync
+        env:
+          TARGET_ENV: development
+          TARGET_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: just ci-verify-argocd --environment "$TARGET_ENV" --region "$TARGET_REGION"

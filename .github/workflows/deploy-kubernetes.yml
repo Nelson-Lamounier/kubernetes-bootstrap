@@ -1,0 +1,59 @@
+# @format
+# @description Deploy K8s Infrastructure to Development
+#
+# Unified infrastructure pipeline for the K8s cluster.
+# Deploys CDK stacks, syncs bootstrap scripts, builds Golden AMI,
+# and runs verification — all in one pipeline.
+#
+# 8-Stack Architecture: Data → Base → Compute → AppIam → Api → Edge.
+# Application workloads (traefik, metrics-server) are managed by
+# ArgoCD via Pipeline B (gitops-k8s.yml).
+#
+# Prerequisites:
+#   - Shared VPC from deploy-shared workflow
+
+name: Deploy K8s to Development
+
+on:
+  # push:
+  #   branches:
+  #     - develop
+  #   paths:
+  #     - "infra/lib/stacks/kubernetes/**"
+  #     - "infra/lib/config/kubernetes/**"
+  #     - "infra/lib/config/nextjs/**"
+  #     - "infra/lib/projects/kubernetes/**"
+  #     - "infra/scripts/cd/**"
+  #     - "infra/bin/app.ts"
+  #     - ".github/workflows/deploy-kubernetes*.yml"
+  #     - ".github/workflows/_deploy-kubernetes.yml"
+  #     - ".github/workflows/_deploy-stack.yml"
+  #     - ".github/actions/**"
+  # Weekly: AMI refresh for OS security patches
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      skip_verification:
+        description: "Skip post-deployment verification"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-k8s-development
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Development
+    uses: ./.github/workflows/_deploy-kubernetes.yml
+    with:
+      environment: development
+      cdk-environment: development
+      require-approval: never
+      skip-verification: ${{ inputs.skip_verification || false }}
+    secrets: inherit
