@@ -12,6 +12,8 @@ apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-aws-s3
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   labels:
     platform.engineering/component: infrastructure-abstraction
 spec:
@@ -27,6 +29,8 @@ apiVersion: pkg.crossplane.io/v1
 kind: Provider
 metadata:
   name: provider-aws-sqs
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   labels:
     platform.engineering/component: infrastructure-abstraction
 spec:
@@ -45,6 +49,8 @@ apiVersion: pkg.crossplane.io/v1beta1
 kind: DeploymentRuntimeConfig
 metadata:
   name: crossplane-provider-config
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
   labels:
     platform.engineering/component: infrastructure-abstraction
 spec:

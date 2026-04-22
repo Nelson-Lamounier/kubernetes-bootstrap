@@ -21,7 +21,8 @@ kind: ProviderConfig
 metadata:
   name: default
   annotations:
-    argocd.argoproj.io/sync-options: SkipDryRun=true
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRun=true,Validate=false
   labels:
     platform.engineering/component: infrastructure-abstraction
 spec:
