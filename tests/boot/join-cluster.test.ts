@@ -167,7 +167,7 @@ describe('resolveControlPlaneEndpoint', () => {
         vi.spyOn(Date, 'now').mockImplementation(() => call++ === 0 ? now : now + 400_000);
 
         mockSsmGet.mockResolvedValue('');
-        await expect(resolveControlPlaneEndpoint({ ...baseCfg })).rejects.toThrow('not found in SSM');
+        await expect(resolveControlPlaneEndpoint({ ...baseCfg })).rejects.toThrow('not satisfied after');
     });
 });
 
