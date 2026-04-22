@@ -2,8 +2,6 @@
 // Steps 8–11: ArgoCD CLI install, CI bot account, token generation, admin password, TLS/secret backups, summary.
 
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import bcryptjs from 'bcryptjs';
 import type { Config } from '../helpers/config.js';
 import {
@@ -14,6 +12,7 @@ import {
     ssmPut,
     secretsManagerPut,
 } from '../helpers/runner.js';
+import { backupCert } from '../helpers/tls-cert.js';
 
 const ARGOCD_SERVER = 'deployment/argocd-server';
 const ARGOCD_API_ENDPOINT = 'argocd-server.argocd.svc.cluster.local';
@@ -305,72 +304,31 @@ export const setAdminPassword = async (cfg: Config): Promise<void> => {
     log('');
 };
 
-// Step 10c — backs up TLS cert and ACME key to SSM via Python script.
+// Step 10c — backs up TLS cert and ACME key to SSM.
 export const backupTlsCert = async (cfg: Config): Promise<void> => {
     log('=== Step 10c: Backing up TLS certificate + ACME key to SSM ===');
 
-    const persistScript = join(cfg.argocdDir, '..', 'cert-manager', 'persist-tls-cert.py');
-
-    if (!existsSync(persistScript)) {
-        log(`  ⚠ persist-tls-cert.py not found at ${persistScript} — skipping`);
-        return;
-    }
-
+    // Wait up to 5 minutes (10 × 30 s) for cert-manager to issue ops-tls-cert
     let tlsReady = false;
-
     if (!cfg.dryRun) {
-        // Wait up to 5 minutes (10 × 30s) for ops-tls-cert Secret
         for (let attempt = 1; attempt <= 10; attempt++) {
             const certResult = run(
-                [
-                    'kubectl', 'get', 'secret', 'ops-tls-cert',
-                    '-n', 'kube-system',
-                    '-o', 'jsonpath={.data.tls\\.crt}',
-                ],
+                ['kubectl', 'get', 'secret', 'ops-tls-cert', '-n', 'kube-system',
+                    '-o', 'jsonpath={.data.tls\\.crt}'],
                 cfg,
                 { check: false, capture: true },
             );
-            if (certResult.ok && certResult.stdout) {
-                tlsReady = true;
-                break;
-            }
+            if (certResult.ok && certResult.stdout) { tlsReady = true; break; }
             log(`  Waiting for ops-tls-cert Secret... (attempt ${attempt}/10)`);
-            if (attempt < 10) await sleep(30000);
+            if (attempt < 10) await sleep(30_000);
         }
         if (!tlsReady) {
-            log('  ⚠ ops-tls-cert Secret not ready after 5 minutes — possibly rate-limited (non-fatal)');
+            log('  ⚠ ops-tls-cert not ready after 5 min — possibly rate-limited (non-fatal)');
         }
     }
 
-    // Build backup list
-    const backupTargets: Array<[string, string]> = [];
-    if (tlsReady) {
-        backupTargets.push(['ops-tls-cert', 'kube-system']);
-    }
-    backupTargets.push(['letsencrypt-account-key', 'cert-manager']);
-
-    const env: Record<string, string> = {
-        ...process.env as Record<string, string>,
-        KUBECONFIG: cfg.kubeconfig,
-        SSM_PREFIX: cfg.ssmPrefix,
-        AWS_REGION: cfg.awsRegion,
-    };
-
-    for (const [secret, ns] of backupTargets) {
-        const args = ['python3', persistScript, '--backup', '--secret', secret, '--namespace', ns];
-        if (cfg.dryRun) {
-            args.push('--dry-run');
-        }
-
-        const result = spawnSync(args[0]!, args.slice(1), { env, encoding: 'utf-8', stdio: 'inherit' });
-        if (result.status === 0) {
-            log(`  ✓ Backed up ${secret} (${ns})`);
-        } else {
-            const detail = result.error?.message ?? `exit code ${result.status ?? '(null)'}`;
-            log(`  ⚠ Failed to back up ${secret} (${ns}): ${detail}`);
-        }
-    }
-
+    if (tlsReady) await backupCert(cfg, 'ops-tls-cert', 'kube-system');
+    await backupCert(cfg, 'letsencrypt-account-key', 'cert-manager');
     log('');
 };
 

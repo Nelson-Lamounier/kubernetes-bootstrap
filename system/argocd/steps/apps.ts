@@ -1,8 +1,6 @@
 // @format
 // Steps 5–5e: App-of-Apps roots, monitoring Helm params, Prometheus auth, ECR creds, Crossplane, TLS, cert-manager, notifications.
 
-import { join } from 'node:path';
-import { existsSync } from 'node:fs';
 import type { Config } from '../helpers/config.js';
 import {
     kubectlApplyStdin,
@@ -12,6 +10,7 @@ import {
     ssmGet,
     secretsManagerGet,
 } from '../helpers/runner.js';
+import { restoreCert } from '../helpers/tls-cert.js';
 
 // ─── Step 5 ──────────────────────────────────────────────────────────────────
 
@@ -265,27 +264,10 @@ data:
 
 // ─── Step 5d-pre ─────────────────────────────────────────────────────────────
 
-export const restoreTlsCert = (cfg: Config): void => {
+export const restoreTlsCert = async (cfg: Config): Promise<void> => {
     log('=== Step 5d-pre: Restoring TLS certificate + ACME key from SSM ===');
-
-    const persistScript = join(cfg.argocdDir, '..', 'cert-manager', 'persist-tls-cert.py');
-
-    if (!existsSync(persistScript)) {
-        log(`  ⚠ persist-tls-cert.py not found at: ${persistScript} — skipping TLS restore`);
-        return;
-    }
-
     for (const [secret, ns] of [['ops-tls-cert', 'kube-system'], ['letsencrypt-account-key', 'cert-manager']] as const) {
-        const args = ['python3', persistScript, '--restore', '--secret', secret, '--namespace', ns];
-        if (cfg.dryRun) {
-            args.push('--dry-run');
-        }
-        const result = run(args, cfg, { check: false });
-        if (result.ok) {
-            log(`  ✓ Restored ${secret} in ${ns}`);
-        } else {
-            log(`  ⚠ Failed to restore ${secret} in ${ns}: ${result.stderr}`);
-        }
+        await restoreCert(cfg, secret, ns);
     }
 };
 

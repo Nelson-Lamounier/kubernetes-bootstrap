@@ -4,9 +4,9 @@
 # ╔═══════════════════════════════════════════════════════════════╗
 # ║  ⚠️  REFERENCE TEMPLATE ONLY — NOT SYNCED BY ARGOCD  ⚠️      ║
 # ║                                                               ║
-# ║  The actual ClusterIssuer is created by bootstrap_argocd.py   ║
-# ║  Step 5d, which reads SSM parameters and injects real values  ║
-# ║  for the placeholders below.                                  ║
+# ║  The actual ClusterIssuer is created by bootstrap_argocd.ts   ║
+# ║  Step 5d (applyCertManagerIssuer), which reads SSM parameters ║
+# ║  and substitutes the placeholders below at runtime.           ║
 # ║                                                               ║
 # ║  The ArgoCD cert-manager-config Application syncs from        ║
 # ║  platform/cert-manager-config/ (Certificate CR only).         ║
@@ -27,8 +27,8 @@
 # ClusterIssuer (not namespaced Issuer) so that Certificate CRs in
 # any namespace can reference it.
 #
-# Applied during bootstrap via bootstrap_argocd.py Step 5d.
-# NOT managed by ArgoCD (ArgoCD would overwrite the templated values).
+# Applied during bootstrap via bootstrap_argocd.ts Step 5d (applyCertManagerIssuer).
+# NOT managed by ArgoCD (ArgoCD would overwrite the substituted values).
 
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
