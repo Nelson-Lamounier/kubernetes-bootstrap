@@ -38,8 +38,8 @@ import {
   GetCommandInvocationCommand,
 } from '@aws-sdk/client-ssm';
 
-import log from './lib/logger.js';
-import { buildAwsConfig, parseArgs, resolveAuth } from './lib/aws.js';
+import log from '@nelsonlamounier/cdk-deploy-scripts/logger.js';
+import { buildAwsConfig, parseArgs, resolveAuth } from '@nelsonlamounier/cdk-deploy-scripts/aws.js';
 
 // =============================================================================
 // Constants

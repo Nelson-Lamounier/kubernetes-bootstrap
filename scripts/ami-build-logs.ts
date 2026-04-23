@@ -19,8 +19,8 @@
 
 import { GetObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
-import { buildAwsConfig, parseArgs, resolveAuth } from './lib/aws.js';
-import log from './lib/logger.js';
+import { buildAwsConfig, parseArgs, resolveAuth } from '@nelsonlamounier/cdk-deploy-scripts/aws.js';
+import log from '@nelsonlamounier/cdk-deploy-scripts/logger.js';
 
 // ---------------------------------------------------------------------------
 // CLI args

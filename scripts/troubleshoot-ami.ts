@@ -32,8 +32,8 @@ import {
 } from '@aws-sdk/client-ec2';
 import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
 
-import { buildAwsConfig, execShell, execShellStream, parseArgs, resolveAuth } from './lib/aws.js';
-import log from './lib/logger.js';
+import { buildAwsConfig, exec as execShell, execStream as execShellStream, parseArgs, resolveAuth } from '@nelsonlamounier/cdk-deploy-scripts/aws.js';
+import log from '@nelsonlamounier/cdk-deploy-scripts/logger.js';
 
 // ---------------------------------------------------------------------------
 // CLI args
