@@ -1,0 +1,337 @@
+# @format
+
+name: Deploy CDK Stack (Reusable)
+# Reusable workflow for deploying a single CDK stack
+
+on:
+  workflow_call:
+    inputs:
+      stack-name:
+        description: "Full CDK stack name (e.g., ControlPlane-development)"
+        required: true
+        type: string
+      project:
+        description: "Project name (kubernetes, shared, org, bedrock)"
+        required: true
+        type: string
+      environment:
+        description: "CDK target environment (development, staging, production)"
+        required: true
+        type: string
+      github-environment:
+        description: "GitHub Actions environment for secrets/variables access (defaults to environment input)"
+        required: false
+        type: string
+        default: ""
+      aws-account-id:
+        description: "Target AWS account ID (optional — falls back to vars.AWS_ACCOUNT_ID)"
+        required: false
+        type: string
+        default: ""
+      aws-region:
+        description: "AWS region"
+        required: false
+        type: string
+        default: "eu-west-1"
+      # Scoped optional inputs — only pass for stacks that need them
+      # Edge config (Networking + Edge stacks)
+      domain-name:
+        description: "Domain name for edge/networking (optional)"
+        required: false
+        type: string
+        default: ""
+      hosted-zone-id:
+        description: "Route53 hosted zone ID (optional)"
+        required: false
+        type: string
+        default: ""
+      cross-account-role-arn:
+        description: "Cross-account IAM role ARN for Route53 (optional)"
+        required: false
+        type: string
+        default: ""
+      # Email/API config (API stack only)
+      notification-email:
+        description: "Notification email for contact form (optional)"
+        required: false
+        type: string
+        default: ""
+      ses-from-email:
+        description: "SES sender email address (optional)"
+        required: false
+        type: string
+        default: ""
+      verification-base-url:
+        description: "Base URL for email verification links (optional)"
+        required: false
+        type: string
+        default: ""
+      monitor-domain-name:
+        description: "Domain name for dashboard (optional)"
+        required: false
+        type: string
+        default: ""
+      require-approval:
+        description: "CDK approval requirement (never, any-change, broadening)"
+        required: false
+        type: string
+        default: "never"
+      verify-bootstrap:
+        description: "Verify CDK bootstrap before deployment"
+        required: false
+        type: boolean
+        default: false
+      outputs-directory:
+        description: "Directory to save stack outputs"
+        required: false
+        type: string
+        default: ""
+      timeout-minutes:
+        description: "Job timeout in minutes (increase for long-running stacks like Golden AMI)"
+        required: false
+        type: number
+        default: 20
+      use-container:
+        description: "Run inside CI container (set false for stacks requiring Docker, e.g. Bedrock)"
+        required: false
+        type: boolean
+        default: true
+      additional-args:
+        description: "Additional CDK CLI arguments (e.g., --context key=value flags for org project)"
+        required: false
+        type: string
+        default: ""
+      restrict-access:
+        description: "WAF access restriction flag (true/false). Only relevant for edge stack."
+        required: false
+        type: string
+        default: ""
+      root-account-id:
+        description: "Root/management AWS account ID (org project only — sets ROOT_ACCOUNT env var)"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      AWS_OIDC_ROLE:
+        description: "AWS OIDC role ARN for authentication (resolved from environment if not passed)"
+        required: false
+      VERIFICATION_SECRET:
+        description: "Verification secret for API stack (scoped — only pass for API stack)"
+        required: false
+      GRAFANA_ADMIN_PASSWORD:
+        description: "Grafana admin password (scoped — only pass for stacks that need it)"
+        required: false
+      ALLOW_IPV4:
+        description: "Admin IPv4 CIDR for SG ingress (e.g., 203.0.113.42/32)"
+        required: false
+      ALLOW_IPV6:
+        description: "Admin IPv6 CIDR for SG ingress (e.g., 2a02:8084::/128)"
+        required: false
+    outputs:
+      deployment-status:
+        description: "Deployment status (success/failure)"
+        value: ${{ jobs.deploy.outputs.status }}
+
+env:
+  # Node.js version is read from .nvmrc for centralization
+  NODE_VERSION: "22" # Fallback - prefer .nvmrc
+  CI_IMAGE: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+  # Force Node 24 for actions that haven't released Node 24-native versions yet
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy:
+    name: ${{ inputs.stack-name }}
+    runs-on: ubuntu-latest
+    # When use-container is false, runs directly on ubuntu-latest (has Docker preinstalled).
+    # Required for Bedrock stacks that need Docker for CDK synth (VectorKnowledgeBase).
+    container: ${{ inputs.use-container && 'ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest' || null }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    environment: ${{ inputs.github-environment || inputs.environment }}
+    outputs:
+      status: ${{ steps.deploy.outputs.status }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Environment and Dependencies
+        uses: ./.github/actions/setup-node-yarn
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Resolve AWS Account ID
+        id: resolve-account
+        run: |
+          # Resolve from input, then fall back to vars.
+          # Values flow through env: to avoid inline expression expansion,
+          # which would print the raw account ID in the rendered script
+          # header BEFORE ::add-mask:: can take effect.
+          ACCOUNT_ID="${INPUT_ACCOUNT_ID:-$VARS_ACCOUNT_ID}"
+
+          if [ -z "$ACCOUNT_ID" ]; then
+            echo "ERROR: Could not resolve AWS Account ID from inputs or vars"
+            exit 1
+          fi
+
+          echo "::add-mask::$ACCOUNT_ID"
+          echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+          echo "[OK] Resolved AWS Account ID"
+        env:
+          INPUT_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+          VARS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - name: Set Scoped Config
+        shell: bash
+        run: |
+          # Only export env vars that the calling workflow actually provides.
+          # This keeps the environment clean for stacks that don't need them
+          # (e.g. Shared doesn't need DOMAIN_NAME, VERIFICATION_SECRET, etc.).
+
+          # ── Mask infrastructure identifiers (from inputs/vars, NOT auto-masked) ──
+          # Values from secrets.* are already auto-masked by GitHub Actions runner.
+          # These are from inputs.* or vars.* and must be explicitly masked.
+          [[ -n "$DOMAIN_NAME"            ]] && echo "::add-mask::$DOMAIN_NAME"
+          [[ -n "$HOSTED_ZONE_ID"         ]] && echo "::add-mask::$HOSTED_ZONE_ID"
+          [[ -n "$CROSS_ACCOUNT_ROLE_ARN" ]] && echo "::add-mask::$CROSS_ACCOUNT_ROLE_ARN"
+          [[ -n "$ROOT_ACCOUNT"           ]] && echo "::add-mask::$ROOT_ACCOUNT"
+          [[ -n "$MONITOR_DOMAIN_NAME"    ]] && echo "::add-mask::$MONITOR_DOMAIN_NAME"
+          [[ -n "$TRUSTED_ACCOUNT_IDS"   ]] && echo "::add-mask::$TRUSTED_ACCOUNT_IDS"
+          [[ -n "$NOTIFICATION_EMAIL"     ]] && echo "::add-mask::$NOTIFICATION_EMAIL"
+          [[ -n "$SES_FROM_EMAIL"         ]] && echo "::add-mask::$SES_FROM_EMAIL"
+
+          # ── Write infrastructure identifiers (masked above, safe to echo) ──
+          [[ -n "$DOMAIN_NAME"            ]] && echo "DOMAIN_NAME=$DOMAIN_NAME"                       >> $GITHUB_ENV
+          [[ -n "$HOSTED_ZONE_ID"         ]] && echo "HOSTED_ZONE_ID=$HOSTED_ZONE_ID"                 >> $GITHUB_ENV
+          [[ -n "$CROSS_ACCOUNT_ROLE_ARN" ]] && echo "CROSS_ACCOUNT_ROLE_ARN=$CROSS_ACCOUNT_ROLE_ARN" >> $GITHUB_ENV
+          [[ -n "$NOTIFICATION_EMAIL"     ]] && echo "NOTIFICATION_EMAIL=$NOTIFICATION_EMAIL"         >> $GITHUB_ENV
+          [[ -n "$SES_FROM_EMAIL"         ]] && echo "SES_FROM_EMAIL=$SES_FROM_EMAIL"                 >> $GITHUB_ENV
+          [[ -n "$VERIFICATION_BASE_URL"  ]] && echo "VERIFICATION_BASE_URL=$VERIFICATION_BASE_URL"   >> $GITHUB_ENV
+          [[ -n "$MONITOR_DOMAIN_NAME"    ]] && echo "MONITOR_DOMAIN_NAME=$MONITOR_DOMAIN_NAME"       >> $GITHUB_ENV
+          [[ -n "$ROOT_ACCOUNT"           ]] && echo "ROOT_ACCOUNT=$ROOT_ACCOUNT"                     >> $GITHUB_ENV
+          [[ -n "$RESTRICT_ACCESS"        ]] && echo "RESTRICT_ACCESS=$RESTRICT_ACCESS"               >> $GITHUB_ENV
+          [[ -n "$TRUSTED_ACCOUNT_IDS"   ]] && echo "TRUSTED_ACCOUNT_IDS=$TRUSTED_ACCOUNT_IDS"       >> $GITHUB_ENV
+
+          # ── Write secrets without stdout exposure (defence-in-depth) ──
+          # GitHub auto-masks secrets.* values, but printf >> FILE writes
+          # directly to the file without flowing through stdout/stderr,
+          # which the runner captures. Unlike echo, printf with redirection
+          # does not appear in workflow logs.
+          [[ -n "$VERIFICATION_SECRET"    ]] && printf '%s\n' "VERIFICATION_SECRET=$VERIFICATION_SECRET"     >> "$GITHUB_ENV"
+          [[ -n "$GRAFANA_ADMIN_PASSWORD" ]] && printf '%s\n' "GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD" >> "$GITHUB_ENV"
+          [[ -n "$ALLOW_IPV4"             ]] && printf '%s\n' "ALLOW_IPV4=$ALLOW_IPV4"                       >> "$GITHUB_ENV"
+          [[ -n "$ALLOW_IPV6"             ]] && printf '%s\n' "ALLOW_IPV6=$ALLOW_IPV6"                       >> "$GITHUB_ENV"
+          echo "[OK] Scoped config applied"
+        env:
+          DOMAIN_NAME: ${{ inputs.domain-name || vars.DOMAIN_NAME }}
+          HOSTED_ZONE_ID: ${{ inputs.hosted-zone-id || vars.HOSTED_ZONE_ID }}
+          CROSS_ACCOUNT_ROLE_ARN: ${{ inputs.cross-account-role-arn || vars.DNS_VALIDATION_ROLE }}
+          NOTIFICATION_EMAIL: ${{ inputs.notification-email }}
+          SES_FROM_EMAIL: ${{ inputs.ses-from-email }}
+          VERIFICATION_SECRET: ${{ secrets.VERIFICATION_SECRET }}
+          VERIFICATION_BASE_URL: ${{ inputs.verification-base-url }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          MONITOR_DOMAIN_NAME: ${{ inputs.monitor-domain-name }}
+          ALLOW_IPV4: ${{ secrets.ALLOW_IPV4 }}
+          ALLOW_IPV6: ${{ secrets.ALLOW_IPV6 }}
+          ROOT_ACCOUNT: ${{ inputs.root-account-id }}
+          RESTRICT_ACCESS: ${{ inputs.restrict-access }}
+          TRUSTED_ACCOUNT_IDS: ${{ vars.DEV_ACCOUNT_ID }}
+
+      # ── Pre-flight Checks ──
+      - name: Pre-flight Checks
+        shell: bash
+        run: |
+          BOOTSTRAP_FLAG=""
+          if [ "$VERIFY_BOOTSTRAP" = "true" ]; then
+            BOOTSTRAP_FLAG="--verify-bootstrap"
+          fi
+          just ci-preflight "$STACK_NAME" \
+            --project "$PROJECT" \
+            --environment "$ENVIRONMENT" \
+            --region "$AWS_REGION" \
+            --account-id "$AWS_ACCOUNT_ID" \
+            --require-approval "$REQUIRE_APPROVAL" \
+            $BOOTSTRAP_FLAG
+        env:
+          STACK_NAME: ${{ inputs.stack-name }}
+          PROJECT: ${{ inputs.project }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          AWS_REGION: ${{ inputs.aws-region }}
+          AWS_ACCOUNT_ID: ${{ steps.resolve-account.outputs.account_id }}
+          REQUIRE_APPROVAL: ${{ inputs.require-approval }}
+          VERIFY_BOOTSTRAP: ${{ inputs.verify-bootstrap }}
+
+      # ── Rescue orphaned CloudFormation resources ──
+      - name: Rescue Orphaned Resources
+        shell: bash
+        continue-on-error: true
+        run: |
+          just ci-cfn-rescue "$STACK_NAME" "$PROJECT" \
+            "$ENVIRONMENT" --region "$AWS_REGION"
+        env:
+          STACK_NAME: ${{ inputs.stack-name }}
+          PROJECT: ${{ inputs.project }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          AWS_REGION: ${{ inputs.aws-region }}
+
+      # ── Deploy the CDK stack ──
+      - name: Deploy Stack
+        id: deploy
+        shell: bash
+        run: |
+          just ci-deploy "$STACK_NAME" "$PROJECT" "$CDK_ENVIRONMENT" \
+            --require-approval "$REQUIRE_APPROVAL" \
+            $ADDITIONAL_ARGS
+        env:
+          STACK_NAME: ${{ inputs.stack-name }}
+          PROJECT: ${{ inputs.project }}
+          CDK_ENVIRONMENT: ${{ inputs.environment }}
+          AWS_ACCOUNT_ID: ${{ steps.resolve-account.outputs.account_id }}
+          AWS_REGION: ${{ inputs.aws-region }}
+          REQUIRE_APPROVAL: ${{ inputs.require-approval }}
+          ADDITIONAL_ARGS: ${{ inputs.additional-args }}
+          LOG_LEVEL: info
+
+      # ── Diagnose failures (only runs on deploy failure) ──
+      - name: Diagnose CloudFormation Failure
+        if: failure() && steps.deploy.outputs.status != 'success'
+        shell: bash
+        continue-on-error: true
+        run: |
+          just ci-diagnose "$STACK_NAME" --region "$AWS_REGION"
+        env:
+          STACK_NAME: ${{ inputs.stack-name }}
+          AWS_REGION: ${{ inputs.aws-region }}
+
+      # ── Finalize deployment and capture outputs ──
+      - name: Finalize Deployment
+        id: finalize
+        if: always()
+        shell: bash
+        run: |
+          OUTPUTS_DIR_FLAG=""
+          if [ -n "$OUTPUTS_DIRECTORY" ]; then
+            OUTPUTS_DIR_FLAG="--outputs-dir $OUTPUTS_DIRECTORY"
+          fi
+          just ci-finalize-deployment "$STACK_NAME" \
+            --deploy-status "$DEPLOY_STATUS" \
+            --environment "$ENVIRONMENT" \
+            --region "$AWS_REGION" \
+            --account-id "$AWS_ACCOUNT_ID" \
+            --deploy-duration "$DEPLOY_DURATION" \
+            $OUTPUTS_DIR_FLAG
+        env:
+          STACK_NAME: ${{ inputs.stack-name }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          AWS_REGION: ${{ inputs.aws-region }}
+          AWS_ACCOUNT_ID: ${{ steps.resolve-account.outputs.account_id || 'unknown' }}
+          OUTPUTS_DIRECTORY: ${{ inputs.outputs-directory }}
+          DEPLOY_STATUS: ${{ steps.deploy.outputs.status || 'unknown' }}
+          DEPLOY_DURATION: ${{ steps.deploy.outputs.duration || '0' }}
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+          LOG_LEVEL: info

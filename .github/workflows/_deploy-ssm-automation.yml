@@ -2,11 +2,9 @@
 # @description Reusable SSM Bootstrap Workflow
 #
 # ─── Purpose ───────────────────────────────────────────────────────
-# Bootstrap-only pipeline. Syncs scripts to S3, triggers SM-A (Bootstrap
-# Orchestrator) on existing EC2 nodes, then verifies cluster health.
-#
-# Does NOT deploy any CDK stacks — infrastructure (SsmAutomation stack
-# with both SM-A and SM-B) is deployed by deploy-cdk.yml.
+# Full bootstrap pipeline. Deploys the K8s-SsmAutomation CDK stack,
+# syncs scripts to S3, triggers SM-A (Bootstrap Orchestrator) on
+# existing EC2 nodes, then verifies cluster health.
 #
 # ─── Job Flow ───────────────────────────────────────────────────
 #   Phase 0: deploy-ssm-cdk
@@ -73,157 +71,19 @@ jobs:
   #
   # Ensures the SSM Run Command document, Step Functions state machines, and
   # SSM parameters are up-to-date before scripts are synced or bootstrap runs.
-  #
-  # Pre-cleanup step deletes orphaned SSM parameters and CloudWatch log groups
-  # that cause CloudFormation changeset-creation failures after a rollback.
-  # ResourceCleanupProvider handles this for UPDATE-mode deploys (stack exists);
-  # the pre-cleanup covers the CREATE-mode gap (stack deleted or rolled back).
+  # Stack teardown (ROLLBACK_FAILED recovery) is a manual operation — use
+  # `just purge-ssm-automation-orphans` before re-triggering this pipeline.
   # ===========================================================================
   deploy-ssm-cdk:
     name: "Phase 0 — Deploy SSM Automation CDK Stack"
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: ${{ inputs.environment }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Enable Corepack (Yarn v4)
-        run: corepack enable
-
-      - name: Cache Infra Dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            infra/node_modules
-            infra/.yarn/cache
-          key: infra-deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('infra/yarn.lock') }}
-          restore-keys: |
-            infra-deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-
-
-      - name: Install Infra Dependencies
-        run: yarn install --immutable
-        working-directory: infra
-
-      - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Tear Down Predecessor & Stuck Stacks
-        env:
-          TARGET_ENV: ${{ inputs.environment }}
-          AWS_REGION: ${{ env.AWS_REGION }}
-        run: |
-          # Two classes of stacks block a fresh K8s-SsmAutomation-* deploy:
-          #
-          # 1. Predecessor stacks (e.g. "SsmAutomation-development" before the
-          #    "K8s-" prefix was added). Their CF ownership index blocks CREATE
-          #    of resources with the same physical names — even after the AWS
-          #    resources are deleted from outside CloudFormation.
-          #
-          # 2. The target stack itself in ROLLBACK_FAILED state. It must be
-          #    deleted (retaining any custom-resource stubs that can't be
-          #    rolled back) before a fresh CREATE can succeed.
-
-          delete_stack_if_exists() {
-            local STACK_NAME="$1"
-            shift
-            local RETAIN_ARGS=()
-            for r in "$@"; do RETAIN_ARGS+=("$r"); done
-
-            STATUS=$(aws cloudformation describe-stacks \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              --query 'Stacks[0].StackStatus' \
-              --output text 2>/dev/null || echo "NOT_FOUND")
-
-            if [ "$STATUS" = "NOT_FOUND" ] || [ "$STATUS" = "None" ]; then
-              echo "  [absent] $STACK_NAME"
-              return 0
-            fi
-
-            echo "  [found] $STACK_NAME — status: $STATUS"
-            DELETE_ARGS=(--stack-name "$STACK_NAME" --region "$AWS_REGION")
-            if [ "${#RETAIN_ARGS[@]}" -gt 0 ]; then
-              DELETE_ARGS+=(--retain-resources "${RETAIN_ARGS[@]}")
-            fi
-            aws cloudformation delete-stack "${DELETE_ARGS[@]}"
-            echo "  [waiting] $STACK_NAME deletion..."
-            aws cloudformation wait stack-delete-complete \
-              --stack-name "$STACK_NAME" \
-              --region "$AWS_REGION" \
-              || echo "  [warn] wait timed out or stack still present — continuing"
-            echo "  [done] $STACK_NAME deleted"
-          }
-
-          # Delete the predecessor stack (old CDK stack name without K8s- prefix).
-          # Safe: K8s-SsmAutomation-* recreates all its resources.
-          delete_stack_if_exists "SsmAutomation-${TARGET_ENV}"
-
-          # Delete the target stack if it is stuck in ROLLBACK_FAILED.
-          # Retain the three custom-resource stubs that caused the rollback failure
-          # (they are harmless orphans and will be replaced on the fresh CREATE).
-          delete_stack_if_exists "K8s-SsmAutomation-${TARGET_ENV}" \
-            "ResourceCleanupCleanupK8sDevelopmentBootstrapWorkerDocNameF37B78DF" \
-            "ResourceCleanupCleanupK8sDevelopmentCloudwatchSsmDeployLogGroup86E5D935" \
-            "ResourceCleanupCleanupK8sBootstrapAlarm05AA0B77"
-
-      - name: Purge Orphaned SSM Parameters & Log Groups
-        env:
-          SSM_PREFIX: /k8s/${{ inputs.environment }}
-          AWS_REGION: ${{ env.AWS_REGION }}
-        run: |
-          # Delete SSM parameters that may be orphaned from a previous failed deploy.
-          # CloudFormation validates physical-name uniqueness at changeset-creation time
-          # before ResourceCleanupProvider can run — so we pre-delete outside CloudFormation.
-          # aws ssm delete-parameters silently ignores parameters that do not exist.
-          aws ssm delete-parameters \
-            --region "$AWS_REGION" \
-            --names \
-              "${SSM_PREFIX}/bootstrap/control-plane-doc-name" \
-              "${SSM_PREFIX}/bootstrap/worker-doc-name" \
-              "${SSM_PREFIX}/bootstrap/automation-role-arn" \
-              "${SSM_PREFIX}/bootstrap/state-machine-arn" \
-              "${SSM_PREFIX}/bootstrap/config-state-machine-arn" \
-              "${SSM_PREFIX}/cloudwatch/ssm-bootstrap-log-group" \
-              "${SSM_PREFIX}/cloudwatch/ssm-deploy-log-group" \
-              "${SSM_PREFIX}/deploy/secrets-doc-name" \
-            --query 'DeletedParameters' --output text \
-            | tr '\t' '\n' | sed 's/^/  [purged] /' || true
-
-          for LG in "/ssm${SSM_PREFIX}/bootstrap" "/ssm${SSM_PREFIX}/deploy"; do
-            aws logs delete-log-group \
-              --log-group-name "$LG" \
-              --region "$AWS_REGION" 2>/dev/null \
-              && echo "  [purged] $LG" || echo "  [absent] $LG"
-          done
-
-      - name: Deploy K8s-SsmAutomation CDK Stack
-        env:
-          TARGET_ENV: ${{ inputs.environment }}
-          AWS_REGION: ${{ env.AWS_REGION }}
-          SCRIPTS_BUCKET: ${{ vars.SCRIPTS_BUCKET || '' }}
-        run: |
-          ARGS=(
-            "K8s-SsmAutomation-${TARGET_ENV}"
-            "--exclusively"
-            "--context" "environment=${TARGET_ENV}"
-            "--region" "$AWS_REGION"
-            "--require-approval" "never"
-          )
-          if [ -n "$SCRIPTS_BUCKET" ]; then
-            ARGS+=("--context" "scriptsBucket=${SCRIPTS_BUCKET}")
-          fi
-          npx cdk deploy "${ARGS[@]}"
-        working-directory: infra
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: K8s-SsmAutomation-${{ inputs.environment }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: never
+    secrets: inherit
 
   # ===========================================================================
   # Phase 1–2: Write Admin IPs to SSM + Sync Bootstrap Scripts to S3
