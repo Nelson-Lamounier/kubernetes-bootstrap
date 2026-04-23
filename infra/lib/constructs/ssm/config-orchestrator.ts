@@ -9,11 +9,12 @@
  * ## Separation of Concerns
  * SM-B owns everything that touches application configuration:
  *   - nextjs/deploy.py       — nextjs-secrets K8s Secret + IngressRoute originSecret
- *   - monitoring/deploy.py   — grafana + github K8s Secrets + Helm chart (Grafana reset)
  *   - start-admin/deploy.py  — start-admin-secrets K8s Secret (Cognito / DynamoDB / Bedrock)
  *   - admin-api/deploy.py    — admin-api K8s Secret + ConfigMap + IngressRoute
  *   - public-api/deploy.py   — public-api K8s Secret + ConfigMap + IngressRoute
  *   - wiki-mcp/deploy.py     — wiki-mcp-config ConfigMap + wiki-mcp-basicauth Secret
+ *
+ * Note: monitoring secrets removed — now managed declaratively by ESO ExternalSecrets
  *
  * ## Self-Healing Trigger (Primary Path)
  * An EventBridge rule listens for `ExecutionSucceeded` events from SM-A
@@ -67,11 +68,12 @@ export const CP_BOOTSTRAP_EVENT_DETAIL_TYPE = 'ControlPlaneBootstrapCompleted';
  *
  * Sequential order is intentional:
  *   1. nextjs     — public-facing app, highest priority
- *   2. monitoring — Grafana/Prometheus secrets (independent of app secrets)
- *   3. start-admin — admin panel (internal tooling)
- *   4. admin-api  — BFF service (depends on start-admin Cognito pool)
- *   5. public-api — BFF service (depends on DynamoDB/Bedrock config)
- *   6. wiki-mcp   — FastMCP server (ConfigMap + basicauth Secret from SSM)
+ *   2. start-admin — admin panel (internal tooling)
+ *   3. admin-api  — BFF service (depends on start-admin Cognito pool)
+ *   4. public-api — BFF service (depends on DynamoDB/Bedrock config)
+ *   5. wiki-mcp   — FastMCP server (ConfigMap + basicauth Secret from SSM)
+ *
+ * Note: monitoring secrets removed — now managed declaratively by ESO ExternalSecrets
  */
 const DEPLOY_STEPS: ConfigStep[] = [
     {
@@ -79,12 +81,6 @@ const DEPLOY_STEPS: ConfigStep[] = [
         scriptPath: 'app-deploy/nextjs/deploy.py',
         timeoutSeconds: 300,
         description: 'nextjs-secrets K8s Secret + IngressRoute originSecret',
-    },
-    {
-        name: 'DeployMonitoringSecrets',
-        scriptPath: 'app-deploy/monitoring/deploy.py',
-        timeoutSeconds: 600,
-        description: 'Monitoring K8s Secrets + Helm chart install',
     },
     {
         name: 'DeployStartAdminSecrets',
@@ -305,19 +301,17 @@ export class ConfigOrchestratorConstruct extends Construct {
         // =====================================================================
         // Build parallel deploy branches
         //
-        // Steps are grouped into 4 concurrent branches. Max wall-clock time
-        // drops from sum(all timeouts)=1920s to max(branch times)=900s.
+        // Steps are grouped into 3 concurrent branches. Max wall-clock time
+        // drops from sum(all timeouts)=1320s to max(branch times)=900s.
         //
         // Branch A: nextjs (300s) — independent
-        // Branch B: monitoring (600s) — independent
-        // Branch C: start-admin→admin-api→public-api (300+300+300=900s) — sequential
+        // Branch B: start-admin→admin-api→public-api (300+300+300=900s) — sequential
         //           admin-api/public-api are downstream of start-admin's Cognito config
-        // Branch D: wiki-mcp (120s) — independent
+        // Branch C: wiki-mcp (120s) — independent
         // =====================================================================
 
         const [
             nextjsStep,
-            monitoringStep,
             startAdminStep,
             adminApiStep,
             publicApiStep,
@@ -334,7 +328,6 @@ export class ConfigOrchestratorConstruct extends Construct {
         });
 
         deployParallel.branch(sfn.Chain.start(nextjsStep!.start));
-        deployParallel.branch(sfn.Chain.start(monitoringStep!.start));
         deployParallel.branch(sfn.Chain.start(startAdminStep!.start));
         deployParallel.branch(sfn.Chain.start(wikiMcpStep!.start));
 
