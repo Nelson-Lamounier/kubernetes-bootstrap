@@ -246,7 +246,7 @@ export class K8sSsmAutomationStack extends cdk.Stack {
         });
         this.workerDocName = workerDoc.documentName;
 
-        // Keep deploySecretsDocName for backwards compatibility — SM-B supersedes this.
+        // Keep deploySecretsDocName for backwards compatibility — legacy scripts may still reference it.
         this.deploySecretsDocName = `${prefix}-deploy-secrets`;
 
         // =====================================================================
@@ -326,12 +326,11 @@ export class K8sSsmAutomationStack extends cdk.Stack {
         cleanup.addSsmParameter(`${props.ssmPrefix}/bootstrap/worker-doc-name`, workerDocParam);
 
         // Keep the SSM parameter for backwards compatibility — any EC2 user data or legacy
-        // scripts that read /deploy/secrets-doc-name still resolve a name, even though
-        // SM-B has superseded this document as the canonical config injection path.
+        // scripts that read /deploy/secrets-doc-name still resolve a name.
         const deployDocParam = new ssm.StringParameter(this, 'DeploySecretsDocNameParam', {
             parameterName: `${props.ssmPrefix}/deploy/secrets-doc-name`,
             stringValue: this.deploySecretsDocName,
-            description: 'SSM Automation document name for legacy secrets deployment (kept for backwards compatibility — SM-B supersedes)',
+            description: 'SSM Automation document name for legacy secrets deployment (kept for backwards compatibility)',
         });
         cleanup.addSsmParameter(`${props.ssmPrefix}/deploy/secrets-doc-name`, deployDocParam);
 
@@ -436,9 +435,9 @@ export class K8sSsmAutomationStack extends cdk.Stack {
             resources: ['*'],
         }));
 
-        // Required for the NotifyConfigOrchestrator EventBridgePutEvents state
-        // in the CP path of SM-A. Workers never reach this state so the grant
-        // is safe (least-privilege: default bus only).
+        // Required for the EventBridgePutEvents state in the CP path of SM-A
+        // (emits ControlPlaneBootstrapCompleted). Workers never reach this state
+        // so the grant is safe (least-privilege: default bus only).
         smRole.addToPrincipalPolicy(new iam.PolicyStatement({
             sid: 'SfnPutBootstrapEvent',
             effect: iam.Effect.ALLOW,
