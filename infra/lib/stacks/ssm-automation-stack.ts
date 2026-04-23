@@ -12,9 +12,8 @@
  *   - SSM Parameters: Document name discovery for EC2 user data
  *   - IAM Role: Automation execution role with RunCommand permissions
  *   - Step Functions SM-A: Bootstrap orchestrator state machine
- *   - Step Functions SM-B: Config orchestrator state machine
  *   - Lambda: Thin router for ASG tag resolution
- *   - EventBridge: Auto-trigger on ASG instance launch + SM-A success
+ *   - EventBridge: Auto-trigger on ASG instance launch (EC2InstanceLaunchSuccessful)
  *   - CloudWatch Alarm + SNS: Failure notifications
  *   - SSM State Manager Association: Node drift enforcement (30-min schedule)
  */
@@ -40,9 +39,6 @@ import {
 import {
     BootstrapOrchestratorConstruct,
 } from '../constructs/ssm/bootstrap-orchestrator.js';
-import {
-    ConfigOrchestratorConstruct,
-} from '../constructs/ssm/config-orchestrator.js';
 import {
     NodeDriftEnforcementConstruct,
 } from '../constructs/ssm/node-drift-enforcement.js';
@@ -98,7 +94,6 @@ export class K8sSsmAutomationStack extends cdk.Stack {
     public readonly deploySecretsDocName: string;
     public readonly automationRoleArn: string;
     public readonly stateMachineArn: string;
-    public readonly configStateMachineArn: string;
     public readonly bootstrapLogGroup: logs.LogGroup;
     public readonly deployLogGroup: logs.LogGroup;
 
@@ -466,92 +461,6 @@ export class K8sSsmAutomationStack extends cdk.Stack {
 
         cleanup.addLogGroup(`/aws/vendedlogs/states/${prefix}-bootstrap-orchestrator`, orchestrator.stateMachine);
         cleanup.addLogGroup(`/aws/lambda/${prefix}-bootstrap-router`, orchestrator.routerFunction);
-
-        // =====================================================================
-        // Config Orchestrator (SM-B) — App Config Injection
-        // =====================================================================
-
-        const configOrchestrator = new ConfigOrchestratorConstruct(this, 'ConfigOrchestrator', {
-            prefix,
-            ssmPrefix: props.ssmPrefix,
-        });
-
-        this.configStateMachineArn = configOrchestrator.stateMachine.stateMachineArn;
-
-        const configSmArnParam = new ssm.StringParameter(this, 'ConfigStateMachineArnParam', {
-            parameterName: `${props.ssmPrefix}/bootstrap/config-state-machine-arn`,
-            stringValue: configOrchestrator.stateMachine.stateMachineArn,
-            description: 'Step Functions config orchestrator (SM-B) ARN — app secrets injection',
-        });
-        cleanup.addSsmParameter(`${props.ssmPrefix}/bootstrap/config-state-machine-arn`, configSmArnParam);
-
-        const configSmRole = configOrchestrator.stateMachine.role;
-
-        configSmRole.addToPrincipalPolicy(new iam.PolicyStatement({
-            sid: 'ConfigSmSendCommand',
-            effect: iam.Effect.ALLOW,
-            actions: [
-                'ssm:SendCommand',
-                'ssm:GetCommandInvocation',
-            ],
-            resources: ['*'],
-        }));
-
-        configSmRole.addToPrincipalPolicy(new iam.PolicyStatement({
-            sid: 'ConfigSmSsmParams',
-            effect: iam.Effect.ALLOW,
-            actions: [
-                'ssm:GetParameter',
-                'ssm:PutParameter',
-            ],
-            resources: [
-                `arn:aws:ssm:${this.region}:${this.account}:parameter${props.ssmPrefix}/*`,
-            ],
-        }));
-
-        configSmRole.addToPrincipalPolicy(new iam.PolicyStatement({
-            sid: 'ConfigSmCloudWatchLogs',
-            effect: iam.Effect.ALLOW,
-            actions: [
-                'logs:CreateLogDelivery',
-                'logs:GetLogDelivery',
-                'logs:UpdateLogDelivery',
-                'logs:DeleteLogDelivery',
-                'logs:ListLogDeliveries',
-                'logs:PutResourcePolicy',
-                'logs:DescribeResourcePolicies',
-                'logs:DescribeLogGroups',
-            ],
-            resources: ['*'],
-        }));
-
-        configSmRole.addToPrincipalPolicy(new iam.PolicyStatement({
-            sid: 'ConfigSmXRay',
-            effect: iam.Effect.ALLOW,
-            actions: [
-                'xray:PutTraceSegments',
-                'xray:PutTelemetryRecords',
-                'xray:GetSamplingRules',
-                'xray:GetSamplingTargets',
-            ],
-            resources: ['*'],
-        }));
-
-        cleanup.addLogGroup(
-            `/aws/vendedlogs/states/${prefix}-config-orchestrator`,
-            configOrchestrator.stateMachine,
-        );
-
-        NagSuppressions.addResourceSuppressions(configOrchestrator.stateMachine, [{
-            id: 'AwsSolutions-IAM5',
-            reason: 'SM-B CallAwsService tasks require ssm:SendCommand/GetCommandInvocation on \'*\' (instance IDs are dynamic). CW log delivery requires \'*\'.',
-        }, {
-            id: 'AwsSolutions-SF1',
-            reason: 'Step Functions logging is enabled via vendedlogs at LogLevel.ALL with execution data.',
-        }, {
-            id: 'AwsSolutions-SF2',
-            reason: 'X-Ray tracing is enabled on the config state machine.',
-        }], true);
 
         // =====================================================================
         // CloudWatch Alarm — Step Functions Execution Failures
