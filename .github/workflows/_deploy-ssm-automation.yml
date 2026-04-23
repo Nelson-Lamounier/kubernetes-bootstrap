@@ -180,6 +180,42 @@ jobs:
 
           echo "[OK] CloudFront origin secret seeded at $SSM_PARAM"
 
+      # -----------------------------------------------------------------------
+      # Phase 2 — Sync Bootstrap Scripts to S3
+      # Ensures sm-a/boot/ and gitops/ are present in the scripts bucket so
+      # that any instance bootstrapped from the current or a future AMI can
+      # resolve /opt/k8s-bootstrap/sm-a/boot/steps/ at runtime.
+      # -----------------------------------------------------------------------
+      - name: "Phase 2 — Sync sm-a/boot/ + gitops/ to S3"
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          SSM_KEY="/k8s/${CDK_ENV}/scripts-bucket"
+          BUCKET=$(aws ssm get-parameter \
+            --name "$SSM_KEY" \
+            --query 'Parameter.Value' \
+            --output text \
+            --region "$AWS_REGION" 2>/dev/null | sed 's|^s3://||;s|/$||')
+          if [ -z "$BUCKET" ]; then
+            echo "::error::SSM parameter $SSM_KEY not found"
+            exit 1
+          fi
+
+          aws s3 sync sm-a/boot "s3://${BUCKET}/k8s-bootstrap/sm-a/boot/" \
+            --delete \
+            --exclude "**/__pycache__/*" \
+            --exclude "**/*.pyc" \
+            --exclude "**/.venv/*" \
+            --region "$AWS_REGION"
+          echo "[OK] sm-a/boot/ synced"
+
+          aws s3 sync gitops "s3://${BUCKET}/k8s-bootstrap/gitops/" \
+            --delete \
+            --exclude "**/__pycache__/*" \
+            --region "$AWS_REGION"
+          echo "[OK] gitops/ synced"
+
   # ===========================================================================
   # Phase 3: Trigger Bootstrap — Start Step Functions Executions
   # ===========================================================================
