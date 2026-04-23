@@ -396,7 +396,7 @@ phases:
             - kubectl-argo-rollouts version
             - echo "[validate] node:" && node --version
             - echo "[validate] npm:" && npm --version
-            - command -v tsx > /dev/null && echo "[validate] tsx present" || { echo "FATAL: tsx not on PATH"; exit 1; }
+            - if ! command -v tsx > /dev/null; then echo "FATAL: tsx not on PATH"; exit 1; fi && echo "[validate] tsx present"
             - echo "[validate] tsx:" && tsx --version
             - test -d /opt/k8s-bootstrap/sm-a/boot && echo "[validate] sm-a/boot/ scripts baked"
             - test -d /opt/k8s-bootstrap/gitops && echo "[validate] gitops/ manifests baked"
