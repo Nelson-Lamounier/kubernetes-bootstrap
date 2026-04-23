@@ -69,6 +69,10 @@ on:
         default: false
         type: boolean
 
+permissions:
+  id-token: write  # Required for OIDC → aws-actions/configure-aws-credentials
+  contents: read   # Required for actions/checkout
+
 concurrency:
   group: full-deploy-${{ inputs.environment || 'development' }}
   cancel-in-progress: false
