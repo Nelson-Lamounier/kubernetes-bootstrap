@@ -1180,12 +1180,6 @@ ci-verify-argocd *ARGS:
 ci-argocd-health *ARGS:
     npx tsx scripts/cd/verify-argocd-sync.ts --mode health {{ARGS}}
 
-# Deploy monitoring manifests via SSM Run Command
-# Usage: just ci-deploy-manifests development --region eu-west-1
-[group('ci')]
-ci-deploy-manifests *ARGS:
-    npx tsx system/charts/monitoring/scripts/deploy-manifests.ts {{ARGS}}
-
 # Run CDK integration tests (requires AWS credentials)
 # Usage: just ci-integration-test kubernetes/bootstrap-orchestrator development --verbose
 [group('ci')]
@@ -1195,58 +1189,3 @@ ci-integration-test project environment *ARGS:
       --testPathPattern="tests/integration/{{project}}" \
       {{ARGS}}
 
-# Validate Helm charts in system/charts/
-# Lints and template-renders monitoring + crossplane-xrds charts.
-[group('ci')]
-helm-validate-charts:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    ERRORS=0
-
-    echo "=== Helm Chart Validation ==="
-    echo ""
-
-    # --- Monitoring chart ---
-    echo "--- Monitoring chart ---"
-    if helm lint system/charts/monitoring/chart \
-         -f system/charts/monitoring/chart/values-development.yaml 2>&1; then
-      echo "  ✓ lint passed"
-    else
-      echo "  ✗ lint FAILED"
-      ERRORS=$((ERRORS + 1))
-    fi
-
-    if helm template monitoring-stack system/charts/monitoring/chart \
-         -f system/charts/monitoring/chart/values-development.yaml > /dev/null 2>&1; then
-      echo "  ✓ template render passed"
-    else
-      echo "  ✗ template render FAILED"
-      helm template monitoring-stack system/charts/monitoring/chart \
-        -f system/charts/monitoring/chart/values-development.yaml 2>&1 || true
-      ERRORS=$((ERRORS + 1))
-    fi
-    echo ""
-
-    # --- Crossplane XRDs chart ---
-    echo "--- Crossplane XRDs chart ---"
-    if helm lint system/charts/crossplane-xrds/chart 2>&1; then
-      echo "  ✓ lint passed"
-    else
-      echo "  ✗ lint FAILED"
-      ERRORS=$((ERRORS + 1))
-    fi
-
-    if helm template crossplane-xrds system/charts/crossplane-xrds/chart > /dev/null 2>&1; then
-      echo "  ✓ template render passed"
-    else
-      echo "  ✗ template render FAILED"
-      helm template crossplane-xrds system/charts/crossplane-xrds/chart 2>&1 || true
-      ERRORS=$((ERRORS + 1))
-    fi
-    echo ""
-
-    if [ $ERRORS -gt 0 ]; then
-      echo "✗ $ERRORS chart validations FAILED"
-      exit 1
-    fi
-    echo "✓ All chart validations passed"

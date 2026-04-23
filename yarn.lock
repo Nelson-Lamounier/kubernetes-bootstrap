@@ -4037,9 +4037,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"k8s-argocd-bootstrap@workspace:system/argocd":
+"k8s-argocd-bootstrap@workspace:sm-a/argocd":
   version: 0.0.0-use.local
-  resolution: "k8s-argocd-bootstrap@workspace:system/argocd"
+  resolution: "k8s-argocd-bootstrap@workspace:sm-a/argocd"
   dependencies:
     "@aws-sdk/client-secrets-manager": "npm:^3.0.0"
     "@aws-sdk/client-ssm": "npm:^3.0.0"
