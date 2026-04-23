@@ -623,9 +623,20 @@ export class K8sSsmAutomationStack extends cdk.Stack {
         // CDK-Nag Suppressions
         // =====================================================================
 
+        NagSuppressions.addResourceSuppressions(automationRole, [{
+            id: 'AwsSolutions-IAM5',
+            reason: 'SSM RunCommand/AutomationIntrospection require wildcard resources (instance IDs and command IDs are resolved dynamically at runtime). SSM parameter prefix, S3 bucket objects, and CloudWatch log streams use wildcard suffixes as required by their respective APIs.',
+        }], true);
+
         NagSuppressions.addResourceSuppressions(orchestrator.routerFunction, [{
             id: 'AwsSolutions-L1',
             reason: 'Python 3.13 is the latest GA Lambda runtime. PYTHON_3_14 is a CDK placeholder for an unreleased version.',
+        }, {
+            id: 'AwsSolutions-IAM4',
+            reason: 'AWSLambdaBasicExecutionRole is the minimal managed policy for Lambda CloudWatch Logs access — standard CDK pattern.',
+        }, {
+            id: 'AwsSolutions-IAM5',
+            reason: 'autoscaling:DescribeAutoScalingGroups requires wildcard resources (ASG names are resolved dynamically from EventBridge events). SSM parameter prefix uses wildcard suffix as required by the API.',
         }], true);
 
         NagSuppressions.addResourceSuppressions(cleanup, [{
