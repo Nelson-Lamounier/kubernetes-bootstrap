@@ -1,11 +1,11 @@
 # @format
 # @description Reusable Post-Bootstrap Configuration Workflow
 #
-# Injects application secrets and verifies ArgoCD health after cluster
-# bootstrap (SM-A) or standalone for secret rotation.
+# Verifies ArgoCD health and cluster smoke tests after bootstrap (SM-A)
+# or standalone. Secrets are managed declaratively by ESO ExternalSecrets.
 #
 # ─── Job Flow ──────────────────────────────────────────────────────
-#   wait-workers → inject-config → verify
+#   wait-workers → verify
 
 name: Post-Bootstrap Config (Reusable)
 
@@ -126,45 +126,10 @@ jobs:
             waited=$((waited + POLL))
           done
 
-  inject-config:
-    name: Inject App Config (SM-B)
-    needs: [wait-workers]
-    runs-on: ubuntu-latest
-    timeout-minutes: 70
-    environment: ${{ inputs.environment }}
-    outputs:
-      config_execution_arn: ${{ steps.trigger-config.outputs.config_execution_arn }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
-
-      - name: Setup Node.js and Script Dependencies
-        uses: ./.github/actions/setup-node-yarn
-
-      - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
-          aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
-
-      - name: Trigger Config Orchestrator (SM-B)
-        id: trigger-config
-        env:
-          DEPLOY_ENVIRONMENT: ${{ inputs.cdk-environment }}
-          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
-        run: |
-          npx --prefix scripts tsx scripts/cd/trigger-config.ts \
-            --environment "$DEPLOY_ENVIRONMENT" \
-            --region "$AWS_REGION" \
-            --max-wait 3600
-
   verify:
     name: Verify & Smoke Tests
-    needs: [inject-config]
-    if: >-
-      always()
-      && (needs.inject-config.result == 'success' || needs.inject-config.result == 'skipped')
+    needs: [wait-workers]
+    if: always() && needs.wait-workers.result == 'success'
     runs-on: k8s-runner
     timeout-minutes: 20
     environment: ${{ inputs.environment }}
