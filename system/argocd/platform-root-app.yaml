@@ -9,8 +9,8 @@
 #
 # Must be 100% healthy before the workloads root app deploys business apps.
 #
-# Source: kubernetes-bootstrap/system/platform-apps (merged from kubernetes-platform Apr 2026)
-# ArgoCD repo secret: repo-kubernetes-bootstrap (same SSH key as cdk-monitoring)
+# Source: kubernetes-platform/argocd-apps (single source of truth for all platform ArgoCD Applications)
+# ArgoCD repo secret: repo-kubernetes-platform
 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -29,10 +29,9 @@ spec:
   project: default
 
   source:
-    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
-    # PRODUCTION: Change to 'main' when deploying to production.
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-platform.git
     targetRevision: develop
-    path: system/platform-apps
+    path: argocd-apps
     directory:
       recurse: false
 
