@@ -145,7 +145,7 @@ jobs:
             --debug > /dev/null
 
   # ---------------------------------------------------------------------------
-  # Python lint (deploy_helpers + monitoring deploy script)
+  # Python lint (deploy_helpers)
   # ---------------------------------------------------------------------------
   python-lint:
     name: Python Lint (Ruff)
@@ -161,10 +161,7 @@ jobs:
         run: pip install ruff
 
       - name: Lint deploy_helpers
-        run: ruff check deploy_helpers/
-
-      - name: Lint monitoring deploy.py
-        run: ruff check system/charts/monitoring/deploy.py
+        run: ruff check sm-b/deploy_helpers/
 
   # ---------------------------------------------------------------------------
   # Grafana dashboard JSON validation

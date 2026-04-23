@@ -6,10 +6,9 @@
  * bootstrap / deploy scripts to S3.
  *
  * Sync targets:
- *   1. k8s-bootstrap/     → s3://{bucket}/k8s-bootstrap/
- *   2. workloads/charts/nextjs/      → s3://{bucket}/app-deploy/nextjs/      (excl. chart/, nextjs-values.yaml)
- *   3. platform/charts/monitoring/   → s3://{bucket}/app-deploy/monitoring/  (excl. chart/)
- *   4. workloads/charts/start-admin/ → s3://{bucket}/app-deploy/start-admin/ (excl. chart/, start-admin-values.yaml)
+ *   1. deploy_helpers/ → s3://{bucket}/k8s-bootstrap/deploy_helpers/
+ *      Shared Python library imported by all SM-B deploy.py scripts.
+ *      On the node: synced to /data/k8s-bootstrap/, then sys.path-inserted.
  *
  * Usage:
  *   npx tsx sync-bootstrap-scripts.ts \
@@ -77,9 +76,9 @@ const subprocessProfile: string | undefined =
     (args.profile as string) || (!process.env.AWS_ACCESS_KEY_ID ? 'dev-account' : undefined);
 
 // =============================================================================
-// Resolve workspace root (two levels up from this script)
+// Resolve workspace root (two levels up from scripts/cd/ → repo root)
 // =============================================================================
-const WORKSPACE_ROOT = resolve(__dirname, '..', '..', '..');
+const WORKSPACE_ROOT = resolve(__dirname, '..', '..');
 
 // =============================================================================
 // Sync Target Definitions
@@ -99,53 +98,11 @@ interface SyncTarget {
 
 const SYNC_TARGETS: SyncTarget[] = [
     {
-        label: 'K8s Bootstrap Scripts',
-        sourceDir: 'kubernetes-app/k8s-bootstrap',
-        s3Prefix: 'k8s-bootstrap/',
-        excludes: [],
+        label: 'Deploy Helpers (shared Python library)',
+        sourceDir: 'sm-b/deploy_helpers',
+        s3Prefix: 'k8s-bootstrap/deploy_helpers/',
+        excludes: ['__pycache__/*', '*.pyc', 'README.md'],
         optional: false,
-    },
-    {
-        label: 'Next.js App Deploy Scripts',
-        sourceDir: 'kubernetes-app/workloads/charts/nextjs',
-        s3Prefix: 'app-deploy/nextjs/',
-        excludes: ['chart/*', 'nextjs-values.yaml', '__pycache__/*'],
-        optional: true,
-    },
-    {
-        label: 'Monitoring Deploy Scripts',
-        sourceDir: 'kubernetes-app/platform/charts/monitoring',
-        s3Prefix: 'app-deploy/monitoring/',
-        excludes: ['chart/*', '__pycache__/*'],
-        optional: true,
-    },
-    {
-        label: 'Start-Admin Deploy Scripts',
-        sourceDir: 'kubernetes-app/workloads/charts/start-admin',
-        s3Prefix: 'app-deploy/start-admin/',
-        excludes: ['chart/*', 'start-admin-values.yaml', '__pycache__/*'],
-        optional: true,
-    },
-    {
-        label: 'Admin-API Deploy Scripts',
-        sourceDir: 'kubernetes-app/workloads/charts/admin-api',
-        s3Prefix: 'app-deploy/admin-api/',
-        excludes: ['chart/*', '__pycache__/*'],
-        optional: true,
-    },
-    {
-        label: 'Public-API Deploy Scripts',
-        sourceDir: 'kubernetes-app/workloads/charts/public-api',
-        s3Prefix: 'app-deploy/public-api/',
-        excludes: ['chart/*', '__pycache__/*'],
-        optional: true,
-    },
-    {
-        label: 'Wiki-MCP Deploy Scripts',
-        sourceDir: 'kubernetes-app/workloads/charts/wiki-mcp',
-        s3Prefix: 'app-deploy/wiki-mcp/',
-        excludes: ['chart/*', 'wiki-mcp-values.yaml', '__pycache__/*'],
-        optional: true,
     },
 ];
 
