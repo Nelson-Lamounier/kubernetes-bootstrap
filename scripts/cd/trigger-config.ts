@@ -3,19 +3,26 @@
  * Trigger Config — Step Functions Edition (SM-B)
  *
  * Starts the Config Orchestrator state machine (SM-B) which injects
- * SSM-sourced application configuration into Kubernetes.
+ * SSM-sourced application configuration into Kubernetes:
+ *   - nextjs-secrets, monitoring-secrets, start-admin-secrets
+ *   - admin-api ConfigMap + Secret + IngressRoute
+ *   - public-api ConfigMap + Secret + IngressRoute
  *
  * SM-B is normally triggered automatically by EventBridge when SM-A
  * (Bootstrap Orchestrator) succeeds. This script provides a manual
  * trigger path for:
  *   - GitHub Actions Phase 6 (post-bootstrap config)
  *   - Standalone secret rotation runs
+ *   - Local `just config-run <environment>` recipes
  *
  * The Config SM ARN is resolved from SSM parameter
  * `{ssmPrefix}/bootstrap/config-state-machine-arn`, written by CDK.
  *
+ * Unlike trigger-bootstrap.ts, this script does NOT need instance IDs
+ * or ASG resolution — SM-B reads the CP instance ID from SSM internally.
+ *
  * Usage:
- *   npx tsx scripts/cd/trigger-config.ts \
+ *   npx tsx trigger-config.ts \
  *     --environment development \
  *     [--region eu-west-1] \
  *     [--max-wait 3600]
@@ -25,7 +32,7 @@
  *   AWS_REGION         — AWS region (default: eu-west-1)
  *
  * Exit Codes:
- *   0 — SM-B execution completed successfully
+ *   0 — SM-B execution completed successfully (ConfigApplied)
  *   1 — Fatal configuration error, SM start failure, or execution failure
  */
 
@@ -38,9 +45,9 @@ import {
     GetParameterCommand,
     SSMClient,
 } from '@aws-sdk/client-ssm';
-import { parseArgs, buildAwsConfig } from '../lib/aws.js';
-import { setOutput, writeSummary, emitAnnotation } from '../lib/github.js';
-import logger from '../lib/logger.js';
+import { parseArgs, buildAwsConfig } from '@nelson-lamounier/cdk-deploy-scripts/aws.js';
+import { setOutput, writeSummary, emitAnnotation } from '@nelson-lamounier/cdk-deploy-scripts/github.js';
+import logger from '@nelson-lamounier/cdk-deploy-scripts/logger.js';
 
 // =============================================================================
 // CLI argument parsing
@@ -98,6 +105,7 @@ const sfn = new SFNClient({
 // Helpers
 // =============================================================================
 
+/** Fetch a single SSM parameter value, returning undefined if missing. */
 async function getParam(name: string): Promise<string | undefined> {
     try {
         const result = await ssm.send(new GetParameterCommand({ Name: name }));
@@ -109,6 +117,7 @@ async function getParam(name: string): Promise<string | undefined> {
     }
 }
 
+/** Sleep for a given number of milliseconds. */
 function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -117,15 +126,24 @@ function sleep(ms: number): Promise<void> {
 // Core
 // =============================================================================
 
+/** Terminal Step Functions execution statuses. */
 const TERMINAL_SUCCESS = new Set(['SUCCEEDED']);
 const TERMINAL_FAILURE = new Set(['FAILED', 'TIMED_OUT', 'ABORTED']);
 
+/**
+ * Poll a Step Functions execution until it reaches a terminal state or times out.
+ *
+ * @param label          - Human-readable label for log messages
+ * @param executionArn   - ARN of the execution to poll
+ * @param maxWaitSeconds - Maximum seconds to wait before giving up
+ * @returns true if execution SUCCEEDED, false otherwise
+ */
 async function waitForExecution(
     label: string,
     executionArn: string,
     maxWaitSeconds: number,
 ): Promise<boolean> {
-    const pollInterval = 15_000;
+    const pollInterval = 15_000; // 15 seconds
     let waited = 0;
 
     logger.blank();
@@ -172,6 +190,7 @@ async function main(): Promise<void> {
     logger.keyValue('Max Wait', `${maxWait}s`);
     logger.blank();
 
+    // ── Resolve Config State Machine ARN ─────────────────────────────────────
     const configArnParam = `${ssmPrefix}/bootstrap/config-state-machine-arn`;
     const configSmArn = await getParam(configArnParam);
     if (!configSmArn) {
@@ -183,12 +202,17 @@ async function main(): Promise<void> {
         );
         logger.fatal(
             `Config SM ARN not found at ${configArnParam}. ` +
-            'Run: cdk deploy -c environment=development',
+            'Run: just deploy-stack SsmAutomation-development kubernetes development',
         );
     }
     logger.keyValue('Config SM ARN', configSmArn!);
     logger.blank();
 
+    // ── Start SM-B execution ──────────────────────────────────────────────────
+    //
+    // SM-B does not need an instance ID in the input — it reads the CP
+    // instance ID from SSM internally (written by SM-A's UpdateInstanceId step).
+    //
     const executionInput = JSON.stringify({
         trigger: 'github-actions',
         source:  'manual',
@@ -223,8 +247,10 @@ async function main(): Promise<void> {
     logger.keyValue('Execution ARN', executionArn!);
     setOutput('config_execution_arn', executionArn!);
 
+    // ── Wait for completion ───────────────────────────────────────────────────
     const succeeded = await waitForExecution('config-orchestrator', executionArn!, maxWait);
 
+    // ── Step Summary ──────────────────────────────────────────────────────────
     writeSummary([
         '## Config Orchestrator (SM-B) Trigger',
         '',

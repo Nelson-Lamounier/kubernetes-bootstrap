@@ -11,9 +11,21 @@
  *   --mode sync   (default)  Full sync polling until all apps are Synced + Healthy
  *   --mode health            Quick reachability check — poll until HTTP 200
  *
+ * Steps:
+ *   1. Resolve control plane instance ID via SSM
+ *   2. Retrieve CI bot token (env ARGOCD_TOKEN or Secrets Manager)
+ *   3. Poll ArgoCD API (via SSM) per mode
+ *
+ * Graceful skip: if instance ID or token is unavailable (Day-0), the
+ * script exits 0 with a warning annotation instead of failing.
+ *
  * Usage:
- *   npx tsx scripts/cd/verify-argocd-sync.ts \
+ *   npx tsx infra/scripts/cd/verify-argocd-sync.ts \
  *     --environment development --region eu-west-1 --mode sync
+ *
+ * Called by:
+ *   - .github/workflows/gitops-k8s.yml (mode=sync)
+ *   - .github/workflows/_deploy-ssm-automation.yml (mode=health)
  */
 
 import { DescribeInstancesCommand, EC2Client } from "@aws-sdk/client-ec2";
@@ -27,13 +39,13 @@ import {
   SendCommandCommand,
   GetCommandInvocationCommand,
 } from "@aws-sdk/client-ssm";
-import { parseArgs, buildAwsConfig } from "../lib/aws.js";
+import { parseArgs, buildAwsConfig } from "@nelson-lamounier/cdk-deploy-scripts/aws.js";
 import {
   emitAnnotation,
   maskSecret,
   writeSummary,
-} from "../lib/github.js";
-import logger from "../lib/logger.js";
+} from "@nelson-lamounier/cdk-deploy-scripts/github.js";
+import logger from "@nelson-lamounier/cdk-deploy-scripts/logger.js";
 
 // =============================================================================
 // CLI argument parsing
@@ -90,8 +102,21 @@ const maxPolls = parseInt(args["max-polls"] as string, 10) || 12;
 // ArgoCD API path builder.
 // server.rootpath=/argocd is set in argocd-cmd-params-cm, so ALL API
 // endpoints (including via ClusterIP) are served under /argocd/...
+// We resolve the ClusterIP dynamically via kubectl because:
+//   1. Nodes can't resolve .svc.cluster.local DNS (VPC DNS only)
+//   2. server.insecure=true means ArgoCD serves plain HTTP on port 8080
+//      (Service port 80 → targetPort 8080), so we use http:// not https://
+
 const ARGOCD_ROOT_PATH = "/argocd";
 
+/** Build a shell command that resolves the ArgoCD ClusterIP then curls it.
+ *
+ * ArgoCD is configured with server.insecure=true — it serves plain HTTP on
+ * port 8080. The argocd-server Service maps port 80 → targetPort 8080.
+ * We therefore use http://:80 (the default for http://) not https://:443.
+ * Using https:// against a non-TLS backend causes an immediate TLS handshake
+ * failure which curl reports as HTTP status 000.
+ */
 function buildArgoCDCurl(
   curlFlags: string,
   apiPath: string,
@@ -110,9 +135,13 @@ function buildArgoCDCurl(
 // =============================================================================
 
 const EXPECTED_APPS = [
+  // Wave 0: Certificate infrastructure
   "cert-manager",
+  // Wave 1: TLS configuration
   "cert-manager-config",
+  // Wave 2: Ingress controller
   "traefik",
+  // Wave 3: Applications & infrastructure
   "nextjs",
   "monitoring",
   "metrics-server",
@@ -145,8 +174,10 @@ const ec2 = new EC2Client({
 // Helpers
 // =============================================================================
 
+/** Track whether self-healing has already been attempted this run. */
 let tokenRefreshAttempted = false;
 
+/** Fetch a secret from Secrets Manager, returning undefined if missing. */
 async function getSecret(secretId: string): Promise<string | undefined> {
   try {
     const result = await secretsManager.send(
@@ -158,10 +189,15 @@ async function getSecret(secretId: string): Promise<string | undefined> {
   }
 }
 
+/** Sleep for a given number of milliseconds. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Execute a curl command on the control plane node via SSM send-command.
+ * Returns the stdout output (curl response body or HTTP code).
+ */
 async function ssmCurl(
   instanceId: string,
   curlCommand: string,
@@ -179,6 +215,7 @@ async function ssmCurl(
     const commandId = sendResult.Command?.CommandId;
     if (!commandId) return undefined;
 
+    // Wait for command to finish (poll up to 15s)
     for (let wait = 0; wait < 5; wait++) {
       await sleep(3000);
       try {
@@ -221,6 +258,13 @@ interface AppStatus {
 // Core Functions
 // =============================================================================
 
+/**
+ * Resolve a running instance ID by its k8s:bootstrap-role tag.
+ *
+ * Uses EC2 DescribeInstances filtered by tag + running state.
+ * This replaces the previous SSM parameter-based lookup, which
+ * was prone to stale IDs when instances were replaced by the ASG.
+ */
 async function resolveInstanceByTag(
   tagValue: string,
 ): Promise<string | undefined> {
@@ -247,6 +291,10 @@ async function resolveInstanceByTag(
   }
 }
 
+/**
+ * Resolve the control plane instance ID via EC2 tags.
+ * Used to route ArgoCD API calls via SSM send-command (localhost).
+ */
 async function resolveControlPlaneInstance(): Promise<string | undefined> {
   const totalSteps = mode === "health" ? 2 : 3;
   logger.step(1, totalSteps, "Resolve Control Plane Instance");
@@ -269,9 +317,21 @@ async function resolveControlPlaneInstance(): Promise<string | undefined> {
   return instanceId;
 }
 
+/**
+ * Retrieve the ArgoCD CI bot token.
+ *
+ * Priority:
+ *   1. ARGOCD_TOKEN env var (set by SSM pipeline from previous step output)
+ *   2. Secrets Manager (used by GitOps pipeline)
+ *
+ * @returns Bearer token or undefined if not available
+ */
 async function retrieveCIToken(): Promise<string | undefined> {
+  // retrieveCIToken is only called in --mode sync (step 2 of 3).
+  // Health mode no longer requires a token (uses kubectl readiness instead).
   logger.step(2, 3, "Retrieve CI Bot Token");
 
+  // Check env var first (SSM pipeline passes token from previous step)
   const envToken = process.env.ARGOCD_TOKEN;
   if (envToken) {
     maskSecret(envToken);
@@ -279,6 +339,7 @@ async function retrieveCIToken(): Promise<string | undefined> {
     return envToken;
   }
 
+  // Fall back to Secrets Manager
   const secretId = `k8s/${environment}/argocd-ci-token`;
   const token = await getSecret(secretId);
 
@@ -297,6 +358,21 @@ async function retrieveCIToken(): Promise<string | undefined> {
   return token;
 }
 
+/**
+ * Self-heal: regenerate the CI bot token via the ArgoCD REST API.
+ *
+ * Uses curl + python3 directly on the control plane node (via SSM):
+ *   1. Resolve admin password: SSM Parameter Store → argocd-initial-admin-secret
+ *   2. POST /argocd/api/v1/session  → obtain a short-lived admin session token
+ *   3. POST /argocd/api/v1/account/ci-bot/token → generate a new CI bot API key
+ *   4. Validate the new token, then store in Secrets Manager
+ *
+ * This replaces the previous `kubectl exec argocd account generate-token`
+ * approach which is broken: that command does not accept --username/--password
+ * flags and requires a prior `argocd login`, so it silently returned empty.
+ *
+ * @returns The new token, or undefined if regeneration failed
+ */
 async function refreshCIToken(instanceId: string): Promise<string | undefined> {
   if (tokenRefreshAttempted) {
     logger.warn("  Token refresh already attempted this run — skipping");
@@ -308,15 +384,22 @@ async function refreshCIToken(instanceId: string): Promise<string | undefined> {
     "  → Self-healing: regenerating CI bot token via ArgoCD REST API...",
   );
 
+  // Resolve admin password via SSM → argocd-initial-admin-secret fallback.
+  // Mirrors the two-source fallback in bootstrap's _resolve_admin_password.
   const fetchAdminPassCmd = [
     "export KUBECONFIG=/etc/kubernetes/admin.conf",
+    // Source 1: SSM Parameter Store (set by Step 10b during bootstrap)
     `ADMIN_PASS=$(aws ssm get-parameter --name "/k8s/${environment}/argocd-admin-password" --with-decryption --query Parameter.Value --output text 2>/dev/null)`,
+    // Source 2: argocd-initial-admin-secret (Day-0 — before Step 10b runs)
     "if [ -z \"$ADMIN_PASS\" ]; then ADMIN_PASS=$(kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null); fi",
     'if [ -z "$ADMIN_PASS" ]; then echo "ERROR: no admin password from SSM or initial-admin-secret"; exit 1; fi',
+    // Resolve ArgoCD ClusterIP (same strategy as buildArgoCDCurl)
     "ARGOCD_IP=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.clusterIP}' 2>/dev/null)",
     'if [ -z "$ARGOCD_IP" ]; then echo "ERROR: ArgoCD ClusterIP not found"; exit 1; fi',
+    // Step 1: Login → obtain a short-lived admin session token
     'ARGOCD_SESSION=$(curl -sf --max-time 15 -X POST "http://${ARGOCD_IP}/argocd/api/v1/session" -H "Content-Type: application/json" -d "{\\"username\\":\\"admin\\",\\"password\\":\\"${ADMIN_PASS}\\"}" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get(\'token\',\'\'))" 2>/dev/null)',
     'if [ -z "$ARGOCD_SESSION" ]; then echo "ERROR: ArgoCD admin login failed"; exit 1; fi',
+    // Step 2: Generate a non-expiring CI bot API token
     'NEW_TOKEN=$(curl -sf --max-time 15 -X POST "http://${ARGOCD_IP}/argocd/api/v1/account/ci-bot/token" -H "Authorization: Bearer ${ARGOCD_SESSION}" -H "Content-Type: application/json" --data-raw \'{"expiresIn":0,"id":""}\' 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get(\'token\',\'\'))" 2>/dev/null)',
     'if [ -z "$NEW_TOKEN" ]; then echo "ERROR: CI bot token generation failed"; exit 1; fi',
     'echo "$NEW_TOKEN"',
@@ -331,6 +414,7 @@ async function refreshCIToken(instanceId: string): Promise<string | undefined> {
     return undefined;
   }
 
+  // Validate the new token
   const validateCmd = buildArgoCDCurl(
     `-s -o /dev/null -w '%{http_code}' --max-time 10`,
     "/api/v1/applications",
@@ -347,6 +431,7 @@ async function refreshCIToken(instanceId: string): Promise<string | undefined> {
 
   logger.success("  ✓ Regenerated token validated (HTTP 200)");
 
+  // Store in Secrets Manager
   const secretId = `k8s/${environment}/argocd-ci-token`;
   try {
     await secretsManager.send(
@@ -362,6 +447,15 @@ async function refreshCIToken(instanceId: string): Promise<string | undefined> {
   return newToken;
 }
 
+/**
+ * Probe a single ArgoCD application to surface auth/network errors early.
+ * Runs via SSM send-command on the control plane node.
+ *
+ * Self-healing: if the probe returns HTTP 401/403, attempts to regenerate
+ * the CI bot token via SSM and returns the refreshed token.
+ *
+ * @returns Refreshed token if self-healing was triggered, otherwise undefined
+ */
 async function diagnosticProbe(
   instanceId: string,
   token: string,
@@ -389,6 +483,7 @@ async function diagnosticProbe(
     return undefined;
   }
 
+  // Output format: body\nHTTP_CODE
   const lines = output.split("\n");
   const httpCode = lines[lines.length - 1]?.trim();
   logger.info(`  HTTP Status: ${httpCode}`);
@@ -410,9 +505,10 @@ async function diagnosticProbe(
       return refreshedToken;
     }
 
+    // Self-healing failed — emit the original error
     emitAnnotation(
       "error",
-      "Authentication failed. Self-healing token refresh also failed.",
+      "Authentication failed. Self-healing token refresh also failed. Manual fix: just argocd-ci-token",
       "ArgoCD Auth",
     );
   } else if (httpCode && parseInt(httpCode, 10) >= 500) {
@@ -423,11 +519,20 @@ async function diagnosticProbe(
   return undefined;
 }
 
+/**
+ * Check the sync and health status of a single ArgoCD application.
+ * Runs via SSM send-command on the control plane node.
+ */
 async function checkApp(
   instanceId: string,
   token: string,
   app: string,
 ): Promise<AppStatus> {
+  // Curl that returns only sync/health status (piped through Python to avoid
+  // SSM output truncation — the monitoring app's full JSON exceeds 24KB).
+  // NOTE: The python filter must be a single semicolon-separated line because
+  // SSM send-command doesn't preserve newlines in the command string.
+  // Shell single-quotes wrap the python code so inner double-quotes are safe.
   const pythonFilter =
     "import json,sys;" +
     "d=json.loads(sys.stdin.read());" +
@@ -486,6 +591,11 @@ async function checkApp(
   }
 }
 
+/**
+ * Poll all expected ArgoCD Applications until all are Synced + Healthy.
+ *
+ * @returns true if all apps passed, false if timed out
+ */
 async function waitForSync(
   instanceId: string,
   token: string,
@@ -498,8 +608,13 @@ async function waitForSync(
   console.log(`Poll interval: ${pollInterval}s, max polls: ${maxPolls}`);
   console.log("");
 
-  const gracePollCount = 3;
+  // Grace period: newly-added Applications may not exist in ArgoCD yet
+  // because the root App-of-Apps hasn't reconciled. ArgoCD returns
+  // "permission denied" for non-existent apps (security: prevents info leak).
+  // During the grace window, treat these as "pending discovery" rather than errors.
+  const gracePollCount = 3; // ~90s at 30s interval
 
+  // Run diagnostic probe on first app (may self-heal token)
   let activeToken = token;
   const refreshedToken = await diagnosticProbe(instanceId, activeToken);
   if (refreshedToken) {
@@ -507,11 +622,11 @@ async function waitForSync(
   }
 
   for (let poll = 1; poll <= maxPolls; poll++) {
-    const ts = new Date().toISOString().slice(11, 19);
+    const timestamp = new Date().toISOString().slice(11, 19);
     let allSynced = true;
     const inGracePeriod = poll <= gracePollCount;
 
-    console.log(`--- Poll ${poll}/${maxPolls} (${ts}) ---`);
+    console.log(`--- Poll ${poll}/${maxPolls} (${timestamp}) ---`);
 
     for (const app of EXPECTED_APPS) {
       const status = await checkApp(instanceId, activeToken, app);
@@ -520,6 +635,9 @@ async function waitForSync(
         console.log(`  ${app}: [WARN] API unreachable`);
         allSynced = false;
       } else if (status.error) {
+        // "permission denied" means the app doesn't exist in ArgoCD yet
+        // (ArgoCD hides 404 behind 403 for security). During grace period,
+        // treat as pending; after grace period, treat as error.
         const isNotFound = status.error
           .toLowerCase()
           .includes("permission denied");
@@ -587,6 +705,7 @@ async function waitForSync(
     }
   }
 
+  // Timed out
   const totalWait = maxPolls * pollInterval;
   console.log("");
   console.log(
@@ -607,6 +726,26 @@ async function waitForSync(
 // Health Check Mode
 // =============================================================================
 
+/**
+ * Pod readiness health check: poll K8s until all ArgoCD Deployments are Available.
+ *
+ * Uses `kubectl wait` on the control-plane node via SSM send-command.
+ * Does NOT use the ArgoCD HTTP API — no token required, no ClusterIP dependency.
+ *
+ * Checks:
+ *   1. argocd-server Deployment Available
+ *   2. argocd-repo-server Deployment Available
+ *   3. argocd-dex-server Deployment Available
+ *   4. argocd-redis Deployment Available
+ *   5. argocd-application-controller StatefulSet rolled out
+ *
+ * This is the correct signal for "is ArgoCD alive?" — it asks Kubernetes
+ * directly rather than probing the ArgoCD HTTP API layer, which can fail
+ * transiently during re-bootstrap even when the cluster is healthy.
+ *
+ * @param instanceId - Control-plane EC2 instance ID
+ * @returns true if all ArgoCD workloads are Available within the timeout
+ */
 async function healthCheck(instanceId: string): Promise<boolean> {
   const totalWait = maxPolls * pollInterval;
 
@@ -618,6 +757,18 @@ async function healthCheck(instanceId: string): Promise<boolean> {
   );
   console.log("");
 
+  /**
+   * Build the kubectl readiness probe command.
+   *
+   * Both sub-commands run with a 30s per-attempt timeout so that a slow
+   * K8s API server doesn't stall the entire poll loop. The outer poll
+   * loop provides the cumulative retry window.
+   *
+   * Deployment check: argocd-server, argocd-repo-server, argocd-dex-server, argocd-redis
+   * StatefulSet check: argocd-application-controller (rollout status is the correct verb)
+   */
+
+  // Split into two separate SSM commands to avoid output truncation
   const deploymentCmd = [
     "export KUBECONFIG=/etc/kubernetes/admin.conf",
     "kubectl wait deployment/argocd-server deployment/argocd-repo-server" +
@@ -632,9 +783,12 @@ async function healthCheck(instanceId: string): Promise<boolean> {
   ].join(" && ");
 
   for (let attempt = 1; attempt <= maxPolls; attempt++) {
+    // kubectl wait success: each deployment line prints "deployment.apps/<name> condition met"
+    // kubectl rollout success: prints "statefulset rolling update complete" or "successfully rolled out"
     const deployOutput = await ssmCurl(instanceId, deploymentCmd);
     const deploymentReady = !!deployOutput?.includes("condition met");
 
+    // Check StatefulSet separately
     const controllerOutput = await ssmCurl(instanceId, controllerCmd);
     const controllerReady =
       controllerOutput != null &&
@@ -664,6 +818,7 @@ async function healthCheck(instanceId: string): Promise<boolean> {
       return true;
     }
 
+    // Log both outputs separated for debugging
     logger.info(
       ` Attempt ${attempt}/${maxPolls} -- ArgoCD pods not yet ready, retrying in ${pollInterval}s...`,
     );
@@ -699,12 +854,15 @@ async function main(): Promise<void> {
   logger.info(`Mode:        ${mode}`);
   console.log("");
 
+  // Step 1: Resolve control plane instance
   const instanceId = await resolveControlPlaneInstance();
   if (!instanceId) {
     logger.warn("Exiting gracefully -- no control plane instance available");
     process.exit(0);
   }
 
+  // Step 2 (health mode): kubectl pod readiness — no token required.
+  // Step 2-3 (sync mode):  retrieve token → poll ArgoCD Application status.
   if (mode === "health") {
     const reachable = await healthCheck(instanceId);
     if (!reachable) {

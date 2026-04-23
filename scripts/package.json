@@ -8,18 +8,16 @@
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
-    "@aws-sdk/client-cloudwatch-logs": "^3.0.0",
-    "@aws-sdk/client-ec2": "^3.0.0",
-    "@aws-sdk/client-route-53": "^3.0.0",
     "@aws-sdk/client-s3": "^3.0.0",
-    "@aws-sdk/client-secrets-manager": "^3.0.0",
     "@aws-sdk/client-sfn": "^3.0.0",
     "@aws-sdk/client-ssm": "^3.0.0",
     "@aws-sdk/client-sts": "^3.0.0",
     "@aws-sdk/credential-providers": "^3.0.0",
     "@aws-sdk/types": "^3.0.0",
+    "@nelson-lamounier/cdk-deploy-scripts": "file:../../cdk-scripts",
     "bcryptjs": "^2.4.3",
-    "chalk": "^5.0.0"
+    "chalk": "^4.1.2",
+    "undici": "^8.1.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

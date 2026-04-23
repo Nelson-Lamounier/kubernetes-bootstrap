@@ -7,11 +7,15 @@
  * SSM bootstrap log group and the EC2 instance log group into GitHub
  * Actions output for real-time visibility.
  *
+ * On failure, extracts RunCommand stdout/stderr from the failed step
+ * for debugging.
+ *
  * Usage:
- *   npx tsx scripts/cd/observe-bootstrap.ts \
+ *   npx tsx observe-bootstrap.ts \
  *     --environment development \
  *     --execution-id <ssm-execution-id> \
  *     [--region eu-west-1] \
+ *     [--cdk-environment development] \
  *     [--poll-interval 15] \
  *     [--max-polls 80]
  *
@@ -36,9 +40,9 @@ import {
     GetCommandInvocationCommand,
     SSMClient,
 } from '@aws-sdk/client-ssm';
-import { parseArgs, buildAwsConfig } from '../lib/aws.js';
-import { writeSummary, emitAnnotation } from '../lib/github.js';
-import logger from '../lib/logger.js';
+import { parseArgs, buildAwsConfig } from '@nelson-lamounier/cdk-deploy-scripts/aws.js';
+import { writeSummary, emitAnnotation } from '@nelson-lamounier/cdk-deploy-scripts/github.js';
+import logger from '@nelson-lamounier/cdk-deploy-scripts/logger.js';
 
 // =============================================================================
 // CLI argument parsing
@@ -92,6 +96,7 @@ const awsConfig = buildAwsConfig(args);
 const pollInterval = parseInt(args['poll-interval'] as string, 10) || 15;
 const maxPolls = parseInt(args['max-polls'] as string, 10) || 80;
 
+// Log group names (mirroring the original bash environment variables)
 const ssmLogGroup = `/ssm/k8s/${environment}/bootstrap`;
 const ec2LogGroup = `/ec2/k8s-${cdkEnvironment}/instances`;
 
@@ -124,6 +129,7 @@ interface ObserverResult {
     pollCount: number;
 }
 
+/** Terminal SSM Automation statuses */
 const TERMINAL_SUCCESS = new Set(['Success']);
 const TERMINAL_FAILURE = new Set(['Failed', 'Cancelled', 'TimedOut', 'CompletedWithFailure']);
 
@@ -143,6 +149,12 @@ function timestamp(): string {
 // CloudWatch log streaming
 // =============================================================================
 
+/**
+ * Stream recent CloudWatch logs from a log group.
+ *
+ * Uses DescribeLogStreams + GetLogEvents instead of `aws logs tail` because
+ * there is no SDK equivalent for the `tail` CLI convenience command.
+ */
 async function streamLogGroup(
     logGroupName: string,
     label: string,
@@ -200,6 +212,7 @@ async function streamLogGroup(
 // SSM Automation step rendering
 // =============================================================================
 
+/** Format step-level progress for GitHub Actions grouped output. */
 function renderStepProgress(
     steps: StepExecution[],
     status: string,
@@ -229,6 +242,10 @@ function renderStepProgress(
 // Failure diagnostics
 // =============================================================================
 
+/**
+ * Attempt to retrieve RunCommand stdout/stderr for a failed step.
+ * This mirrors the bash `aws ssm get-command-invocation` logic.
+ */
 async function dumpRunCommandOutput(
     steps: StepExecution[],
     instanceId: string | undefined,
@@ -310,6 +327,7 @@ async function main(): Promise<void> {
     logger.keyValue('Max Polls', `${maxPolls}`);
     logger.blank();
 
+    // ── Guard: nothing to observe ────────────────────────────────────────────
     if (!executionId) {
         emitAnnotation(
             'warning',
@@ -329,8 +347,10 @@ async function main(): Promise<void> {
     logger.keyValue('Execution ID', executionId);
     logger.blank();
 
+    // Timestamp for CloudWatch log filtering (only events from now onward)
     const watchStart = Date.now();
 
+    // ── Poll loop ────────────────────────────────────────────────────────────
     for (let i = 1; i <= maxPolls; i++) {
         let status = 'Unknown';
         let steps: StepExecution[] = [];
@@ -352,17 +372,21 @@ async function main(): Promise<void> {
 
         console.log(`[${timestamp()}] Poll ${i}/${maxPolls} — Status: ${status}`);
 
+        // Show step-level progress
         if (steps.length > 0) {
             renderStepProgress(steps, status, i);
         }
 
+        // Stream CloudWatch logs from both log groups
         await streamLogGroup(ssmLogGroup, 'Bootstrap Logs (CloudWatch)', watchStart, i);
         await streamLogGroup(ec2LogGroup, 'EC2 Boot Logs (CloudWatch)', watchStart, i);
 
+        // ── Terminal: success ────────────────────────────────────────────
         if (TERMINAL_SUCCESS.has(status)) {
             logger.blank();
             logger.success('SSM Automation completed successfully');
 
+            // Final log dump
             await streamLogGroup(ssmLogGroup, 'Full Bootstrap Logs', watchStart, i);
             await streamLogGroup(ec2LogGroup, 'Full EC2 Boot Logs', watchStart, i);
 
@@ -371,10 +395,12 @@ async function main(): Promise<void> {
             return;
         }
 
+        // ── Terminal: failure ────────────────────────────────────────────
         if (TERMINAL_FAILURE.has(status)) {
             logger.blank();
             logger.error(`SSM Automation ${status}`);
 
+            // Show failed step details
             for (const step of steps) {
                 if (step.StepStatus === 'Failed') {
                     logger.error(`FAILED STEP: ${step.StepName}`);
@@ -382,9 +408,11 @@ async function main(): Promise<void> {
                 }
             }
 
+            // Full log dumps for debugging
             await streamLogGroup(ssmLogGroup, 'Full Bootstrap Logs (for debugging)', watchStart, i);
             await streamLogGroup(ec2LogGroup, 'Full EC2 Boot Logs (for debugging)', watchStart, i);
 
+            // RunCommand output for the failed step
             await dumpRunCommandOutput(steps, instanceId);
 
             const result: ObserverResult = {
@@ -397,11 +425,13 @@ async function main(): Promise<void> {
             process.exit(1);
         }
 
+        // ── Still running — sleep and continue ───────────────────────────
         if (i < maxPolls) {
             await sleep(pollInterval);
         }
     }
 
+    // ── Timed out ────────────────────────────────────────────────────────────
     logger.warn(`Observer timed out after ${maxPolls} polls`);
     const result: ObserverResult = { outcome: 'timeout', pollCount: maxPolls };
     writeSummary(buildSummary(result));

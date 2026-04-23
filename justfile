@@ -13,6 +13,10 @@
 # This file is the single CLI entry point for local development and ops.
 # CI/CD pipelines also use 'just' for code quality tasks (lint, build, typecheck).
 
+# CDK project root and stacks config — used by @nelson-lamounier/cdk-deploy-scripts
+export CDK_PROJECT_ROOT := "infra"
+export CDK_STACKS_CONFIG := justfile_directory() + "/scripts/shared/stacks.js"
+
 # Default recipe — show help
 default:
     @just --list --unsorted
@@ -1130,6 +1134,35 @@ clean-untracked:
 [group('util')]
 clean-untracked-force:
     git clean -fd
+
+# =============================================================================
+# CI — CDK STACK DEPLOY
+# =============================================================================
+
+# CI deploy: deploy a single CDK stack with provenance tags and output capture
+# Usage: just ci-deploy K8s-SsmAutomation-development kubernetes development
+#        just ci-deploy K8s-SsmAutomation-development kubernetes development --require-approval broadening
+# Called by: .github/workflows/_deploy-stack.yml → Deploy Stack step
+[group('ci')]
+ci-deploy *ARGS:
+    npx cdk-deploy {{ARGS}}
+
+# CI diagnose: query CloudFormation for failed events and write GHA annotations
+# Always exits 0 — diagnostic only, never masks the upstream deploy failure.
+# Usage: just ci-diagnose K8s-SsmAutomation-development --region eu-west-1
+# Called by: .github/workflows/_deploy-stack.yml → Diagnose CloudFormation Failure step
+[group('ci')]
+ci-diagnose *ARGS:
+    npx cdk-diagnose {{ARGS}} --mode diagnose
+
+# CI finalize: collect CDK stack outputs, emit GHA outputs, write step summary
+# Usage: just ci-finalize-deployment K8s-SsmAutomation-development \
+#          --mode stack-outputs --deploy-status success --environment development \
+#          --region eu-west-1 --account-id 123456789012 [--outputs-dir /tmp/outputs]
+# Called by: .github/workflows/_deploy-stack.yml → Finalize Deployment step
+[group('ci')]
+ci-finalize-deployment *ARGS:
+    npx cdk-finalize {{ARGS}}
 
 # =============================================================================
 # CI — GITOPS & INTEGRATION
