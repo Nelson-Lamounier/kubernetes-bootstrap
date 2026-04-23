@@ -390,14 +390,17 @@ phases:
             - /opt/k8s-venv/bin/python3 -c "import bcrypt; print('[validate] bcrypt ok')"
             - test -f /usr/local/bin/ecr-credential-provider && echo "[validate] ecr-credential-provider present"
             - test -f /etc/kubernetes/image-credential-provider-config.yaml && echo "[validate] credential provider config present"
-            - export HOME=/root && echo "[validate] k8sgpt:" && k8sgpt version
-            - export HOME=/root && echo "[validate] argocd:" && argocd version --client --short
+            - |
+              export HOME=/root
+              echo "[validate] k8sgpt:" && k8sgpt version
+            - |
+              export HOME=/root
+              echo "[validate] argocd:" && argocd version --client --short
             - test -f /usr/local/bin/kubectl-argo-rollouts && echo "[validate] kubectl-argo-rollouts present"
             - kubectl-argo-rollouts version
             - echo "[validate] node:" && node --version
             - echo "[validate] npm:" && npm --version
-            - if ! command -v tsx > /dev/null; then echo "FATAL: tsx not on PATH"; exit 1; fi && echo "[validate] tsx present"
-            - echo "[validate] tsx:" && tsx --version
+            - tsx --version
             - test -d /opt/k8s-bootstrap/sm-a/boot && echo "[validate] sm-a/boot/ scripts baked"
             - test -d /opt/k8s-bootstrap/gitops && echo "[validate] gitops/ manifests baked"
             - test -f /opt/k8s-bootstrap/sm-a/boot/steps/orchestrator.ts && echo "[validate] orchestrator.ts present"
