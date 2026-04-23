@@ -14,7 +14,7 @@
 #     Used as container: image in deploy/validate/verify jobs.
 #     Includes: Node.js 22, Yarn 4, Just, Helm, AWS CLI v2, Python 3.
 #
-# Tags: :latest (main), :develop (develop), :<short-sha> (immutable)
+# Tags: :latest (main + develop), :develop (develop), :<short-sha> (immutable)
 
 name: Build CI Images
 
@@ -64,7 +64,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/kubernetes-bootstrap/arc-runner
           tags: |
-            type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+            type=raw,value=latest
             type=raw,value=develop,enable=${{ github.ref_name == 'develop' }}
             type=sha,prefix=,format=short
 
@@ -122,7 +122,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository_owner }}/kubernetes-bootstrap/ci
           tags: |
-            type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+            type=raw,value=latest
             type=raw,value=develop,enable=${{ github.ref_name == 'develop' }}
             type=sha,prefix=,format=short
 
