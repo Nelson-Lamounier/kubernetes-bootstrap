@@ -41,7 +41,7 @@ export interface AutomationStep {
   /** Step name (unique, alphanumeric + camelCase) */
   readonly name: string;
 
-  /** Relative path to the Python script inside the S3 bucket */
+  /** Relative path to the TypeScript script inside S3 / the AMI */
   readonly scriptPath: string;
 
   /** Maximum execution time in seconds */
@@ -182,7 +182,7 @@ export class SsmAutomationDocument extends Construct {
               `export KUBECONFIG="/etc/kubernetes/admin.conf"`,
               ``,
               `cd "$STEPS_DIR"`,
-              `python3 "$SCRIPT" 2>&1`,
+              `npx --prefix /opt/k8s-bootstrap tsx "$SCRIPT" 2>&1`,
               `echo "=== Completed: ${step.name} ==="`,
             ],
             workingDirectory: ["/tmp"],
