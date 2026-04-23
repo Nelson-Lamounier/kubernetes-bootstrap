@@ -119,8 +119,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: yarn
-          cache-dependency-path: infra/yarn.lock
+
+      - name: Enable Corepack (Yarn v4)
+        run: corepack enable
+
+      - name: Cache Yarn dependencies
+        uses: actions/cache@v4
+        with:
+          path: infra/.yarn/cache
+          key: yarn-infra-${{ runner.os }}-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: |
+            yarn-infra-${{ runner.os }}-
 
       - name: Configure AWS credentials
         uses: ./.github/actions/configure-aws
