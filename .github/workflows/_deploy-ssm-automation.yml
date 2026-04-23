@@ -9,7 +9,10 @@
 # with both SM-A and SM-B) is deployed by deploy-cdk.yml.
 #
 # ─── Job Flow ───────────────────────────────────────────────────
-#   sync-and-verify (always) → trigger-bootstrap (SM-A, if input=true) → verify-bootstrap
+#   Phase 0: deploy-ssm-cdk
+#     → Phase 1–2: sync-and-verify (S3 sync + admin IPs, always)
+#     → Phase 3: trigger-bootstrap (SM-A, if input=true)
+#     → Phase 4: verify-bootstrap (k8s-runner)
 #
 # ─── Two-State-Machine Architecture ─────────────────────────────────
 #
@@ -51,8 +54,8 @@ on:
         required: false
 
 permissions:
-  id-token: write        # Required for OIDC → aws-actions/configure-aws-credentials
-  contents: read         # Required for actions/checkout
+  id-token: write # Required for OIDC → aws-actions/configure-aws-credentials
+  contents: read # Required for actions/checkout
 
 # One active run per environment. A new dispatch cancels any stuck/in-progress
 # run (including hung ARC runner jobs that ignore timeout-minutes).
@@ -63,7 +66,6 @@ concurrency:
 env:
   NODE_VERSION: "22"
   AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
-
 
 jobs:
   # ===========================================================================
@@ -114,6 +116,65 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Tear Down Predecessor & Stuck Stacks
+        env:
+          TARGET_ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          # Two classes of stacks block a fresh K8s-SsmAutomation-* deploy:
+          #
+          # 1. Predecessor stacks (e.g. "SsmAutomation-development" before the
+          #    "K8s-" prefix was added). Their CF ownership index blocks CREATE
+          #    of resources with the same physical names — even after the AWS
+          #    resources are deleted from outside CloudFormation.
+          #
+          # 2. The target stack itself in ROLLBACK_FAILED state. It must be
+          #    deleted (retaining any custom-resource stubs that can't be
+          #    rolled back) before a fresh CREATE can succeed.
+
+          delete_stack_if_exists() {
+            local STACK_NAME="$1"
+            shift
+            local RETAIN_ARGS=()
+            for r in "$@"; do RETAIN_ARGS+=("$r"); done
+
+            STATUS=$(aws cloudformation describe-stacks \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              --query 'Stacks[0].StackStatus' \
+              --output text 2>/dev/null || echo "NOT_FOUND")
+
+            if [ "$STATUS" = "NOT_FOUND" ] || [ "$STATUS" = "None" ]; then
+              echo "  [absent] $STACK_NAME"
+              return 0
+            fi
+
+            echo "  [found] $STACK_NAME — status: $STATUS"
+            DELETE_ARGS=(--stack-name "$STACK_NAME" --region "$AWS_REGION")
+            if [ "${#RETAIN_ARGS[@]}" -gt 0 ]; then
+              DELETE_ARGS+=(--retain-resources "${RETAIN_ARGS[@]}")
+            fi
+            aws cloudformation delete-stack "${DELETE_ARGS[@]}"
+            echo "  [waiting] $STACK_NAME deletion..."
+            aws cloudformation wait stack-delete-complete \
+              --stack-name "$STACK_NAME" \
+              --region "$AWS_REGION" \
+              || echo "  [warn] wait timed out or stack still present — continuing"
+            echo "  [done] $STACK_NAME deleted"
+          }
+
+          # Delete the predecessor stack (old CDK stack name without K8s- prefix).
+          # Safe: K8s-SsmAutomation-* recreates all its resources.
+          delete_stack_if_exists "SsmAutomation-${TARGET_ENV}"
+
+          # Delete the target stack if it is stuck in ROLLBACK_FAILED.
+          # Retain the three custom-resource stubs that caused the rollback failure
+          # (they are harmless orphans and will be replaced on the fresh CREATE).
+          delete_stack_if_exists "K8s-SsmAutomation-${TARGET_ENV}" \
+            "ResourceCleanupCleanupK8sDevelopmentBootstrapWorkerDocNameF37B78DF" \
+            "ResourceCleanupCleanupK8sDevelopmentCloudwatchSsmDeployLogGroup86E5D935" \
+            "ResourceCleanupCleanupK8sBootstrapAlarm05AA0B77"
 
       - name: Purge Orphaned SSM Parameters & Log Groups
         env:
@@ -168,7 +229,7 @@ jobs:
   # Phase 1–2: Write Admin IPs to SSM + Sync Bootstrap Scripts to S3
   # ===========================================================================
   sync-and-verify:
-    name: "S3 Sync & Verify"
+    name: "Phase 1–2 — S3 Sync & Admin IPs"
     needs: [deploy-ssm-cdk]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -272,10 +333,10 @@ jobs:
             --region "$AWS_REGION"
 
   # ===========================================================================
-  # Phase 4: Trigger Bootstrap — Start Step Functions Executions
+  # Phase 3: Trigger Bootstrap — Start Step Functions Executions
   # ===========================================================================
   trigger-bootstrap:
-    name: "Phase 4 — Trigger Step Functions Bootstrap"
+    name: "Phase 3 — Trigger Step Functions Bootstrap"
     needs: [sync-and-verify]
     if: inputs.trigger-bootstrap
     runs-on: ubuntu-latest
@@ -312,7 +373,7 @@ jobs:
             --region "$AWS_REGION"
 
   # ===========================================================================
-  # Phase 5: Verify Bootstrap — Node Readiness & Cluster Health (k8s-runner)
+  # Phase 4: Verify Bootstrap — Node Readiness & Cluster Health (k8s-runner)
   #
   # Hard failures (exit 1) = SM-A must deliver these:
   #   nodes Ready, kube-system pods, Calico CNI, core namespaces, ArgoCD pods
@@ -324,13 +385,14 @@ jobs:
   # Use `just gh-cancel-queued` to bulk force-cancel stuck runs.
   # ===========================================================================
   verify-bootstrap:
-    name: "Phase 5 — Verify Bootstrap (k8s-runner)"
-    needs: [trigger-bootstrap]
+    name: "Phase 4 — Verify Bootstrap (k8s-runner)"
+    needs: [deploy-ssm-cdk, sync-and-verify, trigger-bootstrap]
     if: >-
       always()
+      && needs.deploy-ssm-cdk.result == 'success'
+      && needs.sync-and-verify.result == 'success'
       && (needs.trigger-bootstrap.result == 'success'
-       || needs.trigger-bootstrap.result == 'skipped'
-       || needs.trigger-bootstrap.result == 'failure')
+       || needs.trigger-bootstrap.result == 'skipped')
     runs-on: k8s-runner
     timeout-minutes: 15
     environment: ${{ inputs.environment }}

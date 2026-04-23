@@ -387,6 +387,36 @@ purge-ssm-automation-orphans env="development" region="eu-west-1":
     PROFILE=$(just _profile {{env}})
     PREFIX="/k8s/{{env}}"
 
+    _delete_stack_if_exists() {
+      local STACK_NAME="$1"; shift
+      local RETAIN_ARGS=()
+      for r in "$@"; do RETAIN_ARGS+=("$r"); done
+
+      STATUS=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --region {{region}} --profile "${PROFILE}" \
+        --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_FOUND")
+
+      if [ "$STATUS" = "NOT_FOUND" ] || [ "$STATUS" = "None" ]; then
+        echo "  – not found (ok): $STACK_NAME"; return 0
+      fi
+      echo "  → deleting $STACK_NAME (status: $STATUS)..."
+      DELETE_ARGS=(--stack-name "$STACK_NAME" --region {{region}} --profile "${PROFILE}")
+      [ "${#RETAIN_ARGS[@]}" -gt 0 ] && DELETE_ARGS+=(--retain-resources "${RETAIN_ARGS[@]}")
+      aws cloudformation delete-stack "${DELETE_ARGS[@]}"
+      aws cloudformation wait stack-delete-complete \
+        --stack-name "$STACK_NAME" --region {{region}} --profile "${PROFILE}" \
+        || echo "  [warn] wait timed out — continuing"
+      echo "  ✓ deleted: $STACK_NAME"
+    }
+
+    echo "→ Tearing down predecessor and stuck stacks for env={{env}}..."
+    _delete_stack_if_exists "SsmAutomation-{{env}}"
+    _delete_stack_if_exists "K8s-SsmAutomation-{{env}}" \
+      "ResourceCleanupCleanupK8sDevelopmentBootstrapWorkerDocNameF37B78DF" \
+      "ResourceCleanupCleanupK8sDevelopmentCloudwatchSsmDeployLogGroup86E5D935" \
+      "ResourceCleanupCleanupK8sBootstrapAlarm05AA0B77"
+
     echo "→ Purging orphaned SSM parameters for env={{env}}..."
     PARAMS=(
       "${PREFIX}/bootstrap/control-plane-doc-name"

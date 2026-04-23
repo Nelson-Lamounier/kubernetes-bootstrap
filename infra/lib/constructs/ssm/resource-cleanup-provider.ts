@@ -71,7 +71,11 @@ def handler(event, context):
         request_type, resource_type, resource_name, stack_id,
     )
 
-    physical_id = f"cleanup-{resource_type}-{resource_name}"
+    computed_id = f"cleanup-{resource_type}-{resource_name}"
+    # Always preserve the PhysicalResourceId assigned at Create time.
+    # CF rejects any change to PhysicalResourceId during Delete (rollback
+    # sends the old ID; returning a different one causes ROLLBACK_FAILED).
+    physical_id = event.get("PhysicalResourceId") or computed_id
 
     # Only run cleanup on Create — skip Update and Delete.
     # UPDATE is excluded because CloudFormation's ListStackResources
