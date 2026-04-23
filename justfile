@@ -342,7 +342,7 @@ ami-workflow env="development" build-ami="true" existing-ami-id="":
     fi
     gh workflow run deploy-golden-ami.yml "${ARGS[@]}"
 
-# Sync bootstrap scripts from boot/ to S3 (for AMI bake or emergency re-sync)
+# Sync bootstrap scripts from sm-a/boot/ to S3 (for AMI bake or emergency re-sync)
 # Usage: just sync-k8s-bootstrap development dev-account
 [group('k8s')]
 sync-k8s-bootstrap env="development" region="eu-west-1" profile="dev-account":
@@ -359,8 +359,8 @@ sync-k8s-bootstrap env="development" region="eu-west-1" profile="dev-account":
       echo "✗ SSM parameter ${SSM_KEY} not found. Has the Infra pipeline been deployed?"
       exit 1
     fi
-    echo "→ Syncing boot/ → s3://${BUCKET}/k8s-bootstrap/"
-    aws s3 sync boot "s3://${BUCKET}/k8s-bootstrap/" \
+    echo "→ Syncing sm-a/boot/ → s3://${BUCKET}/k8s-bootstrap/sm-a/boot/"
+    aws s3 sync sm-a/boot "s3://${BUCKET}/k8s-bootstrap/sm-a/boot/" \
       --delete \
       --exclude "**/__pycache__/*" \
       --exclude "**/*.pyc" \
@@ -684,7 +684,7 @@ boot-test-cp instance-id env="development" region="eu-west-1" profile="dev-accou
     COMMAND_ID=$(aws ssm send-command \
       --instance-ids "{{instance-id}}" \
       --document-name "AWS-RunShellScript" \
-      --parameters "commands=['source /etc/profile.d/k8s-env.sh 2>/dev/null || true && export PATH=/opt/k8s-venv/bin:\$PATH && python3 /opt/k8s-bootstrap/boot/steps/orchestrator.py --mode control-plane']" \
+      --parameters "commands=['source /etc/profile.d/k8s-env.sh 2>/dev/null || true && export PATH=/opt/k8s-venv/bin:\$PATH && python3 /opt/k8s-bootstrap/sm-a/boot/steps/orchestrator.py --mode control-plane']" \
       --timeout-seconds 1800 \
       --region {{region}} --profile {{profile}} \
       --query "Command.CommandId" --output text)
@@ -729,7 +729,7 @@ boot-test-worker instance-id env="development" region="eu-west-1" profile="dev-a
     COMMAND_ID=$(aws ssm send-command \
       --instance-ids "{{instance-id}}" \
       --document-name "AWS-RunShellScript" \
-      --parameters "commands=['source /etc/profile.d/k8s-env.sh 2>/dev/null || true && export PATH=/opt/k8s-venv/bin:\$PATH && python3 /opt/k8s-bootstrap/boot/steps/orchestrator.py --mode worker']" \
+      --parameters "commands=['source /etc/profile.d/k8s-env.sh 2>/dev/null || true && export PATH=/opt/k8s-venv/bin:\$PATH && python3 /opt/k8s-bootstrap/sm-a/boot/steps/orchestrator.py --mode worker']" \
       --timeout-seconds 600 \
       --region {{region}} --profile {{profile}} \
       --query "Command.CommandId" --output text)

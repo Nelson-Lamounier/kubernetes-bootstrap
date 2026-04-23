@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../boot/steps/common.js', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../../boot/steps/common.js')>();
+vi.mock('../../../sm-a/boot/steps/common.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../../sm-a/boot/steps/common.js')>();
     return {
         ...actual,
         run:    vi.fn().mockReturnValue({ ok: true, stdout: '', stderr: '', code: 0 }),
@@ -19,7 +19,7 @@ vi.mock('node:fs', async (importOriginal) => {
     return { ...actual, existsSync: vi.fn().mockReturnValue(false) };
 });
 
-import { buildNodeLabels, parseLabelString } from '../../boot/steps/worker.js';
+import { buildNodeLabels, parseLabelString } from '../../../sm-a/boot/steps/worker.js';
 
 beforeEach(() => { vi.clearAllMocks(); });
 

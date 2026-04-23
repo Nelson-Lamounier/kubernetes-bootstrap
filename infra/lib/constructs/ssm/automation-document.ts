@@ -16,7 +16,7 @@
  *     documentName: 'k8s-bootstrap-control-plane',
  *     description: 'Orchestrates Kubernetes control plane bootstrap',
  *     documentCategory: 'bootstrap',
- *     steps: [{ name: 'bootstrapControlPlane', scriptPath: 'boot/steps/control_plane.py', timeoutSeconds: 1800, description: '...' }],
+ *     steps: [{ name: 'bootstrapControlPlane', scriptPath: 'sm-a/boot/steps/control_plane.py', timeoutSeconds: 1800, description: '...' }],
  *     ssmPrefix: '/k8s/development',
  *     s3Bucket: 'my-scripts-bucket',
  *     automationRoleArn: role.roleArn,
@@ -53,7 +53,7 @@ export interface AutomationStep {
 
 /**
  * Document category determines S3 sync paths and CW log groups:
- * - `bootstrap`: syncs from `k8s-bootstrap/boot/steps/`, logs to `/ssm<prefix>/bootstrap`
+ * - `bootstrap`: syncs from `k8s-bootstrap/sm-a/boot/steps/`, logs to `/ssm<prefix>/bootstrap`
  * - `deploy`:    syncs from the script's parent directory, logs to `/ssm<prefix>/deploy`
  */
 export type AutomationDocumentCategory = "bootstrap" | "deploy";
@@ -115,7 +115,7 @@ export class SsmAutomationDocument extends Construct {
   }
 
   // =========================================================================
-  // Bootstrap Document Content (k8s-bootstrap/boot/steps/)
+  // Bootstrap Document Content (k8s-bootstrap/sm-a/boot/steps/)
   // =========================================================================
 
   private buildBootstrapContent(

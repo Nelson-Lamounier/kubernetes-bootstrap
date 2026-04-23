@@ -399,11 +399,11 @@ phases:
             - echo "[validate] npm:" && npm --version
             - test -f /opt/k8s-bootstrap/node_modules/.bin/tsx && echo "[validate] tsx present"
             - /opt/k8s-bootstrap/node_modules/.bin/tsx --version
-            - test -d /opt/k8s-bootstrap/boot && echo "[validate] boot/ scripts baked"
-            - test -d /opt/k8s-bootstrap/system && echo "[validate] system/ manifests baked"
-            - test -f /opt/k8s-bootstrap/boot/steps/orchestrator.ts && echo "[validate] orchestrator.ts present"
-            - test -f /opt/k8s-bootstrap/boot/steps/control_plane.ts && echo "[validate] control_plane.ts present"
-            - test -f /opt/k8s-bootstrap/boot/steps/worker.ts && echo "[validate] worker.ts present"
+            - test -d /opt/k8s-bootstrap/sm-a/boot && echo "[validate] sm-a/boot/ scripts baked"
+            - test -d /opt/k8s-bootstrap/gitops && echo "[validate] gitops/ manifests baked"
+            - test -f /opt/k8s-bootstrap/sm-a/boot/steps/orchestrator.ts && echo "[validate] orchestrator.ts present"
+            - test -f /opt/k8s-bootstrap/sm-a/boot/steps/control_plane.ts && echo "[validate] control_plane.ts present"
+            - test -f /opt/k8s-bootstrap/sm-a/boot/steps/worker.ts && echo "[validate] worker.ts present"
 `;
 
 }

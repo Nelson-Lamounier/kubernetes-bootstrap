@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../boot/steps/common.js', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../../boot/steps/common.js')>();
+vi.mock('../../../sm-a/boot/steps/common.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../../sm-a/boot/steps/common.js')>();
     return {
         ...actual,
         run:   vi.fn().mockReturnValue({ ok: true, stdout: '', stderr: '', code: 0 }),
@@ -23,11 +23,11 @@ vi.mock('node:fs', async (importOriginal) => {
 });
 
 import { existsSync } from 'node:fs';
-import { run } from '../../boot/steps/common.js';
+import { run } from '../../../sm-a/boot/steps/common.js';
 import {
     ensureDataDirectories,
     resolveNvmeDevice,
-} from '../../boot/steps/control_plane.js';
+} from '../../../sm-a/boot/steps/control_plane.js';
 
 const mockRun         = vi.mocked(run);
 const mockExistsSync  = vi.mocked(existsSync);

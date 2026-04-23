@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { fromEnv as cpFromEnv } from '../../boot/steps/control_plane.js';
-import { fromEnv as workerFromEnv } from '../../boot/steps/worker.js';
+import { fromEnv as cpFromEnv } from '../../../sm-a/boot/steps/control_plane.js';
+import { fromEnv as workerFromEnv } from '../../../sm-a/boot/steps/worker.js';
 
 const ORIG_ENV = { ...process.env };
 

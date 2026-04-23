@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { WorkerConfig } from '../../boot/steps/worker.js';
+import type { WorkerConfig } from '../../../sm-a/boot/steps/worker.js';
 
 // Mock common.js BEFORE importing the module under test
-vi.mock('../../boot/steps/common.js', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../../boot/steps/common.js')>();
+vi.mock('../../../sm-a/boot/steps/common.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../../sm-a/boot/steps/common.js')>();
     return {
         ...actual,
         run:    vi.fn(),
@@ -27,7 +27,7 @@ vi.mock('node:fs', async (importOriginal) => {
 });
 
 import { existsSync } from 'node:fs';
-import { run, ssmGet } from '../../boot/steps/common.js';
+import { run, ssmGet } from '../../../sm-a/boot/steps/common.js';
 import {
     buildNodeLabels,
     checkCaMismatch,
@@ -35,7 +35,7 @@ import {
     parseLabelString,
     resolveControlPlaneEndpoint,
     waitForKubelet,
-} from '../../boot/steps/worker.js';
+} from '../../../sm-a/boot/steps/worker.js';
 
 const mockRun    = vi.mocked(run);
 const mockSsmGet = vi.mocked(ssmGet);

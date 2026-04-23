@@ -73,7 +73,7 @@ export interface K8sSsmAutomationStackProps extends cdk.StackProps {
 const CONTROL_PLANE_STEPS: AutomationStep[] = [
     {
         name: 'bootstrapControlPlane',
-        scriptPath: 'boot/steps/orchestrator.ts',
+        scriptPath: 'sm-a/boot/steps/orchestrator.ts',
         timeoutSeconds: 1800,
         description: 'Run modular control plane bootstrap via cp.main() (validate AMI, EBS, kubeadm, Calico, kubectl, ArgoCD, verify, CloudWatch)',
     },
@@ -82,7 +82,7 @@ const CONTROL_PLANE_STEPS: AutomationStep[] = [
 const WORKER_STEPS: AutomationStep[] = [
     {
         name: 'bootstrapWorker',
-        scriptPath: 'boot/steps/worker.ts',
+        scriptPath: 'sm-a/boot/steps/worker.ts',
         timeoutSeconds: 900,
         description: 'Run consolidated worker bootstrap (validate AMI, join cluster, CloudWatch, EIP association)',
     },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { findStalePvs } from '../../boot/steps/worker.js';
+import { findStalePvs } from '../../../sm-a/boot/steps/worker.js';
 
 const pv = (
     name: string,

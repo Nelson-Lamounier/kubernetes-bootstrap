@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { BootConfig } from '../../boot/steps/control_plane.js';
+import type { BootConfig } from '../../../sm-a/boot/steps/control_plane.js';
 
-vi.mock('../../boot/steps/common.js', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../../boot/steps/common.js')>();
+vi.mock('../../../sm-a/boot/steps/common.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../../sm-a/boot/steps/common.js')>();
     return {
         ...actual,
         run:       vi.fn(),
@@ -17,12 +17,12 @@ vi.mock('../../boot/steps/common.js', async (importOriginal) => {
     };
 });
 
-import { imds, run } from '../../boot/steps/common.js';
+import { imds, run } from '../../../sm-a/boot/steps/common.js';
 import {
     ensureBootstrapToken,
     ensureCoreDns,
     ensureKubeProxy,
-} from '../../boot/steps/control_plane.js';
+} from '../../../sm-a/boot/steps/control_plane.js';
 
 const mockRun  = vi.mocked(run);
 const mockImds = vi.mocked(imds);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { validateKubeadmToken } from '../../boot/steps/common.js';
+import { validateKubeadmToken } from '../../../sm-a/boot/steps/common.js';
 
 const VALID_TOKEN     = 'ku8rm0.abc1234567890123';
 const VALID_TOKEN_ALT = 'abcdef.0123456789abcdef';

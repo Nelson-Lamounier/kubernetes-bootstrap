@@ -66,7 +66,7 @@ export interface BootstrapStep {
 const CONTROL_PLANE_STEPS: BootstrapStep[] = [
   {
     name: "BootstrapControlPlane",
-    scriptPath: "boot/steps/control_plane.ts",
+    scriptPath: "sm-a/boot/steps/control_plane.ts",
     timeoutSeconds: 1800,
     description: "Run consolidated control plane bootstrap",
   },
@@ -75,7 +75,7 @@ const CONTROL_PLANE_STEPS: BootstrapStep[] = [
 const WORKER_STEPS: BootstrapStep[] = [
   {
     name: "BootstrapWorker",
-    scriptPath: "boot/steps/worker.ts",
+    scriptPath: "sm-a/boot/steps/worker.ts",
     timeoutSeconds: 900,
     description: "Run consolidated worker bootstrap",
   },
