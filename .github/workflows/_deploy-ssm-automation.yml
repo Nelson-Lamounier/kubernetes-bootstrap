@@ -67,10 +67,109 @@ env:
 
 jobs:
   # ===========================================================================
+  # Phase 0: Deploy K8s-SsmAutomation CDK Stack
+  #
+  # Ensures the SSM Run Command document, Step Functions state machines, and
+  # SSM parameters are up-to-date before scripts are synced or bootstrap runs.
+  #
+  # Pre-cleanup step deletes orphaned SSM parameters and CloudWatch log groups
+  # that cause CloudFormation changeset-creation failures after a rollback.
+  # ResourceCleanupProvider handles this for UPDATE-mode deploys (stack exists);
+  # the pre-cleanup covers the CREATE-mode gap (stack deleted or rolled back).
+  # ===========================================================================
+  deploy-ssm-cdk:
+    name: "Phase 0 — Deploy SSM Automation CDK Stack"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Enable Corepack (Yarn v4)
+        run: corepack enable
+
+      - name: Cache Infra Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            infra/node_modules
+            infra/.yarn/cache
+          key: infra-deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: |
+            infra-deps-${{ runner.os }}-node${{ env.NODE_VERSION }}-
+
+      - name: Install Infra Dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Purge Orphaned SSM Parameters & Log Groups
+        env:
+          SSM_PREFIX: /k8s/${{ inputs.environment }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: |
+          # Delete SSM parameters that may be orphaned from a previous failed deploy.
+          # CloudFormation validates physical-name uniqueness at changeset-creation time
+          # before ResourceCleanupProvider can run — so we pre-delete outside CloudFormation.
+          # aws ssm delete-parameters silently ignores parameters that do not exist.
+          aws ssm delete-parameters \
+            --region "$AWS_REGION" \
+            --names \
+              "${SSM_PREFIX}/bootstrap/control-plane-doc-name" \
+              "${SSM_PREFIX}/bootstrap/worker-doc-name" \
+              "${SSM_PREFIX}/bootstrap/automation-role-arn" \
+              "${SSM_PREFIX}/bootstrap/state-machine-arn" \
+              "${SSM_PREFIX}/bootstrap/config-state-machine-arn" \
+              "${SSM_PREFIX}/cloudwatch/ssm-bootstrap-log-group" \
+              "${SSM_PREFIX}/cloudwatch/ssm-deploy-log-group" \
+              "${SSM_PREFIX}/deploy/secrets-doc-name" \
+            --query 'DeletedParameters' --output text \
+            | tr '\t' '\n' | sed 's/^/  [purged] /' || true
+
+          for LG in "/ssm${SSM_PREFIX}/bootstrap" "/ssm${SSM_PREFIX}/deploy"; do
+            aws logs delete-log-group \
+              --log-group-name "$LG" \
+              --region "$AWS_REGION" 2>/dev/null \
+              && echo "  [purged] $LG" || echo "  [absent] $LG"
+          done
+
+      - name: Deploy K8s-SsmAutomation CDK Stack
+        env:
+          TARGET_ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          SCRIPTS_BUCKET: ${{ vars.SCRIPTS_BUCKET || '' }}
+        run: |
+          ARGS=(
+            "K8s-SsmAutomation-${TARGET_ENV}"
+            "--exclusively"
+            "--context" "environment=${TARGET_ENV}"
+            "--region" "$AWS_REGION"
+            "--require-approval" "never"
+          )
+          if [ -n "$SCRIPTS_BUCKET" ]; then
+            ARGS+=("--context" "scriptsBucket=${SCRIPTS_BUCKET}")
+          fi
+          npx cdk deploy "${ARGS[@]}"
+        working-directory: infra
+
+  # ===========================================================================
   # Phase 1–2: Write Admin IPs to SSM + Sync Bootstrap Scripts to S3
   # ===========================================================================
   sync-and-verify:
     name: "S3 Sync & Verify"
+    needs: [deploy-ssm-cdk]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: ${{ inputs.environment }}

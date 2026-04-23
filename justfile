@@ -371,6 +371,48 @@ sync-k8s-bootstrap env="development" region="eu-west-1" profile="dev-account":
 # =============================================================================
 
 # Trigger SSM Automation — Control Plane bootstrap
+# Pre-emptively delete named SSM parameters and CloudWatch log groups that
+# belong to the SsmAutomation stack but may be orphaned from a previous failed
+# or rolled-back deployment. CloudFormation validates physical-name conflicts at
+# changeset-creation time (before the ResourceCleanupProvider Lambda can run),
+# so this must run outside CloudFormation — before 'cdk deploy'.
+#
+# Safe to run on a healthy stack: missing resources are silently ignored.
+# Usage: just purge-ssm-automation-orphans
+#        just purge-ssm-automation-orphans staging
+[group('k8s')]
+purge-ssm-automation-orphans env="development" region="eu-west-1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PROFILE=$(just _profile {{env}})
+    PREFIX="/k8s/{{env}}"
+
+    echo "→ Purging orphaned SSM parameters for env={{env}}..."
+    PARAMS=(
+      "${PREFIX}/bootstrap/control-plane-doc-name"
+      "${PREFIX}/bootstrap/worker-doc-name"
+      "${PREFIX}/bootstrap/automation-role-arn"
+      "${PREFIX}/bootstrap/state-machine-arn"
+      "${PREFIX}/bootstrap/config-state-machine-arn"
+      "${PREFIX}/cloudwatch/ssm-bootstrap-log-group"
+      "${PREFIX}/cloudwatch/ssm-deploy-log-group"
+      "${PREFIX}/deploy/secrets-doc-name"
+    )
+    aws ssm delete-parameters \
+      --names "${PARAMS[@]}" \
+      --region {{region}} --profile "${PROFILE}" \
+      --query 'DeletedParameters' --output text 2>/dev/null \
+      | tr '\t' '\n' | sed 's/^/  ✓ deleted: /' || true
+
+    echo "→ Purging orphaned CloudWatch log groups..."
+    for LG in "/ssm${PREFIX}/bootstrap" "/ssm${PREFIX}/deploy"; do
+      aws logs delete-log-group \
+        --log-group-name "${LG}" \
+        --region {{region}} --profile "${PROFILE}" 2>/dev/null \
+        && echo "  ✓ deleted: ${LG}" || echo "  – not found (ok): ${LG}"
+    done
+    echo "✓ Purge complete — safe to run: just deploy-stack K8s-SsmAutomation-{{env}} {{env}}"
+
 # Runs: validateGoldenAMI → initKubeadm → installCalicoCNI → configureKubectl
 #       → bootstrapArgoCD → verifyCluster
 # Usage: just ssm-run-controlplane i-0f1491fd3dc63fd66
