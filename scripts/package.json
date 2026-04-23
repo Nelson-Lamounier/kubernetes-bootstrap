@@ -14,7 +14,7 @@
     "@aws-sdk/client-sts": "^3.0.0",
     "@aws-sdk/credential-providers": "^3.0.0",
     "@aws-sdk/types": "^3.0.0",
-    "@nelson-lamounier/cdk-deploy-scripts": "file:../../cdk-scripts",
+    "@nelsonlamounier/cdk-deploy-scripts": "file:../../cdk-scripts",
     "bcryptjs": "^2.4.3",
     "chalk": "^4.1.2",
     "undici": "^8.1.0"

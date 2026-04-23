@@ -1,7 +1,7 @@
 /**
  * CDK Stack Registry — kubernetes-bootstrap
  *
- * Re-exports the shared stack utilities from `@nelson-lamounier/cdk-deploy-scripts/stacks.js`
+ * Re-exports the shared stack utilities from `@nelsonlamounier/cdk-deploy-scripts/stacks.js`
  * and registers this repo's CDK projects at module-load time.
  *
  * Projects:
@@ -26,9 +26,9 @@ export {
   getStack,
   profileMap,
   projectsMap,
-} from '@nelson-lamounier/cdk-deploy-scripts/stacks.js';
+} from '@nelsonlamounier/cdk-deploy-scripts/stacks.js';
 
-import { registerProject } from '@nelson-lamounier/cdk-deploy-scripts/stacks.js';
+import { registerProject } from '@nelsonlamounier/cdk-deploy-scripts/stacks.js';
 
 // =============================================================================
 // KUBERNETES PROJECT

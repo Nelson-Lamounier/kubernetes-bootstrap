@@ -33,8 +33,8 @@ import {
 } from '@aws-sdk/client-cloudformation';
 import { HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import { GetParametersCommand, SSMClient } from '@aws-sdk/client-ssm';
-import { setOutput, writeSummary } from '@nelson-lamounier/cdk-deploy-scripts/github.js';
-import logger from '@nelson-lamounier/cdk-deploy-scripts/logger.js';
+import { setOutput, writeSummary } from '@nelsonlamounier/cdk-deploy-scripts/github.js';
+import logger from '@nelsonlamounier/cdk-deploy-scripts/logger.js';
 import { Agent, fetch as undiciFetch } from 'undici';
 
 import { getProject, type Environment } from '../shared/stacks.js';
