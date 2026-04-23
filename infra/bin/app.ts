@@ -50,6 +50,26 @@ const configs = getK8sConfigs(targetEnvironment);
 const envConfig = getEnvironmentConfig(targetEnvironment);
 
 // ---------------------------------------------------------------------------
+// Stack name resolution
+//
+// STACK_NAME is set by _deploy-stack.yml CI as an env var. When present,
+// adopt it for the stack whose prefix matches — this lets CI control the
+// exact CloudFormation stack name without touching CDK context flags.
+// Prefix discrimination prevents a GoldenAmi deploy from clobbering the
+// SSM stack name when both stacks are synthesised together.
+// ---------------------------------------------------------------------------
+
+const deployStackName = process.env['STACK_NAME'];
+
+const ssmStackName = deployStackName?.startsWith('K8s-SsmAutomation-')
+    ? deployStackName
+    : `K8s-SsmAutomation-${targetEnvironment}`;
+
+const goldenAmiStackName = deployStackName?.startsWith('K8s-GoldenAmi-')
+    ? deployStackName
+    : `K8s-GoldenAmi-${targetEnvironment}`;
+
+// ---------------------------------------------------------------------------
 // K8s-GoldenAmi-{env}
 //
 // VPC ID is injected by CI as a context variable (-c vpcId=...) after
@@ -62,7 +82,7 @@ const vpcId =
     process.env['VPC_ID'];
 
 if (vpcId) {
-    new GoldenAmiStack(app, `K8s-GoldenAmi-${targetEnvironment}`, {
+    new GoldenAmiStack(app, goldenAmiStackName, {
         env: cdkEnvironment(targetEnvironment),
         targetEnvironment,
         configs,
@@ -73,7 +93,6 @@ if (vpcId) {
     });
 } else {
     // Allow synth without vpcId for SSM Automation stack only
-     
     console.warn(
         '[app.ts] vpcId not provided — skipping GoldenAmiStack synthesis. ' +
         'Pass -c vpcId=<vpc-id> or set VPC_ID env var to include it.',
@@ -90,7 +109,7 @@ const scriptsBucketName =
     process.env['SCRIPTS_BUCKET'] ??
     `k8s-scripts-${envConfig.account}-${envConfig.region}`;
 
-new K8sSsmAutomationStack(app, `K8s-SsmAutomation-${targetEnvironment}`, {
+new K8sSsmAutomationStack(app, ssmStackName, {
     env: cdkEnvironment(targetEnvironment),
     targetEnvironment,
     configs,
