@@ -180,18 +180,6 @@ jobs:
 
           echo "[OK] CloudFront origin secret seeded at $SSM_PARAM"
 
-      # -----------------------------------------------------------------------
-      # Phase 2 — Sync Bootstrap & Deploy Scripts to S3
-      # -----------------------------------------------------------------------
-      - name: "Phase 2 — Sync Scripts to S3"
-        env:
-          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
-          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
-        run: |
-          npx --prefix scripts tsx scripts/cd/sync-bootstrap-scripts.ts \
-            --environment "$DEPLOY_ENVIRONMENT" \
-            --region "$AWS_REGION"
-
   # ===========================================================================
   # Phase 3: Trigger Bootstrap — Start Step Functions Executions
   # ===========================================================================

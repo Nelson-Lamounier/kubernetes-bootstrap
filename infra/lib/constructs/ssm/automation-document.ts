@@ -227,7 +227,7 @@ export class SsmAutomationDocument extends Construct {
               `export PATH="/opt/k8s-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"`,
               `set -euo pipefail`,
               ``,
-              `# Step 1: Sync shared k8s-bootstrap libraries (deploy_helpers, system)`,
+              `# Step 1: Sync shared k8s-bootstrap libraries`,
               `mkdir -p "/data/k8s-bootstrap"`,
               `aws s3 sync "s3://{{ S3Bucket }}/k8s-bootstrap/" "/data/k8s-bootstrap/" --region {{ Region }} --quiet`,
               ``,

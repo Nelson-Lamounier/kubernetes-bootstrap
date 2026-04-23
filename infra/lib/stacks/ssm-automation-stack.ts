@@ -8,7 +8,7 @@
  *
  * Resources Created:
  *   - SSM Automation Documents (2): control-plane, worker
- *   - SSM Run Command Documents (2): bootstrap-runner, deploy-runner
+ *   - SSM Run Command Documents (1): bootstrap-runner
  *   - SSM Parameters: Document name discovery for EC2 user data
  *   - IAM Role: Automation execution role with RunCommand permissions
  *   - Step Functions SM-A: Bootstrap orchestrator state machine
@@ -309,40 +309,6 @@ export class K8sSsmAutomationStack extends cdk.Stack {
             }],
         });
 
-        const deployRunner = new SsmRunCommandDocument(this, 'DeployRunnerCommand', {
-            documentName: `${prefix}-deploy-runner`,
-            description: 'Step Functions Runner for K8s Deploy Scripts',
-            parameters: runnerParams,
-            steps: [{
-                name: 'runScript',
-                commands: [
-                    'export PATH="/opt/k8s-venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"',
-                    // set -euo pipefail is prepended by SsmRunCommandDocument (without -u).
-                    // Do NOT re-add -u here — SSM non-login shells lack $HOME.
-                    'mkdir -p "/data/k8s-bootstrap"',
-                    'aws s3 sync "s3://{{S3Bucket}}/k8s-bootstrap/" "/data/k8s-bootstrap/" --region {{Region}} --quiet',
-                    '',
-                    'SCRIPT_PATH="{{ScriptPath}}"',
-                    'DEPLOY_DIR="/data/$(dirname "$SCRIPT_PATH")"',
-                    'SCRIPT="/data/$SCRIPT_PATH"',
-                    'mkdir -p "$DEPLOY_DIR"',
-                    'aws s3 sync "s3://{{S3Bucket}}/$(dirname "$SCRIPT_PATH")/" "$DEPLOY_DIR/" --region {{Region}} --quiet',
-                    '',
-                    'if [ -f "$DEPLOY_DIR/requirements.txt" ]; then',
-                    '  /opt/k8s-venv/bin/pip install -q -r "$DEPLOY_DIR/requirements.txt" 2>/dev/null',
-                    'fi',
-                    '',
-                    'export KUBECONFIG="/etc/kubernetes/admin.conf"',
-                    'export SSM_PREFIX="{{SsmPrefix}}"',
-                    'export AWS_REGION="{{Region}}"',
-                    'export S3_BUCKET="{{S3Bucket}}"',
-                    '',
-                    'cd "$DEPLOY_DIR"',
-                    'python3 "$SCRIPT" 2>&1'
-                ],
-            }],
-        });
-
         // =====================================================================
         // SSM Parameters — Document Discovery
         //
@@ -508,9 +474,6 @@ export class K8sSsmAutomationStack extends cdk.Stack {
         const configOrchestrator = new ConfigOrchestratorConstruct(this, 'ConfigOrchestrator', {
             prefix,
             ssmPrefix: props.ssmPrefix,
-            scriptsBucketName: props.scriptsBucketName,
-            deployRunnerName: deployRunner.documentName,
-            deployLogGroupName: this.deployLogGroup.logGroupName,
         });
 
         this.configStateMachineArn = configOrchestrator.stateMachine.stateMachineArn;

@@ -37,39 +37,8 @@ env:
   NODE_VERSION: "22"
 
 jobs:
-  sync-scripts:
-    name: "Sync Scripts to S3"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: ${{ inputs.environment }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
-
-      - name: Setup Node.js and Script Dependencies
-        uses: ./.github/actions/setup-node-yarn
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Configure AWS Credentials
-        uses: ./.github/actions/configure-aws
-        with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
-          aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
-
-      - name: Sync Scripts to S3
-        env:
-          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
-          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
-        run: |
-          npx --prefix scripts tsx scripts/cd/sync-bootstrap-scripts.ts \
-            --environment "$DEPLOY_ENVIRONMENT" \
-            --region "$AWS_REGION"
-
   post-bootstrap:
     name: "SM-B Config Injection & Verify"
-    needs: [sync-scripts]
     uses: ./.github/workflows/_post-bootstrap-config.yml
     with:
       environment: ${{ inputs.environment }}

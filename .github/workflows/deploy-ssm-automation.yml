@@ -27,7 +27,6 @@ on:
     branches: [develop]
     paths:
       - 'sm-a/boot/**'
-      - 'sm-b/deploy_helpers/**'
       - 'system/**'
       - 'scripts/cd/**'
   workflow_dispatch:

@@ -825,17 +825,6 @@ ssm-shell env="development" instance-id="" region="eu-west-1" profile="dev-accou
 ec2-session instance-id profile="dev-account":
     aws ssm start-session --target {{instance-id}} --profile {{profile}}
 
-# Run ssm-deploy.ts — trigger app deploy.py via SSM Run Command
-# Usage: just ssm-deploy admin-api
-#        just ssm-deploy public-api development
-[group('ops')]
-ssm-deploy app env="development" region="eu-west-1" *ARGS:
-    npx tsx scripts/ssm-deploy.ts \
-      --app {{app}} \
-      --environment {{env}} \
-      --region {{region}} \
-      {{ARGS}}
-
 # =============================================================================
 # CLUSTER ACCESS
 # =============================================================================
