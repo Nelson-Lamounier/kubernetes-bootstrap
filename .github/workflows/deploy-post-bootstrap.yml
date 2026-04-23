@@ -1,18 +1,18 @@
 # @format
-# @description Deploy Post-Bootstrap Config (Standalone)
+# @description Deploy Post-Bootstrap Verify (Standalone)
 #
-# Standalone pipeline to re-inject Kubernetes application secrets and
-# verify ArgoCD health WITHOUT re-triggering SM-A (Bootstrap Orchestrator).
+# Standalone pipeline to verify ArgoCD health and cluster smoke tests
+# WITHOUT re-triggering SM-A (Bootstrap Orchestrator).
+# Secrets are managed declaratively by ESO ExternalSecrets — no SM-B.
 #
 # ─── Use This When ─────────────────────────────────────────────────
-#   - Rotating secrets (new SSM parameter values → re-inject via SM-B)
-#   - Helm chart config changes
 #   - Verifying ArgoCD health after manual cluster changes
+#   - Smoke testing after Helm chart updates
 #
 # ─── No Bootstrap ──────────────────────────────────────────────────
 # SM-A is NOT triggered. Use deploy-ssm-automation.yml for cluster re-bootstrap.
 
-name: Deploy Post-Bootstrap Config
+name: Deploy Post-Bootstrap Verify
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ env:
 
 jobs:
   post-bootstrap:
-    name: "SM-B Config Injection & Verify"
+    name: "Cluster Health Verify"
     uses: ./.github/workflows/_post-bootstrap-config.yml
     with:
       environment: ${{ inputs.environment }}
