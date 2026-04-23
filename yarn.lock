@@ -1918,9 +1918,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@nelsonlamounier/cdk-deploy-scripts@file:../../cdk-scripts::locator=kubernetes-bootstrap-scripts%40workspace%3Ascripts":
+"@nelsonlamounier/cdk-deploy-scripts@npm:^1.0.0":
   version: 1.0.0
-  resolution: "@nelsonlamounier/cdk-deploy-scripts@file:../../cdk-scripts#../../cdk-scripts::hash=a33d7f&locator=kubernetes-bootstrap-scripts%40workspace%3Ascripts"
+  resolution: "@nelsonlamounier/cdk-deploy-scripts@npm:1.0.0"
   dependencies:
     "@aws-sdk/client-auto-scaling": "npm:^3.0.0"
     "@aws-sdk/client-cloudformation": "npm:^3.0.0"
@@ -1947,7 +1947,7 @@ __metadata:
     cdk-preflight: bin/cdk-preflight.js
     cdk-security-scan: bin/cdk-security-scan.js
     cdk-synthesize: bin/cdk-synthesize.js
-  checksum: 10c0/399661582201ac648f983a9379a5f127845ba104121bc263534c3d9bcdb76ef09ba441b242ce2d4e4d47e7670c7eba3f6ca0ba9673bb960758c952a0b539ff66
+  checksum: 10c0/437abc20ef18647ee1ac489c84df334adb8c18180bd2736b8e01bd4e02d38ed715b8150f57b2d1d2ee9d8a45c1e56e8f406620d4cdee4f2a20e0909438962dfb
   languageName: node
   linkType: hard
 
@@ -4087,7 +4087,7 @@ __metadata:
     "@aws-sdk/client-sts": "npm:^3.0.0"
     "@aws-sdk/credential-providers": "npm:^3.0.0"
     "@aws-sdk/types": "npm:^3.0.0"
-    "@nelsonlamounier/cdk-deploy-scripts": "file:../../cdk-scripts"
+    "@nelsonlamounier/cdk-deploy-scripts": "npm:^1.0.0"
     "@types/bcryptjs": "npm:^2.4.6"
     "@types/node": "npm:^22.0.0"
     bcryptjs: "npm:^2.4.3"
