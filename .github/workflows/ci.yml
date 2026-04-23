@@ -4,7 +4,7 @@
 # ============================================================================
 #
 # Language split:
-#   TypeScript — infra CDK constructs, boot steps (control_plane/worker/
+#   TypeScript — infra CDK constructs, sm-a/ boot steps (control_plane/worker/
 #                orchestrator), scripts/cd, system/argocd bootstrap, vitest tests
 #   Python     — system/cert-manager helper, tests/system
 
