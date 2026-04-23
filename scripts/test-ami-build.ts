@@ -9,6 +9,8 @@
  *   just test-ami-build
  */
 
+import * as jsYaml from 'js-yaml';
+
 import { buildGoldenAmiComponent } from '../infra/lib/constructs/compute/build-golden-ami-component.js';
 import { getK8sConfigs } from '../infra/lib/config/kubernetes/index.js';
 import { Environment } from '../infra/lib/config/environments.js';
@@ -172,6 +174,40 @@ test('ArgoCD CLI baked from argoproj/argo-cd releases (auth.py skips download wh
 
 test('kubectl-argo-rollouts baked from argoproj/argo-rollouts releases (control_plane.ts skips download when present)', () =>
     contains('argoproj/argo-rollouts/releases/download') && contains('/usr/local/bin/kubectl-argo-rollouts'));
+
+// ---------------------------------------------------------------------------
+// YAML parse + Image Builder structural checks
+// Catches "cannot unmarshal map into string" before CDK deploy.
+// ---------------------------------------------------------------------------
+test('component YAML parses without errors', () => {
+    jsYaml.load(yaml);
+    return true;
+});
+
+test('all commands in every phase are strings, not maps', () => {
+    const doc = jsYaml.load(yaml) as {
+        phases?: Array<{
+            name: string;
+            steps?: Array<{
+                name: string;
+                inputs?: { commands?: unknown[] };
+            }>;
+        }>;
+    };
+    const violations: string[] = [];
+    for (const phase of doc.phases ?? []) {
+        for (const step of phase.steps ?? []) {
+            for (const [i, cmd] of (step.inputs?.commands ?? []).entries()) {
+                if (typeof cmd !== 'string') {
+                    violations.push(
+                        `phase=${phase.name} step=${step.name} commands[${i}] is ${typeof cmd}: ${JSON.stringify(cmd)}`,
+                    );
+                }
+            }
+        }
+    }
+    return violations.length === 0 || violations.join('\n');
+});
 
 // ---------------------------------------------------------------------------
 // Report
