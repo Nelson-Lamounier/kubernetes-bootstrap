@@ -151,6 +151,12 @@ test('validate phase present', () =>
 test('bootstrap scripts baked from S3', () =>
     contains('/opt/k8s-bootstrap') && contains('aws s3 sync'));
 
+test('validate phase checks sm-a/boot/ layout (fails if S3 not synced via sync-s3)', () =>
+    contains('/opt/k8s-bootstrap/sm-a/boot'));
+
+test('validate phase checks gitops/ layout (fails if S3 not synced via sync-s3)', () =>
+    contains('/opt/k8s-bootstrap/gitops'));
+
 test('orchestrator.ts presence validated', () =>
     contains('orchestrator.ts'));
 

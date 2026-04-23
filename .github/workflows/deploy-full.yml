@@ -1,0 +1,638 @@
+# @format
+# ============================================================================
+# deploy-full.yml — Full Deployment Pipeline
+# ============================================================================
+#
+# Orchestrates every deployment phase in the correct order.
+# Individual workflows remain intact for standalone use.
+#
+# ─── Phase Flow ─────────────────────────────────────────────────────────────
+#
+#   Phase 0 — CI Gate          Typecheck + lint + tests (skippable)
+#
+#   Phase 1 — S3 Sync          Push sm-a/boot/ + gitops/ to the scripts S3
+#                               bucket BEFORE the AMI bake reads from it.
+#                               ROOT CAUSE FIX: VerifyInstallations failed
+#                               because S3 had old boot/ prefix instead of
+#                               sm-a/boot/. This phase always precedes bake.
+#
+#   Phase 2 — Golden AMI       Static analysis → CDK deploy → bake → wait.
+#                               Skippable with existing_ami_id input.
+#
+#   Phase 3 — SSM Automation   CDK stack + SSM params + optional SM-A.
+#                               Delegates to _deploy-ssm-automation.yml.
+#
+#   Phase 4 — GitOps Verify    Manifest validation + ArgoCD health.
+#                               Delegates to gitops-k8s.yml.
+#
+# ─── Individual Workflows (kept for standalone use) ─────────────────────────
+#   deploy-golden-ami.yml       AMI bake only
+#   deploy-ssm-automation.yml   Bootstrap cluster only
+#   deploy-post-bootstrap.yml   Verify cluster health only
+#   gitops-k8s.yml              GitOps manifest validation + ArgoCD verify
+#   ci.yml                      CI checks only
+
+name: Full Deployment Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: false
+        default: "development"
+        type: choice
+        options: [development, staging, production]
+      skip_ci:
+        description: "Skip Phase 0 CI checks"
+        required: false
+        default: false
+        type: boolean
+      bake_ami:
+        description: "Phase 2 — Bake a new Golden AMI"
+        required: false
+        default: true
+        type: boolean
+      existing_ami_id:
+        description: "Phase 2 — Use this pre-built AMI (skips bake, e.g. ami-0abc123)"
+        required: false
+        default: ""
+        type: string
+      trigger_bootstrap:
+        description: "Phase 3 — Trigger SM-A cluster bootstrap on nodes"
+        required: false
+        default: true
+        type: boolean
+      promote_to_production:
+        description: "Phase 2 — Promote validated AMI to production SSM path"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: full-deploy-${{ inputs.environment || 'development' }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+
+# =============================================================================
+# PHASE 0 — CI Gate
+# =============================================================================
+jobs:
+  ci-typecheck:
+    name: "Phase 0 — TypeScript Typecheck (infra)"
+    if: ${{ !inputs.skip_ci }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Cache infra dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            infra/node_modules
+            infra/.yarn/cache
+          key: infra-deps-${{ runner.os }}-node22-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: infra-deps-${{ runner.os }}-node22-
+      - name: Install dependencies
+        run: yarn install --immutable
+        working-directory: infra
+      - name: Typecheck
+        run: yarn typecheck
+        working-directory: infra
+
+  ci-lint:
+    name: "Phase 0 — Lint (ESLint + YAML + Shell)"
+    if: ${{ !inputs.skip_ci }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Cache infra dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            infra/node_modules
+            infra/.yarn/cache
+          key: infra-deps-${{ runner.os }}-node22-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: infra-deps-${{ runner.os }}-node22-
+      - name: Install dependencies
+        run: yarn install --immutable
+        working-directory: infra
+      - name: ESLint
+        run: yarn lint
+        working-directory: infra
+      - name: Install yamllint
+        run: pip install yamllint
+      - name: YAML lint
+        run: yamllint -c .yamllint.yml gitops/ sm-a/
+      - name: Shell script lint
+        run: |
+          SCRIPTS=$(find gitops/ sm-a/ -name "*.sh" -type f)
+          if [ -z "$SCRIPTS" ]; then
+            echo "No shell scripts found"
+            exit 0
+          fi
+          while IFS= read -r script; do
+            bash -n "$script" && echo "  ok $script"
+          done <<< "$SCRIPTS"
+
+  ci-tests:
+    name: "Phase 0 — Tests (vitest)"
+    if: ${{ !inputs.skip_ci }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: "22"
+          install-infra: "true"
+      - name: Run tests
+        run: yarn test
+
+  # =============================================================================
+  # PHASE 1 — S3 Script Sync
+  #
+  # Pushes sm-a/boot/ and gitops/ to S3 before the AMI bake. The AMI bake
+  # runs `aws s3 sync s3://.../k8s-bootstrap/ /opt/k8s-bootstrap/` and the
+  # VerifyInstallations phase checks:
+  #   test -d /opt/k8s-bootstrap/sm-a/boot
+  #   test -d /opt/k8s-bootstrap/gitops
+  # Both checks fail silently (no stderr, exit 1) if S3 was never synced to
+  # the new sm-a/ layout. This phase ensures S3 matches the repo structure.
+  # =============================================================================
+  sync-s3:
+    name: "Phase 1 — Sync Bootstrap Scripts to S3"
+    needs: [ci-typecheck, ci-lint, ci-tests]
+    if: |
+      always() &&
+      (needs.ci-typecheck.result == 'success' || needs.ci-typecheck.result == 'skipped') &&
+      (needs.ci-lint.result == 'success' || needs.ci-lint.result == 'skipped') &&
+      (needs.ci-tests.result == 'success' || needs.ci-tests.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment || 'development' }}
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      bucket: ${{ steps.resolve-bucket.outputs.bucket }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve S3 bucket from SSM
+        id: resolve-bucket
+        env:
+          CDK_ENV: ${{ inputs.environment || 'development' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          SSM_KEY="/k8s/${CDK_ENV}/scripts-bucket"
+          BUCKET=$(aws ssm get-parameter \
+            --name "$SSM_KEY" \
+            --query 'Parameter.Value' \
+            --output text \
+            --region "$AWS_REGION" 2>/dev/null | sed 's|^s3://||;s|/$||')
+          if [ -z "$BUCKET" ]; then
+            echo "::error::SSM parameter $SSM_KEY not found. Deploy the infra CDK stack first."
+            exit 1
+          fi
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+          echo "Scripts bucket: s3://$BUCKET"
+
+      - name: Sync sm-a/boot/ → S3 (Bootstrap Orchestrator scripts)
+        env:
+          BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          aws s3 sync sm-a/boot "s3://${BUCKET}/k8s-bootstrap/sm-a/boot/" \
+            --delete \
+            --exclude "**/__pycache__/*" \
+            --exclude "**/*.pyc" \
+            --exclude "**/.venv/*" \
+            --region "$AWS_REGION"
+          COUNT=$(aws s3 ls "s3://${BUCKET}/k8s-bootstrap/sm-a/boot/" \
+            --recursive --region "$AWS_REGION" | wc -l | tr -d ' ')
+          echo "sm-a/boot/ synced: $COUNT files"
+
+      - name: Sync gitops/ → S3 (ArgoCD manifests)
+        env:
+          BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          aws s3 sync gitops "s3://${BUCKET}/k8s-bootstrap/gitops/" \
+            --delete \
+            --exclude "**/__pycache__/*" \
+            --region "$AWS_REGION"
+          COUNT=$(aws s3 ls "s3://${BUCKET}/k8s-bootstrap/gitops/" \
+            --recursive --region "$AWS_REGION" | wc -l | tr -d ' ')
+          echo "gitops/ synced: $COUNT files"
+
+      - name: S3 sync summary
+        if: always()
+        env:
+          BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
+          CDK_ENV: ${{ inputs.environment || 'development' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          TOTAL=$(aws s3 ls "s3://${BUCKET}/k8s-bootstrap/" \
+            --recursive --region "$AWS_REGION" 2>/dev/null | wc -l | tr -d ' ')
+          {
+            echo "## Phase 1 — S3 Script Sync"
+            echo "| Bucket | Total files |"
+            echo "|--------|-------------|"
+            echo "| \`s3://${BUCKET}/k8s-bootstrap/\` | ${TOTAL} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # =============================================================================
+  # PHASE 2a — AMI Static Analysis (offline, parallel with S3 sync)
+  # Catches YAML parse errors before a 25-minute bake.
+  # =============================================================================
+  ami-static-analysis:
+    name: "Phase 2 — AMI Static Analysis (offline)"
+    needs: [ci-typecheck, ci-lint, ci-tests]
+    if: |
+      always() &&
+      inputs.bake_ami == true &&
+      inputs.existing_ami_id == '' &&
+      (needs.ci-typecheck.result == 'success' || needs.ci-typecheck.result == 'skipped') &&
+      (needs.ci-lint.result == 'success' || needs.ci-lint.result == 'skipped') &&
+      (needs.ci-tests.result == 'success' || needs.ci-tests.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: "22"
+          install-infra: "true"
+      - name: Run static analysis (33 checks)
+        run: npx --prefix scripts tsx scripts/test-ami-build.ts
+
+  # =============================================================================
+  # PHASE 2b — CDK Deploy + AMI Bake
+  # Runs after S3 sync so the AMI contains the correct sm-a/boot/ layout.
+  # Skipped when existing_ami_id is provided or bake_ami=false.
+  # =============================================================================
+  bake-ami:
+    name: "Phase 2 — CDK Deploy + AMI Bake"
+    needs: [sync-s3, ami-static-analysis]
+    if: |
+      always() &&
+      inputs.bake_ami == true &&
+      inputs.existing_ami_id == '' &&
+      needs.sync-s3.result == 'success' &&
+      needs.ami-static-analysis.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      ami_id: ${{ steps.wait-ami.outputs.ami_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack (Yarn v4)
+        run: corepack enable
+
+      - name: Cache Yarn dependencies
+        uses: actions/cache@v4
+        with:
+          path: infra/.yarn/cache
+          key: yarn-infra-${{ runner.os }}-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: yarn-infra-${{ runner.os }}-
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve VPC ID from SSM
+        id: resolve-vpc
+        env:
+          CDK_ENV: ${{ inputs.environment || 'development' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          VPC_ID=$(aws ssm get-parameter \
+            --name "/k8s/${CDK_ENV}/vpc-id" \
+            --region "$AWS_REGION" \
+            --query Parameter.Value \
+            --output text)
+          if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+            echo "::error::VPC ID not found at /k8s/${CDK_ENV}/vpc-id"
+            exit 1
+          fi
+          echo "vpc_id=$VPC_ID" >> "$GITHUB_OUTPUT"
+          echo "VPC: $VPC_ID"
+
+      - name: Install infra dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: CDK Deploy (Golden AMI stack)
+        env:
+          VPC_ID: ${{ steps.resolve-vpc.outputs.vpc_id }}
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+          CDK_ENV: ${{ inputs.environment || 'development' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          npx cdk deploy "K8s-GoldenAmi-${CDK_ENV}" \
+            --require-approval never \
+            --progress events \
+            -c environment="${CDK_ENV}" \
+            -c vpcId="${VPC_ID}"
+        working-directory: infra
+
+      - name: Wait for AMI to become available
+        id: wait-ami
+        env:
+          CDK_ENV: ${{ inputs.environment || 'development' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          SSM_PATH="/k8s/${CDK_ENV}/golden-ami/latest"
+          MAX_WAIT=1800
+          INTERVAL=30
+          ELAPSED=0
+          echo "Polling $SSM_PATH (max ${MAX_WAIT}s)..."
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            AMI_ID=$(aws ssm get-parameter \
+              --name "$SSM_PATH" \
+              --region "$AWS_REGION" \
+              --query Parameter.Value \
+              --output text 2>/dev/null || echo "")
+            if [[ "$AMI_ID" == ami-* ]]; then
+              STATE=$(aws ec2 describe-images \
+                --image-ids "$AMI_ID" \
+                --region "$AWS_REGION" \
+                --query 'Images[0].State' \
+                --output text 2>/dev/null || echo "unknown")
+              echo "  $AMI_ID — $STATE (${ELAPSED}s)"
+              if [ "$STATE" = "available" ]; then
+                echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+                echo "Golden AMI ready: $AMI_ID"
+                exit 0
+              fi
+            else
+              echo "  Waiting for AMI ID in SSM... (${ELAPSED}/${MAX_WAIT}s)"
+            fi
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+          echo "::error::Timed out after ${MAX_WAIT}s"
+          exit 1
+
+      - name: Bake summary
+        if: always()
+        env:
+          AMI_ID: ${{ steps.wait-ami.outputs.ami_id }}
+          VPC_ID: ${{ steps.resolve-vpc.outputs.vpc_id }}
+          CDK_ENV: ${{ inputs.environment || 'development' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          {
+            echo "## Phase 2 — Golden AMI Bake"
+            echo "| Property | Value |"
+            echo "|----------|-------|"
+            echo "| Stack    | \`K8s-GoldenAmi-${CDK_ENV}\` |"
+            echo "| Region   | \`${AWS_REGION}\` |"
+            echo "| VPC ID   | \`${VPC_ID}\` |"
+            echo "| AMI ID   | \`${AMI_ID:-not built}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # =============================================================================
+  # PHASE 2c — Fetch Image Builder Logs (bake failure only)
+  # =============================================================================
+  debug-bake:
+    name: "Phase 2 — Fetch Image Builder Logs (on failure)"
+    needs: [bake-ami]
+    if: failure() && needs.bake-ami.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: "22"
+          install-infra: "false"
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Fetch Image Builder logs
+        env:
+          CDK_ENV: ${{ inputs.environment || 'development' }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          npx tsx scripts/ami-build-logs.ts \
+            --env "${CDK_ENV}" \
+            --region "$AWS_REGION" \
+          2>&1 | tee /tmp/ami-build-logs.txt || true
+      - name: Write logs to job summary
+        if: always()
+        run: |
+          {
+            echo "## Image Builder Build Logs"
+            echo '```'
+            cat /tmp/ami-build-logs.txt
+            echo '```'
+            echo "> Run \`just ami-build-logs\` locally for the same output."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # =============================================================================
+  # PHASE 2d — Validate AMI Metadata
+  # Resolves AMI ID from bake output or existing_ami_id input.
+  # =============================================================================
+  validate-ami:
+    name: "Phase 2 — Validate AMI Metadata"
+    needs: [sync-s3, bake-ami]
+    if: |
+      always() &&
+      needs.sync-s3.result == 'success' &&
+      (
+        inputs.existing_ami_id != '' ||
+        (needs.bake-ami.result == 'success' && needs.bake-ami.outputs.ami_id != '')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      ami_id: ${{ steps.resolve-ami.outputs.ami_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve AMI ID
+        id: resolve-ami
+        env:
+          EXISTING_AMI_ID: ${{ inputs.existing_ami_id }}
+          FROM_BAKE: ${{ needs.bake-ami.outputs.ami_id }}
+        run: |
+          AMI_ID="${EXISTING_AMI_ID:-$FROM_BAKE}"
+          if [[ "$AMI_ID" != ami-* ]]; then
+            echo "::error::No valid AMI ID (bake skipped and no existing_ami_id)"
+            exit 1
+          fi
+          echo "ami_id=$AMI_ID" >> "$GITHUB_OUTPUT"
+          SOURCE="${EXISTING_AMI_ID:+existing_ami_id input}"
+          SOURCE="${SOURCE:-bake job output}"
+          echo "AMI ID: $AMI_ID  (source: $SOURCE)"
+
+      - name: Validate AMI metadata
+        env:
+          AMI_ID: ${{ steps.resolve-ami.outputs.ami_id }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          AMI_INFO=$(aws ec2 describe-images \
+            --image-ids "$AMI_ID" \
+            --region "$AWS_REGION" \
+            --query 'Images[0]' \
+            --output json 2>/dev/null || echo "null")
+          if [ "$AMI_INFO" = "null" ] || [ -z "$AMI_INFO" ]; then
+            echo "::error::AMI $AMI_ID not found in $AWS_REGION"
+            exit 1
+          fi
+          STATE=$(echo "$AMI_INFO" | jq -r '.State // "unknown"')
+          [ "$STATE" != "available" ] && { echo "::error::AMI state is '$STATE'"; exit 1; }
+          echo "[pass] state: $STATE"
+          ROOT_TYPE=$(echo "$AMI_INFO" | jq -r '.RootDeviceType // "unknown"')
+          [ "$ROOT_TYPE" != "ebs" ] && { echo "::error::Root device type '$ROOT_TYPE'"; exit 1; }
+          echo "[pass] root device type: $ROOT_TYPE"
+          AMI_NAME=$(echo "$AMI_INFO" | jq -r '.Name // "unknown"')
+          ARCH=$(echo "$AMI_INFO" | jq -r '.Architecture // "unknown"')
+          CREATED=$(echo "$AMI_INFO" | jq -r '.CreationDate // "unknown"')
+          echo "[info] name: $AMI_NAME  arch: $ARCH  created: $CREATED"
+          GP3_COUNT=$(echo "$AMI_INFO" | jq '[.BlockDeviceMappings[]?.Ebs | select(.VolumeType=="gp3")] | length')
+          [ "$GP3_COUNT" -eq 0 ] \
+            && echo "::warning::No gp3 block devices found" \
+            || echo "[pass] gp3 block devices: $GP3_COUNT"
+          get_tag() { echo "$AMI_INFO" | jq -r --arg k "$1" '.Tags[]? | select(.Key==$k) | .Value // ""'; }
+          check_tag() {
+            local key="$1" expected="$2" actual="$3"
+            [ "$actual" = "$expected" ] \
+              && echo "[pass] tag $key=$actual" \
+              || echo "::warning::Tag $key='$actual' (expected '$expected')"
+          }
+          check_tag "Purpose"        "GoldenAMI"            "$(get_tag Purpose)"
+          check_tag "ManagedBy"      "kubernetes-bootstrap" "$(get_tag ManagedBy)"
+          check_tag "BootstrapBaked" "true"                 "$(get_tag BootstrapBaked)"
+          K8S_VER=$(get_tag KubernetesVersion)
+          [ -n "$K8S_VER" ] && echo "[info] KubernetesVersion: $K8S_VER" \
+            || echo "::warning::Tag KubernetesVersion not set"
+          echo "AMI $AMI_ID passed validation ($AMI_NAME)"
+
+  # =============================================================================
+  # PHASE 2e — Promote AMI to Production (explicit opt-in only)
+  # =============================================================================
+  promote-ami:
+    name: "Phase 2 — Promote AMI to Production"
+    needs: [validate-ami]
+    if: |
+      needs.validate-ami.result == 'success' &&
+      inputs.promote_to_production == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Write AMI ID to production SSM
+        env:
+          AMI_ID: ${{ needs.validate-ami.outputs.ami_id }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          aws ssm put-parameter \
+            --name "/k8s/production/golden-ami/latest" \
+            --value "$AMI_ID" \
+            --type String \
+            --overwrite \
+            --region "$AWS_REGION"
+          echo "Promoted $AMI_ID → /k8s/production/golden-ami/latest"
+          {
+            echo "## Phase 2 — AMI Promotion"
+            echo "| SSM Path | AMI |"
+            echo "|----------|-----|"
+            echo "| \`/k8s/development/golden-ami/latest\` | \`${AMI_ID}\` |"
+            echo "| \`/k8s/production/golden-ami/latest\` | \`${AMI_ID}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # =============================================================================
+  # PHASE 3 — SSM Automation (CDK deploy + optional SM-A bootstrap)
+  #
+  # Delegates to _deploy-ssm-automation.yml (reusable workflow).
+  # Runs after AMI phase so a fresh AMI is in SSM before nodes bootstrap.
+  # When bake_ami=false, runs after sync-s3 (scripts-only deployment).
+  # =============================================================================
+  deploy-ssm:
+    name: "Phase 3 — SSM Automation"
+    needs: [validate-ami, sync-s3]
+    if: |
+      always() &&
+      needs.sync-s3.result == 'success' &&
+      (needs.validate-ami.result == 'success' || needs.validate-ami.result == 'skipped')
+    uses: ./.github/workflows/_deploy-ssm-automation.yml
+    with:
+      environment: ${{ inputs.environment || 'development' }}
+      cdk-environment: ${{ inputs.environment || 'development' }}
+      trigger-bootstrap: ${{ inputs.trigger_bootstrap }}
+    secrets: inherit
+
+  # =============================================================================
+  # PHASE 4 — GitOps Verify (ArgoCD health + manifest validation)
+  #
+  # Delegates to gitops-k8s.yml (reusable workflow).
+  # Only runs when bootstrap was triggered — ArgoCD verify needs a live cluster.
+  # =============================================================================
+  verify-gitops:
+    name: "Phase 4 — GitOps Verify"
+    needs: [deploy-ssm]
+    if: |
+      needs.deploy-ssm.result == 'success' &&
+      inputs.trigger_bootstrap == true
+    uses: ./.github/workflows/gitops-k8s.yml
+    secrets: inherit
