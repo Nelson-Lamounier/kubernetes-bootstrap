@@ -7,9 +7,8 @@
 # post-merge verification to confirm sync succeeded.
 #
 # What ArgoCD syncs from this repo:
-#   - system/platform-apps/   → platform Application manifests (platform-root-app)
-#   - system/charts/          → Helm charts for platform services
-#   - system/charts/traefik/traefik-values.yaml → Traefik multi-source values
+#   - gitops/                 → infrastructure manifests (cert-manager, DR, ARC, Traefik config)
+#   NOTE: ArgoCD Application manifests and Helm charts live in kubernetes-platform
 
 name: "GitOps: K8s Platform (Dev)"
 
@@ -97,7 +96,7 @@ jobs:
         run: |
           ERRORS=0
 
-          for f in system/charts/traefik/traefik-values.yaml $(find system/charts -name 'values*.yaml' -type f 2>/dev/null); do
+          for f in gitops/traefik/traefik-values.yaml $(find gitops -name 'values*.yaml' -type f 2>/dev/null); do
             [ -f "$f" ] || continue
             if python3 -c "import yaml; yaml.safe_load(open('$f'))" 2>/dev/null; then
               echo "  ✓ $f"

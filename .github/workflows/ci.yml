@@ -6,7 +6,7 @@
 # Language split:
 #   TypeScript — infra CDK constructs, sm-a/ boot steps (control_plane/worker/
 #                orchestrator), scripts/cd, sm-a/argocd bootstrap, vitest tests
-#   Python     — system/cert-manager helper, tests/system
+#   Python     — gitops/cert-manager helper, tests/gitops
 
 name: CI — Kubernetes Bootstrap
 
@@ -183,7 +183,7 @@ jobs:
         run: npx tsx --test system/charts/monitoring/tests/validate-dashboards.test.ts
 
   # ---------------------------------------------------------------------------
-  # YAML lint (ArgoCD application manifests in system/)
+  # YAML lint (gitops/ infrastructure manifests + sm-a/ ArgoCD bootstrap)
   # ---------------------------------------------------------------------------
   yaml-lint:
     name: YAML Lint
@@ -195,10 +195,10 @@ jobs:
         run: pip install yamllint
 
       - name: Lint YAML
-        run: yamllint -c .yamllint.yml system/
+        run: yamllint -c .yamllint.yml gitops/ sm-a/
 
   # ---------------------------------------------------------------------------
-  # Shell script syntax check (system/ only — boot/*.sh removed)
+  # Shell script syntax check (gitops/ + sm-a/ — boot/*.sh removed)
   # ---------------------------------------------------------------------------
   shell-lint:
     name: Shell Script Lint
@@ -208,7 +208,7 @@ jobs:
 
       - name: Syntax check shell scripts
         run: |
-          SCRIPTS=$(find system/ -name "*.sh" -type f)
+          SCRIPTS=$(find gitops/ sm-a/ -name "*.sh" -type f)
           if [ -z "$SCRIPTS" ]; then
             echo "No shell scripts found"
             exit 0

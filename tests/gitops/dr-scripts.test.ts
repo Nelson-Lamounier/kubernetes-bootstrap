@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const DR_DIR         = resolve(process.cwd(), 'system/dr');
+const DR_DIR         = resolve(process.cwd(), 'gitops/dr');
 const ETCD_BACKUP    = `${DR_DIR}/etcd-backup.sh`;
 const INSTALL_TIMER  = `${DR_DIR}/install-etcd-backup-timer.sh`;
 

@@ -1,12 +1,6 @@
 ---
 extends: default
 
-# Helm chart templates use {{ }} Gotemplate syntax which is not valid YAML.
-# Lint values files and manifests; skip templates/.
-ignore: |
-  system/charts/*/chart/templates/
-  system/charts/*/chart/templates/**/*
-
 rules:
   line-length:
     max: 200
