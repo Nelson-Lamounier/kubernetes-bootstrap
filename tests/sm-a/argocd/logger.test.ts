@@ -8,7 +8,7 @@ vi.mock('@aws-sdk/client-ssm', () => ({
     PutParameterCommand: vi.fn(),
 }));
 
-import { BootstrapLogger } from '../../../system/argocd/helpers/logger.js';
+import { BootstrapLogger } from '../../../sm-a/argocd/helpers/logger.js';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 

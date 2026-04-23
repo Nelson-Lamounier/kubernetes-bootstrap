@@ -74,7 +74,7 @@ export interface Config {
  * - `SSM_PREFIX` → `/k8s/development`
  * - `AWS_REGION` → `eu-west-1`
  * - `KUBECONFIG` → `/etc/kubernetes/admin.conf`
- * - `ARGOCD_DIR` → `/data/k8s-bootstrap/system/argocd`
+ * - `ARGOCD_DIR` → `/opt/k8s-bootstrap/sm-a/argocd`
  * - `ARGOCD_CLI_VERSION` → `v2.14.11`
  * - `ARGO_TIMEOUT` → `300` (seconds)
  *
@@ -92,7 +92,7 @@ export const parseArgs = (): Config => {
     const ssmPrefix   = process.env['SSM_PREFIX']         ?? '/k8s/development';
     const awsRegion   = process.env['AWS_REGION']         ?? 'eu-west-1';
     const kubeconfig  = process.env['KUBECONFIG']         ?? '/etc/kubernetes/admin.conf';
-    const argocdDir   = process.env['ARGOCD_DIR']         ?? '/data/k8s-bootstrap/system/argocd';
+    const argocdDir   = process.env['ARGOCD_DIR']         ?? '/opt/k8s-bootstrap/sm-a/argocd';
     const cliVersion  = process.env['ARGOCD_CLI_VERSION'] ?? 'v2.14.11';
     const argoTimeout = parseInt(process.env['ARGO_TIMEOUT'] ?? '300', 10);
     const dryRun      = process.argv.includes('--dry-run');

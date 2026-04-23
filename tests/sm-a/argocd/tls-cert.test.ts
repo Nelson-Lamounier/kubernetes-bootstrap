@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Config } from '../../../system/argocd/helpers/config.js';
+import type { Config } from '../../../sm-a/argocd/helpers/config.js';
 
 // Mock runner helpers before importing the module under test
-vi.mock('../../../system/argocd/helpers/runner.js', () => ({
+vi.mock('../../../sm-a/argocd/helpers/runner.js', () => ({
     log:               vi.fn(),
     run:               vi.fn(),
     ssmGet:            vi.fn(),
@@ -13,8 +13,8 @@ vi.mock('../../../system/argocd/helpers/runner.js', () => ({
     secretsManagerPut: vi.fn(),
 }));
 
-import { run, ssmGet, ssmPut, kubectlApplyStdin } from '../../../system/argocd/helpers/runner.js';
-import { backupCert, restoreCert } from '../../../system/argocd/helpers/tls-cert.js';
+import { run, ssmGet, ssmPut, kubectlApplyStdin } from '../../../sm-a/argocd/helpers/runner.js';
+import { backupCert, restoreCert } from '../../../sm-a/argocd/helpers/tls-cert.js';
 
 const mockRun               = vi.mocked(run);
 const mockSsmGet            = vi.mocked(ssmGet);
@@ -28,7 +28,7 @@ const cfg: Config = {
     ssmPrefix:       '/k8s/development',
     awsRegion:       'eu-west-1',
     kubeconfig:      '/etc/kubernetes/admin.conf',
-    argocdDir:       '/data/k8s-bootstrap/system/argocd',
+    argocdDir:       '/opt/k8s-bootstrap/sm-a/argocd',
     argocdCliVersion: 'v2.14.11',
     argoTimeout:     300,
     dryRun:          false,

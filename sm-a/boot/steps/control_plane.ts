@@ -824,7 +824,7 @@ const initOrReconstruct = async (cfg: BootConfig): Promise<void> => {
 // =============================================================================
 
 const CACHED_CALICO_OPERATOR = '/opt/calico/tigera-operator.yaml';
-const CALICO_PDB_MANIFEST    = '/opt/k8s-bootstrap/system/calico-pdbs.yaml';
+const CALICO_PDB_MANIFEST    = '/opt/k8s-bootstrap/gitops/calico-pdbs.yaml';
 
 const calicoInstallationYaml = (podCidr: string): string => `\
 apiVersion: operator.tigera.io/v1
@@ -1016,12 +1016,12 @@ const configureKubectl = async (_cfg: BootConfig): Promise<void> => {
 // =============================================================================
 
 const bootstrapArgocd = async (_cfg: BootConfig): Promise<void> => {
-    const bootstrapTs = '/opt/k8s-bootstrap/system/argocd/bootstrap_argocd.ts';
+    const bootstrapTs = '/opt/k8s-bootstrap/sm-a/argocd/bootstrap_argocd.ts';
     if (!existsSync(bootstrapTs)) {
-        throw new Error(`ArgoCD bootstrap script not found at ${bootstrapTs} — AMI bake may be missing system/ manifests`);
+        throw new Error(`ArgoCD bootstrap script not found at ${bootstrapTs} — AMI bake may be missing sm-a/ manifests`);
     }
     run(['npx', 'tsx', bootstrapTs], {
-        env: { KUBECONFIG: ADMIN_CONF, ARGOCD_DIR: '/opt/k8s-bootstrap/system/argocd' },
+        env: { KUBECONFIG: ADMIN_CONF, ARGOCD_DIR: '/opt/k8s-bootstrap/sm-a/argocd' },
         capture: false,
         timeout: 800_000,
     });
@@ -1099,9 +1099,9 @@ const verifyCluster = async (cfg: BootConfig): Promise<void> => {
 // =============================================================================
 
 const installEtcdBackup = async (_cfg: BootConfig): Promise<void> => {
-    const installer = '/opt/k8s-bootstrap/system/dr/install-etcd-backup-timer.sh';
+    const installer = '/opt/k8s-bootstrap/gitops/dr/install-etcd-backup-timer.sh';
     if (!existsSync(installer)) {
-        warn(`etcd backup installer not found at ${installer} — AMI bake may be missing system/dr/ scripts`);
+        warn(`etcd backup installer not found at ${installer} — AMI bake may be missing gitops/dr/ scripts`);
         return;
     }
     run([installer], { capture: false, timeout: 120_000 });

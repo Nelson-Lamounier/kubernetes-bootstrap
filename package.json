@@ -6,7 +6,7 @@
   "workspaces": [
     "infra",
     "scripts",
-    "system/argocd"
+    "sm-a/argocd"
   ],
   "scripts": {
     "build": "yarn workspaces foreach --all run build",

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { parseArgs } from '../../../system/argocd/helpers/config.js';
+import { parseArgs } from '../../../sm-a/argocd/helpers/config.js';
 
 const ORIG_ARGV = [...process.argv];
 const ORIG_ENV  = { ...process.env };
@@ -21,7 +21,7 @@ describe('parseArgs (argocd Config)', () => {
             expect(cfg.ssmPrefix).toBe('/k8s/development');
             expect(cfg.awsRegion).toBe('eu-west-1');
             expect(cfg.kubeconfig).toBe('/etc/kubernetes/admin.conf');
-            expect(cfg.argocdDir).toBe('/data/k8s-bootstrap/system/argocd');
+            expect(cfg.argocdDir).toBe('/opt/k8s-bootstrap/sm-a/argocd');
             expect(cfg.argocdCliVersion).toBe('v2.14.11');
             expect(cfg.argoTimeout).toBe(300);
             expect(cfg.dryRun).toBe(false);
