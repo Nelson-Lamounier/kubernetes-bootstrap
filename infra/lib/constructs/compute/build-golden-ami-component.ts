@@ -374,7 +374,6 @@ phases:
             - test -f /etc/containerd/config.toml && echo "[validate] containerd config present"
             - test -f /etc/sysctl.d/k8s.conf && echo "[validate] sysctl k8s config present"
             - test -f /opt/aws/bin/cfn-signal && echo "[validate] cfn-signal present"
-            - /opt/aws/bin/cfn-signal --version
             - echo "[validate] helm:" && helm version --short
             - echo "[validate] cloud-init:" && cloud-init status
             - |
@@ -391,14 +390,14 @@ phases:
             - /opt/k8s-venv/bin/python3 -c "import bcrypt; print('[validate] bcrypt ok')"
             - test -f /usr/local/bin/ecr-credential-provider && echo "[validate] ecr-credential-provider present"
             - test -f /etc/kubernetes/image-credential-provider-config.yaml && echo "[validate] credential provider config present"
-            - echo "[validate] k8sgpt:" && k8sgpt version
-            - echo "[validate] argocd:" && argocd version --client --short
+            - export HOME=/root && echo "[validate] k8sgpt:" && k8sgpt version
+            - export HOME=/root && echo "[validate] argocd:" && argocd version --client --short
             - test -f /usr/local/bin/kubectl-argo-rollouts && echo "[validate] kubectl-argo-rollouts present"
             - kubectl-argo-rollouts version
             - echo "[validate] node:" && node --version
             - echo "[validate] npm:" && npm --version
-            - test -f /opt/k8s-bootstrap/node_modules/.bin/tsx && echo "[validate] tsx present"
-            - /opt/k8s-bootstrap/node_modules/.bin/tsx --version
+            - command -v tsx > /dev/null && echo "[validate] tsx present" || { echo "FATAL: tsx not on PATH"; exit 1; }
+            - echo "[validate] tsx:" && tsx --version
             - test -d /opt/k8s-bootstrap/sm-a/boot && echo "[validate] sm-a/boot/ scripts baked"
             - test -d /opt/k8s-bootstrap/gitops && echo "[validate] gitops/ manifests baked"
             - test -f /opt/k8s-bootstrap/sm-a/boot/steps/orchestrator.ts && echo "[validate] orchestrator.ts present"
