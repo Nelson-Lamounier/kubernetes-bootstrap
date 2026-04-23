@@ -715,7 +715,7 @@ ROOT CAUSE: bootstrap_argocd.py has not run yet. This script:
 
 WHERE TO LOOK:
   sudo grep -i 'argocd\|argo' /var/log/cloud-init-output.log
-  ls -la /data/k8s-bootstrap/system/argocd/"
+  ls -la /opt/k8s-bootstrap/sm-a/argocd/"
 else
   echo "$ARGO_PODS" | sed 's/^/          /'
   echo ""
@@ -778,8 +778,8 @@ WITHOUT IT: ArgoCD cannot discover or manage applications.
 
 DIAGNOSTIC:
   kubectl get applications -n argocd
-  ls -la /data/k8s-bootstrap/system/argocd/platform-root-app.yaml
-  ls -la /data/k8s-bootstrap/system/argocd/workloads-root-app.yaml"
+  ls -la /opt/k8s-bootstrap/sm-a/argocd/platform-root-app.yaml
+  ls -la /opt/k8s-bootstrap/sm-a/argocd/workloads-root-app.yaml"
     fi
   done
 
