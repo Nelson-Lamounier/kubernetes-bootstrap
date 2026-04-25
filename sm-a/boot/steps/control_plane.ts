@@ -971,6 +971,27 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
         );
     }
 
+    // On a second-run/dr-restore the calico-system namespace contains pods
+    // tied to the previous instance (old node refs, old IPs) — these get
+    // stuck Terminating and block the operator from rebuilding. Force-clean
+    // the existing Installation CR + any stuck pods so the operator starts
+    // from a clean slate. Idempotent: no-op on a true fresh install.
+    const installationExists = run(
+        ['kubectl', 'get', 'installation', 'default'],
+        { check: false, quiet: true, env: KUBECONFIG },
+    ).ok;
+    if (installationExists) {
+        warn('Existing Calico Installation CR found — force-cleaning calico-system for clean rebuild (likely DR stale state)');
+        run(['kubectl', 'delete', 'installation', 'default',
+            '--ignore-not-found', '--timeout=30s'],
+            { check: false, env: KUBECONFIG });
+        run(['kubectl', 'delete', 'pods', '--all', '-n', 'calico-system',
+            '--grace-period=0', '--force', '--ignore-not-found'],
+            { check: false, env: KUBECONFIG });
+        // Brief pause so the operator processes the deletions before we re-apply
+        await new Promise<void>(r => setTimeout(r, 10_000));
+    }
+
     const source = existsSync(CACHED_CALICO_OPERATOR)
         ? CACHED_CALICO_OPERATOR
         : `https://raw.githubusercontent.com/projectcalico/calico/${cfg.calicoVersion}/manifests/tigera-operator.yaml`;
@@ -1005,12 +1026,19 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
         env: KUBECONFIG,
     });
 
+    let lastPodSnapshot = '';
     await waitUntil(
         () => {
             const r = run(['kubectl', 'get', 'pods', '-n', 'calico-system', '--no-headers'],
-                { check: false, env: KUBECONFIG });
+                { check: false, quiet: true, env: KUBECONFIG });
             if (!r.ok || !r.stdout.trim()) return false;
             const lines = r.stdout.trim().split('\n');
+            // Log only when pod state changes — avoids flooding CloudWatch on every poll
+            const snapshot = lines.map(l => l.split(/\s+/).slice(0, 3).join(' ')).join(' | ');
+            if (snapshot !== lastPodSnapshot) {
+                info(`calico-system pods: ${snapshot}`);
+                lastPodSnapshot = snapshot;
+            }
             return lines.length > 0 && lines.every(l => l.includes('Running'));
         },
         { timeoutMs: 300_000, label: 'Calico pods Running' },
