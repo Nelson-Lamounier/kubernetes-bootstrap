@@ -274,11 +274,14 @@ const patchProviderID = (kubeconfig: string): void => {
     }
     const providerID = `aws:///${az}/${instanceId}`;
     info(`Setting providerID: ${providerID}`);
-    run(
+    const patchResult = run(
         ['kubectl', '--kubeconfig', kubeconfig, 'patch', 'node', hostname,
             '--type', 'merge', '-p', JSON.stringify({ spec: { providerID } })],
-        { check: false, env: { KUBECONFIG: kubeconfig } },
+        { check: false, quiet: true, env: { KUBECONFIG: kubeconfig } },
     );
+    if (!patchResult.ok) {
+        warn(`providerID patch skipped — node ${hostname} not yet registered (will retry in configure-kubectl)`);
+    }
 };
 
 const bootstrapKubeconfigEnv = (): Record<string, string> =>
@@ -716,7 +719,7 @@ const handleSecondRun = async (cfg: BootConfig): Promise<void> => {
 
     await ssmPut(`${cfg.ssmPrefix}/control-plane-endpoint`, `${cfg.apiDnsName}:6443`, cfg.awsRegion);
 
-    const ssmUserCheck = run(['id', 'ssm-user'], { check: false });
+    const ssmUserCheck = run(['id', 'ssm-user'], { check: false, quiet: true });
     if (ssmUserCheck.ok) setupKubeconfigForUser('ssm-user', '/home/ssm-user');
 
     await publishKubeconfigToSsm(cfg);
@@ -747,6 +750,26 @@ const handleSecondRun = async (cfg: BootConfig): Promise<void> => {
             env: bootstrapKubeconfigEnv(),
         });
         info('RBAC binding kubeadm:cluster-admins repaired');
+    }
+
+    // Remove node objects from the previous instance incarnation that were
+    // restored into etcd by dr-restore. Without cleanup, stale nodes linger
+    // as NotReady and can mislead labelControlPlaneNode into labelling the
+    // wrong node on the next boot.
+    const currentHostname = imds('hostname') ?? '';
+    if (currentHostname) {
+        const staleResult = run(
+            ['kubectl', 'get', 'nodes', '-l', 'node-role.kubernetes.io/control-plane=',
+                '--no-headers', '-o', 'custom-columns=NAME:.metadata.name'],
+            { check: false, env: KUBECONFIG },
+        );
+        for (const nodeName of staleResult.stdout.trim().split('\n').filter(Boolean)) {
+            if (nodeName !== currentHostname) {
+                warn(`Removing stale control-plane node from previous incarnation: ${nodeName}`);
+                run(['kubectl', 'delete', 'node', nodeName, '--ignore-not-found'],
+                    { check: false, env: KUBECONFIG });
+            }
+        }
     }
 
     patchProviderID('/root/.kube/config');
@@ -792,7 +815,7 @@ const initCluster = async (cfg: BootConfig): Promise<void> => {
     ], { capture: false, timeout: 300_000 });
 
     setupKubeconfigForUser('root', '/root');
-    const ssmUserCheck = run(['id', 'ssm-user'], { check: false });
+    const ssmUserCheck = run(['id', 'ssm-user'], { check: false, quiet: true });
     if (ssmUserCheck.ok) setupKubeconfigForUser('ssm-user', '/home/ssm-user');
 
     await waitUntil(
@@ -965,14 +988,14 @@ const SSM_KUBECONFIG_SCRIPT =
     '  chmod 600 "$HOME/.kube/config"\n' +
     'fi\n';
 
-const configureKubectl = async (_cfg: BootConfig): Promise<void> => {
+const configureKubectl = async (cfg: BootConfig): Promise<void> => {
     info('Configuring kubectl access...');
 
     for (const [user, home] of [['root', '/root'], ['ec2-user', '/home/ec2-user']] as const) {
         setupKubeconfigForUser(user, home);
     }
 
-    const ssmUserCheck = run(['id', 'ssm-user'], { check: false });
+    const ssmUserCheck = run(['id', 'ssm-user'], { check: false, quiet: true });
     if (ssmUserCheck.code !== 0) {
         run(['useradd', '--system', '--shell', '/bin/bash', '--create-home',
             '--home-dir', '/home/ssm-user', 'ssm-user'], { check: false });
@@ -1008,6 +1031,23 @@ const configureKubectl = async (_cfg: BootConfig): Promise<void> => {
 
     process.env.KUBECONFIG = ADMIN_CONF;
     run(['kubectl', 'cluster-info'], { check: false });
+
+    // On second runs patchProviderID and labelControlPlaneNode are called
+    // inside handleSecondRun but the node isn't registered yet (Calico
+    // installs afterward). Retry here — this step runs after Calico+CCM so
+    // the node should now exist.
+    const hostname = imds('hostname');
+    if (hostname) {
+        const nodeCheck = run(['kubectl', 'get', 'node', hostname],
+            { check: false, quiet: true, env: KUBECONFIG });
+        if (nodeCheck.ok) {
+            patchProviderID(ADMIN_CONF);
+            labelControlPlaneNode(cfg);
+        } else {
+            warn(`Node ${hostname} still not registered after Calico/CCM — providerID and labels skipped`);
+        }
+    }
+
     info('kubectl access configured');
 };
 

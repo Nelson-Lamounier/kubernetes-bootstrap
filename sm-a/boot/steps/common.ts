@@ -183,17 +183,24 @@ export const run = (
         check?: boolean;
         timeout?: number;
         capture?: boolean;
+        /** Suppress ERROR-level stderr log when ok=false (for probe commands). */
+        quiet?: boolean;
     } = {},
 ): RunResult => {
-    const { env, input, check = true, timeout = 300_000, capture = true } = opts;
+    const { env, input, check = true, timeout = 300_000, capture = true, quiet = false } = opts;
     const mergedEnv = env ? { ...process.env, ...env } as NodeJS.ProcessEnv : process.env;
 
     info(`Running: ${cmd.join(' ')}`);
     const t = Date.now();
 
+    // Convert string input to Buffer so spawnSync's encoding:'buffer' (output
+    // encoding) doesn't also try to encode the stdin via Buffer.from(str,'buffer'),
+    // which throws "Unknown encoding: buffer".
+    const stdinInput = typeof input === 'string' ? Buffer.from(input, 'utf8') : input;
+
     const result = spawnSync(cmd[0]!, cmd.slice(1), {
         env: mergedEnv,
-        input,
+        input: stdinInput,
         timeout,
         encoding: 'buffer',
         stdio: capture ? 'pipe' : ['pipe', 'inherit', 'inherit'],
@@ -205,7 +212,7 @@ export const run = (
     const ok     = code === 0;
 
     info('Command finished', { durationMs: Date.now() - t, ok });
-    if (!ok && stderr) error('Command stderr', { command: cmd[0], stderr: stderr.slice(0, 500) });
+    if (!ok && stderr && !quiet) error('Command stderr', { command: cmd[0], stderr: stderr.slice(0, 500) });
     if (!ok && check) throw new Error(`Command failed (exit ${code}): ${cmd.join(' ')}\n${stderr.slice(0, 1000)}`);
 
     return { ok, stdout, stderr, code };
