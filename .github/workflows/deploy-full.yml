@@ -624,6 +624,7 @@ jobs:
       environment: ${{ inputs.environment || 'development' }}
       cdk-environment: ${{ inputs.environment || 'development' }}
       trigger-bootstrap: ${{ inputs.trigger_bootstrap }}
+      instance-refresh: ${{ inputs.bake_ami == true || inputs.existing_ami_id != '' }}
     secrets: inherit
 
   # =============================================================================
