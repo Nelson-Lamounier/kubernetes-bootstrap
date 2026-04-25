@@ -1080,50 +1080,54 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
         env: KUBECONFIG,
     });
 
-    let lastPodSnapshot = '';
+    // Wait only for the calico-node DaemonSet to be Ready (numberReady ==
+    // desiredNumberScheduled). calico-node is what provides CNI and makes
+    // the node Ready, which then lets calico-kube-controllers and
+    // csi-node-driver schedule. Waiting for those secondary pods would
+    // create a circular wait — they can't reach Running phase until
+    // calico-node is up, but waiting on `everything Running` means we
+    // block on them.
+    let lastDsState = '';
     let lastDiagnosticAt = 0;
     const calicoWaitStart = Date.now();
     await waitUntil(
         () => {
-            const r = run(['kubectl', 'get', 'pods', '-n', 'calico-system', '--no-headers'],
-                { check: false, quiet: true, env: KUBECONFIG });
-            const lines = r.ok && r.stdout.trim()
-                ? r.stdout.trim().split('\n')
-                : [];
-            const snapshot = lines.length === 0
-                ? '(no pods)'
-                : lines.map(l => l.split(/\s+/).slice(0, 3).join(' ')).join(' | ');
-            if (snapshot !== lastPodSnapshot) {
-                info(`calico-system pods: ${snapshot}`);
-                lastPodSnapshot = snapshot;
+            const r = run(
+                ['kubectl', 'get', 'ds', 'calico-node', '-n', 'calico-system',
+                    '-o', 'jsonpath={.status.desiredNumberScheduled} {.status.numberReady} {.status.numberAvailable}'],
+                { check: false, quiet: true, env: KUBECONFIG },
+            );
+            const parts = r.ok ? r.stdout.trim().split(/\s+/) : [];
+            const [desired, ready, available] = [parts[0] ?? '0', parts[1] ?? '0', parts[2] ?? '0'];
+            const state = `desired=${desired} ready=${ready} available=${available}`;
+            if (state !== lastDsState) {
+                info(`calico-node DaemonSet: ${state}`);
+                lastDsState = state;
             }
 
-            // Every 30 s with no Calico pods scheduled, dump the operator's
-            // logs + Installation CR status + recent events so CloudWatch
-            // shows WHY the operator is not reconciling. Without this, the
-            // wait just polls silently for 5 min and tells us nothing.
+            // Every 60 s without progress, dump the operator's logs + a
+            // snapshot of pod states so CloudWatch shows what's stuck.
             const elapsed = Date.now() - calicoWaitStart;
-            if (lines.length === 0 && elapsed > 30_000 && elapsed - lastDiagnosticAt > 30_000) {
+            const stuck = parseInt(desired) === 0 || ready !== desired;
+            if (stuck && elapsed > 60_000 && elapsed - lastDiagnosticAt > 60_000) {
                 lastDiagnosticAt = elapsed;
-                warn(`No calico-system pods after ${Math.round(elapsed / 1000)}s — dumping operator diagnostics`);
+                warn(`calico-node not Ready after ${Math.round(elapsed / 1000)}s — dumping diagnostics`);
+                const pods = run(['kubectl', 'get', 'pods', '-n', 'calico-system',
+                    '-o', 'wide', '--no-headers'], { check: false, quiet: true, env: KUBECONFIG });
+                if (pods.stdout) info(`calico-system pods:\n${pods.stdout.slice(0, 2000)}`);
                 const opLogs = run(['kubectl', 'logs', 'deployment/tigera-operator',
-                    '-n', 'tigera-operator', '--tail=40'],
+                    '-n', 'tigera-operator', '--tail=30'],
                     { check: false, quiet: true, env: KUBECONFIG });
-                if (opLogs.stdout) info(`tigera-operator logs (last 40):\n${opLogs.stdout.slice(0, 4000)}`);
-                if (opLogs.stderr) warn(`tigera-operator log stderr: ${opLogs.stderr.slice(0, 500)}`);
-                const inst = run(['kubectl', 'get', 'installation', 'default',
-                    '-o', 'jsonpath={.status}'],
+                if (opLogs.stdout) info(`tigera-operator logs:\n${opLogs.stdout.slice(0, 3000)}`);
+                const nodeLogs = run(['kubectl', 'logs', '-n', 'calico-system',
+                    '-l', 'k8s-app=calico-node', '-c', 'calico-node', '--tail=30'],
                     { check: false, quiet: true, env: KUBECONFIG });
-                info(`Installation status: ${inst.stdout.slice(0, 1500) || '(empty)'}`);
-                const events = run(['kubectl', 'get', 'events', '-n', 'tigera-operator',
-                    '--sort-by=.lastTimestamp', '--no-headers'],
-                    { check: false, quiet: true, env: KUBECONFIG });
-                if (events.stdout) info(`tigera-operator events:\n${events.stdout.slice(0, 2000)}`);
+                if (nodeLogs.stdout) info(`calico-node logs:\n${nodeLogs.stdout.slice(0, 3000)}`);
             }
 
-            return lines.length > 0 && lines.every(l => l.includes('Running'));
+            return parseInt(desired) > 0 && desired === ready && desired === available;
         },
-        { timeoutMs: 300_000, label: 'Calico pods Running' },
+        { timeoutMs: 360_000, label: 'calico-node DaemonSet Ready' },
     );
 
     if (existsSync(CALICO_PDB_MANIFEST)) {
