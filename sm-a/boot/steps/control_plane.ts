@@ -876,6 +876,18 @@ spec:
 `;
 
 const installCalico = async (cfg: BootConfig): Promise<void> => {
+    // On a second-run/dr-restore the kubelet re-registers after the API server
+    // restarts, which can take 60–120 s. tigera-operator can only schedule once
+    // a node is available, so we must wait before applying Calico resources.
+    const hostname = imds('hostname');
+    if (hostname) {
+        await waitUntil(
+            () => run(['kubectl', 'get', 'node', hostname],
+                { check: false, quiet: true, env: KUBECONFIG }).ok,
+            { timeoutMs: 180_000, label: `node ${hostname} registered` },
+        );
+    }
+
     const source = existsSync(CACHED_CALICO_OPERATOR)
         ? CACHED_CALICO_OPERATOR
         : `https://raw.githubusercontent.com/projectcalico/calico/${cfg.calicoVersion}/manifests/tigera-operator.yaml`;
@@ -903,7 +915,7 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
     }
 
     run(['kubectl', 'wait', '--for=condition=Available', 'deployment/tigera-operator',
-        '-n', 'tigera-operator', '--timeout=120s'], { check: false, env: KUBECONFIG });
+        '-n', 'tigera-operator', '--timeout=180s'], { check: false, env: KUBECONFIG });
 
     run(['kubectl', 'apply', '-f', '-'], {
         input: calicoInstallationYaml(cfg.podCidr),
@@ -918,7 +930,7 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
             const lines = r.stdout.trim().split('\n');
             return lines.length > 0 && lines.every(l => l.includes('Running'));
         },
-        { timeoutMs: 120_000, label: 'Calico pods Running' },
+        { timeoutMs: 300_000, label: 'Calico pods Running' },
     );
 
     if (existsSync(CALICO_PDB_MANIFEST)) {
