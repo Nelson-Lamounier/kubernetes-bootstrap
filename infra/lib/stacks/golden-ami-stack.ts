@@ -41,6 +41,10 @@
  * ```
  */
 
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
@@ -130,10 +134,18 @@ export class GoldenAmiStack extends cdk.Stack {
         // YAML with all Kubernetes install steps. Software versions come
         // from the centralised K8sImageConfig.
         // -----------------------------------------------------------------
+        // Hash files synced from S3 at bake time so any change invalidates
+        // the component content hash and forces a new CfnImage / AMI bake.
+        const stepsPkgPath = path.resolve(__dirname, '../../../../sm-a/boot/steps/package.json');
+        const stepsPkgHash = fs.existsSync(stepsPkgPath)
+            ? crypto.createHash('sha256').update(fs.readFileSync(stepsPkgPath)).digest('hex').slice(0, 12)
+            : undefined;
+
         const componentDocument = buildGoldenAmiComponent({
             imageConfig: configs.image,
             clusterConfig: configs.cluster,
             scriptsBucketSsmPath: `${props.ssmPrefix}/scripts-bucket`,
+            extraHash: stepsPkgHash,
         });
 
         // -----------------------------------------------------------------

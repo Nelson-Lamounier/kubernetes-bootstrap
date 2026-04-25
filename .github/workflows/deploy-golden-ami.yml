@@ -66,6 +66,7 @@ on:
       - "infra/lib/constructs/compute/**"
       - "infra/lib/stacks/golden-ami-stack.ts"
       - "infra/lib/config/kubernetes/configurations.ts"
+      - "sm-a/boot/steps/**"
       - ".github/workflows/deploy-golden-ami.yml"
 
 concurrency:

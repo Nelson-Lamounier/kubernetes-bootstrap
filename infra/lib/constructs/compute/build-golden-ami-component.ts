@@ -54,6 +54,12 @@ export interface GoldenAmiComponentInput {
      * per-boot S3 download that previously ran in the SSM bootstrap runner.
      */
     readonly scriptsBucketSsmPath: string;
+    /**
+     * Opaque string mixed into the component YAML so that changes to files
+     * synced from S3 at bake time (e.g. sm-a/boot/steps/package.json) still
+     * invalidate the content hash and force a new CfnImage / AMI bake.
+     */
+    readonly extraHash?: string;
 }
 
 // =============================================================================
@@ -71,12 +77,14 @@ export interface GoldenAmiComponentInput {
  * @returns YAML string for `imagebuilder.CfnComponent.data`
  */
 export function buildGoldenAmiComponent(input: GoldenAmiComponentInput): string {
-    const { imageConfig, clusterConfig, scriptsBucketSsmPath } = input;
+    const { imageConfig, clusterConfig, scriptsBucketSsmPath, extraHash } = input;
 
     // Extract major.minor for Kubernetes dnf repo (e.g., '1.35')
     const k8sMinorVersion = clusterConfig.kubernetesVersion.split('.').slice(0, 2).join('.');
 
-    return `
+    const extraHashComment = extraHash ? `# scripts-hash: ${extraHash}\n` : '';
+
+    return `${extraHashComment}
 name: GoldenAmiInstall
 description: Install containerd, kubeadm, kubelet, kubectl, Calico manifests, and K8sGPT
 schemaVersion: 1.0
