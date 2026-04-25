@@ -25,8 +25,13 @@
 #   Phase 4 — GitOps Verify    Manifest validation + ArgoCD health.
 #                               Delegates to gitops-k8s.yml.
 #
+# ─── Push-triggered AMI bakes ────────────────────────────────────────────────
+#   Pushes to sm-a/boot/steps/** automatically trigger deploy-golden-ami.yml
+#   (path watch added there). This pipeline is workflow_dispatch only; the
+#   bake_ami input defaults to true so a manual run always produces a fresh AMI.
+#
 # ─── Individual Workflows (kept for standalone use) ─────────────────────────
-#   deploy-golden-ami.yml       AMI bake only
+#   deploy-golden-ami.yml       AMI bake only (push-triggered on sm-a/boot/steps/**)
 #   deploy-ssm-automation.yml   Bootstrap cluster only
 #   deploy-post-bootstrap.yml   Verify cluster health only
 #   gitops-k8s.yml              GitOps manifest validation + ArgoCD verify
