@@ -228,20 +228,26 @@ jobs:
           echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
           echo "Scripts bucket: s3://$BUCKET"
 
-      - name: Sync sm-a/boot/ → S3 (Bootstrap Orchestrator scripts)
+      - name: Sync sm-a/ → S3 (Bootstrap Orchestrator + ArgoCD scripts)
         env:
           BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
           AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
         run: |
-          aws s3 sync sm-a/boot "s3://${BUCKET}/k8s-bootstrap/sm-a/boot/" \
+          # Sync the full sm-a/ tree — boot/ holds the SSM bootstrap scripts,
+          # argocd/ holds bootstrap_argocd.ts + manifests that the
+          # bootstrap-argocd step reads at /opt/k8s-bootstrap/sm-a/argocd/.
+          # Previously only sm-a/boot/ was synced, so the AMI was missing
+          # sm-a/argocd/ and bootstrap-argocd failed with "script not found".
+          aws s3 sync sm-a "s3://${BUCKET}/k8s-bootstrap/sm-a/" \
             --delete \
             --exclude "**/__pycache__/*" \
             --exclude "**/*.pyc" \
             --exclude "**/.venv/*" \
+            --exclude "**/node_modules/*" \
             --region "$AWS_REGION"
-          COUNT=$(aws s3 ls "s3://${BUCKET}/k8s-bootstrap/sm-a/boot/" \
+          COUNT=$(aws s3 ls "s3://${BUCKET}/k8s-bootstrap/sm-a/" \
             --recursive --region "$AWS_REGION" | wc -l | tr -d ' ')
-          echo "sm-a/boot/ synced: $COUNT files"
+          echo "sm-a/ synced: $COUNT files"
 
       - name: Sync gitops/ → S3 (ArgoCD manifests)
         env:

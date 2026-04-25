@@ -411,10 +411,12 @@ phases:
             - echo "[validate] npm:" && npm --version
             - tsx --version
             - test -d /opt/k8s-bootstrap/sm-a/boot && echo "[validate] sm-a/boot/ scripts baked"
+            - test -d /opt/k8s-bootstrap/sm-a/argocd && echo "[validate] sm-a/argocd/ scripts baked"
             - test -d /opt/k8s-bootstrap/gitops && echo "[validate] gitops/ manifests baked"
             - test -f /opt/k8s-bootstrap/sm-a/boot/steps/orchestrator.ts && echo "[validate] orchestrator.ts present"
             - test -f /opt/k8s-bootstrap/sm-a/boot/steps/control_plane.ts && echo "[validate] control_plane.ts present"
             - test -f /opt/k8s-bootstrap/sm-a/boot/steps/worker.ts && echo "[validate] worker.ts present"
+            - test -f /opt/k8s-bootstrap/sm-a/argocd/bootstrap_argocd.ts && echo "[validate] bootstrap_argocd.ts present"
 `;
 
 }
