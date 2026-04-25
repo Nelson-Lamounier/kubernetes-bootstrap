@@ -51,4 +51,4 @@ infra/.yarn/build-state.yml
 # Prevent tsc run-without-tsconfig from polluting source tree
 infra/lib/**/*.js
 infra/bin/**/*.js
-.claude/settings.local.json
+.claude/
