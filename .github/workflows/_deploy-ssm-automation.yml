@@ -10,7 +10,7 @@
 #   Phase 0: deploy-ssm-cdk
 #     → Phase 1–2: sync-and-verify (S3 sync + admin IPs, always)
 #     → Phase 3: trigger-bootstrap (SM-A, if input=true)
-#     → Phase 4: verify-bootstrap (k8s-runner)
+#     → Phase 4: verify-bootstrap (ubuntu-latest, waits for SFN + public API)
 #
 # ─── Two-State-Machine Architecture ─────────────────────────────────
 #
@@ -346,19 +346,20 @@ jobs:
             --region "$AWS_REGION"
 
   # ===========================================================================
-  # Phase 4: Verify Bootstrap — Node Readiness & Cluster Health (k8s-runner)
+  # Phase 4: Verify Bootstrap — Node Readiness & Cluster Health
+  #
+  # Runs on ubuntu-latest (not k8s-runner) so it works on Day 0 before the
+  # in-cluster ARC runner exists. Connects to the API server via the public
+  # DNS endpoint stored in SSM (/k8s/<env>/control-plane-endpoint).
   #
   # Hard failures (exit 1) = SM-A must deliver these:
   #   nodes Ready, kube-system pods, Calico CNI, core namespaces, ArgoCD pods
   #
-  # Warnings only (::warning::) = SM-B territory (fires after SM-A via EventBridge):
+  # Warnings only = SM-B territory (fires after SM-A via EventBridge):
   #   node labels/taints, Traefik, monitoring, Next.js, app sync status
-  #
-  # NOTE: If k8s-runner is offline this job hangs waiting for a runner.
-  # Use `just gh-cancel-queued` to bulk force-cancel stuck runs.
   # ===========================================================================
   verify-bootstrap:
-    name: "Phase 4 — Verify Bootstrap (k8s-runner)"
+    name: "Phase 4 — Verify Bootstrap"
     needs: [deploy-ssm-cdk, sync-and-verify, trigger-bootstrap]
     if: >-
       always()
@@ -366,8 +367,8 @@ jobs:
       && needs.sync-and-verify.result == 'success'
       && (needs.trigger-bootstrap.result == 'success'
        || needs.trigger-bootstrap.result == 'skipped')
-    runs-on: k8s-runner
-    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment: ${{ inputs.environment }}
 
     steps:
@@ -380,7 +381,70 @@ jobs:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
           aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
 
-      - name: Set up in-cluster kubeconfig
+      # ── Wait for Step Functions executions to complete ─────────────────────
+      # Phase 3 only starts the executions. This step polls until SM-A
+      # finishes (SUCCEEDED/FAILED) so kubectl checks below see a stable
+      # cluster, not a partially-bootstrapped one.
+      - name: "Wait for Step Functions bootstrap to complete"
+        if: needs.trigger-bootstrap.result == 'success'
+        env:
+          CP_EXEC_ID:      ${{ needs.trigger-bootstrap.outputs.cp-execution-id }}
+          GENERAL_EXEC_ID: ${{ needs.trigger-bootstrap.outputs.general-pool-execution-id }}
+          MON_EXEC_ID:     ${{ needs.trigger-bootstrap.outputs.monitoring-pool-execution-id }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          MAX_WAIT=2400   # 40 min — bootstrap ~10 min, allow generous headroom
+          INTERVAL=30
+          ELAPSED=0
+          FAILED_EXECS=""
+
+          EXECUTIONS=""
+          for ID in "$CP_EXEC_ID" "$GENERAL_EXEC_ID" "$MON_EXEC_ID"; do
+            [ -n "$ID" ] && EXECUTIONS="$EXECUTIONS $ID"
+          done
+
+          if [ -z "$EXECUTIONS" ]; then
+            echo "[SKIP] No execution IDs available"
+            exit 0
+          fi
+
+          echo "Polling executions (max ${MAX_WAIT}s, every ${INTERVAL}s)..."
+          while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
+            PENDING=0
+            for EXEC_ARN in $EXECUTIONS; do
+              SHORT="${EXEC_ARN##*:}"
+              STATUS=$(aws stepfunctions describe-execution \
+                --execution-arn "$EXEC_ARN" \
+                --query 'status' \
+                --output text \
+                --region "$AWS_REGION" 2>/dev/null || echo "UNKNOWN")
+              case "$STATUS" in
+                SUCCEEDED) echo "  [OK] $SHORT SUCCEEDED" ;;
+                RUNNING)   PENDING=$((PENDING + 1)); echo "  [..] $SHORT RUNNING (${ELAPSED}s)" ;;
+                FAILED|TIMED_OUT|ABORTED)
+                  FAILED_EXECS="$FAILED_EXECS $EXEC_ARN"
+                  echo "  [!!] $SHORT $STATUS" ;;
+                *) echo "  [??] $SHORT $STATUS — retrying" ;;
+              esac
+            done
+
+            if [ -n "$FAILED_EXECS" ]; then
+              echo "::error::Bootstrap execution(s) failed:$FAILED_EXECS"
+              exit 1
+            fi
+
+            [ "$PENDING" -eq 0 ] && { echo "[OK] All executions SUCCEEDED"; break; }
+
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+            echo "::error::Bootstrap did not complete within ${MAX_WAIT}s"
+            exit 1
+          fi
+
+      - name: "Set up kubeconfig (public API endpoint)"
         id: kubeconfig
         env:
           CDK_ENV: ${{ inputs.cdk-environment }}
@@ -395,15 +459,38 @@ jobs:
             --output text 2>/dev/null || echo "")
 
           if [ -z "$VALUE" ]; then
-            echo "[SKIP] Kubeconfig SSM parameter not found — Day-0 or bootstrap never completed"
+            echo "[SKIP] Kubeconfig not in SSM — bootstrap may not have completed"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The stored kubeconfig uses 127.0.0.1:6443 (SSH tunnel endpoint).
+          # Replace with the real public API DNS so ubuntu-latest can reach it.
+          ENDPOINT=$(aws ssm get-parameter \
+            --name "/k8s/${CDK_ENV}/control-plane-endpoint" \
+            --query 'Parameter.Value' \
+            --output text \
+            --region "$AWS_REGION" 2>/dev/null || echo "")
+
+          if [ -z "$ENDPOINT" ]; then
+            echo "[SKIP] control-plane-endpoint not in SSM"
             echo "available=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "$VALUE" \
-            | sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc:443|g' \
+            | sed "s|https://127.0.0.1:6443|https://${ENDPOINT}|g" \
             > /tmp/kubeconfig
           chmod 600 /tmp/kubeconfig
+
+          # Smoke-test reachability before marking available
+          if ! kubectl --kubeconfig /tmp/kubeconfig cluster-info --request-timeout=10s \
+               > /dev/null 2>&1; then
+            echo "::warning::API server at ${ENDPOINT} not reachable from this runner — kubectl checks skipped"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "available=true" >> "$GITHUB_OUTPUT"
 
       # ── Check 1: Nodes ─────────────────────────────────────────────────────
