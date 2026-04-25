@@ -700,6 +700,88 @@ const reconstructControlPlane = async (cfg: BootConfig, privateIp: string): Prom
     info('=== Control plane reconstruction complete ===');
 };
 
+/**
+ * Ensures the apiserver TLS cert SANs include the current instance's private IP.
+ *
+ * @remarks
+ * After a DR restore, `/etc/kubernetes/pki/apiserver.crt` is the cert from the
+ * previous instance — its IP SANs are stale. The static-pod kube-apiserver
+ * still serves on the current IP via `--advertise-address`, but the cert it
+ * presents lists only the OLD private/public IPs. Kubelet's node-registration
+ * POST goes directly to `https://<currentIP>:6443/api/v1/nodes` and fails TLS
+ * verification, so the node never registers and Calico never schedules.
+ *
+ * Detection: `openssl x509 -text` includes the current private IP in the
+ * Subject Alternative Names. If absent, we regenerate the cert via
+ * `kubeadm init phase certs apiserver`, then kill the running api-server
+ * container (crictl) so kubelet recreates the static pod with the new cert.
+ *
+ * @param cfg - Bootstrap config (DNS name, region).
+ * @param privateIp - Current instance private IP from IMDS.
+ */
+const ensureApiserverCertCurrent = async (cfg: BootConfig, privateIp: string): Promise<void> => {
+    const isApiserverRunning = (): boolean =>
+        run(['kubectl', 'get', '--raw', '/healthz'], { check: false, env: bootstrapKubeconfigEnv() })
+            .stdout.toLowerCase().includes('ok');
+
+    const certPath = '/etc/kubernetes/pki/apiserver.crt';
+    const keyPath  = '/etc/kubernetes/pki/apiserver.key';
+    if (!existsSync(certPath)) { warn(`${certPath} missing — skipping cert SAN check`); return; }
+
+    const sanCheck = run(
+        ['/bin/sh', '-c', `openssl x509 -noout -text -in ${certPath} | grep -E '^[[:space:]]*X509v3 Subject Alternative Name' -A1 | tail -1`],
+        { check: false },
+    );
+    const sans = sanCheck.stdout.trim();
+    info(`apiserver cert SANs: ${sans || '(none parsed)'}`);
+
+    if (sans.includes(privateIp)) {
+        info(`apiserver cert SANs already include ${privateIp} — no regeneration needed`);
+        return;
+    }
+
+    warn(`apiserver cert SANs do NOT include current private IP ${privateIp} — regenerating (likely stale from DR restore)`);
+
+    const publicIp = imds('public-ipv4');
+    const extraSans = ['127.0.0.1', privateIp, cfg.apiDnsName, ...(publicIp ? [publicIp] : [])].join(',');
+
+    unlinkSync(certPath);
+    unlinkSync(keyPath);
+    info(`Removed stale ${certPath} + ${keyPath}`);
+
+    run(['kubeadm', 'init', 'phase', 'certs', 'apiserver',
+        `--apiserver-cert-extra-sans=${extraSans}`,
+        `--apiserver-advertise-address=${privateIp}`]);
+    info(`Regenerated apiserver cert with SANs: ${extraSans}`);
+
+    // Kill the running api-server container so kubelet recreates the static
+    // pod and the new container loads the regenerated cert. The old container
+    // has the cert open in memory and will keep serving the stale one until
+    // restart.
+    run(
+        ['/bin/sh', '-c', 'crictl ps -q --name kube-apiserver | xargs -r crictl rm -f'],
+        { check: false },
+    );
+    info('Killed kube-apiserver container — kubelet will recreate static pod with new cert');
+
+    // Restart kubelet too so it (a) recreates the static pod immediately, and
+    // (b) resets its own node-registration backoff so the next POST /nodes
+    // happens fast against the now-valid cert.
+    run(['systemctl', 'restart', 'kubelet'], { check: false });
+
+    await waitUntil(isApiserverRunning, { timeoutMs: 180_000, label: 'API server back up with new cert' });
+    info('API server healthy with regenerated cert');
+
+    // Give kubelet 15 s to register, then dump diagnostics either way so
+    // CloudWatch shows whether the fix worked or further investigation is needed.
+    await new Promise<void>(r => setTimeout(r, 15_000));
+    const nodeList = run(
+        ['kubectl', 'get', 'nodes', '-o', 'wide', '--no-headers'],
+        { check: false, env: KUBECONFIG },
+    );
+    info(`Registered nodes after cert regeneration: ${nodeList.stdout.trim() || '(none)'}`);
+};
+
 const handleSecondRun = async (cfg: BootConfig): Promise<void> => {
     info('Cluster already initialised — running second-run maintenance');
     const privateIp = imds('local-ipv4');
@@ -713,40 +795,9 @@ const handleSecondRun = async (cfg: BootConfig): Promise<void> => {
         info('Manifests missing or API server not responding — reconstructing control plane...');
         await reconstructControlPlane(cfg, privateIp);
     } else {
-        info('API server already running — skipping reconstruction');
+        info('API server already running — checking apiserver cert SANs against current IP');
         await updateDns(privateIp, cfg);
-        // Restart the kubelet to reset its node-registration backoff.
-        // After a dr-restore the kubelet may have failed to register the node
-        // against the pre-restore API server state and is now deep in
-        // exponential backoff (minutes between retries). Restarting it forces
-        // an immediate re-attempt. Static pods (API server, etcd, etc.) will
-        // also restart, so we wait for /healthz before continuing.
-        info('Restarting kubelet to force node re-registration after dr-restore...');
-        run(['systemctl', 'restart', 'kubelet'], { check: false });
-        await waitUntil(isApiserverRunning, { timeoutMs: 120_000, label: 'API server after kubelet restart' });
-
-        // Give the kubelet 15 s to attempt its first registration, then
-        // capture diagnostics so CloudWatch shows the real error if it fails.
-        await new Promise<void>(r => setTimeout(r, 15_000));
-        const nodeList = run(
-            ['kubectl', 'get', 'nodes', '-o', 'wide', '--no-headers'],
-            { check: false, env: KUBECONFIG },
-        );
-        info(`All registered nodes after kubelet restart: ${nodeList.stdout.trim() || '(none)'}`);
-        const kubeletJournal = run(
-            ['journalctl', '-u', 'kubelet', '--no-pager', '-n', '50', '--output=cat'],
-            { check: false },
-        );
-        if (kubeletJournal.stdout) {
-            info(`Kubelet journal (last 50 lines):\n${kubeletJournal.stdout.slice(0, 4000)}`);
-        }
-        const pendingCsrs = run(
-            ['kubectl', 'get', 'csr', '--no-headers'],
-            { check: false, env: KUBECONFIG },
-        );
-        if (pendingCsrs.stdout.trim()) {
-            info(`Pending CSRs:\n${pendingCsrs.stdout.trim()}`);
-        }
+        await ensureApiserverCertCurrent(cfg, privateIp);
     }
 
     await ssmPut(`${cfg.ssmPrefix}/control-plane-endpoint`, `${cfg.apiDnsName}:6443`, cfg.awsRegion);
