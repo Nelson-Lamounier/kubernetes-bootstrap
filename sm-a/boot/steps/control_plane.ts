@@ -724,6 +724,29 @@ const handleSecondRun = async (cfg: BootConfig): Promise<void> => {
         info('Restarting kubelet to force node re-registration after dr-restore...');
         run(['systemctl', 'restart', 'kubelet'], { check: false });
         await waitUntil(isApiserverRunning, { timeoutMs: 120_000, label: 'API server after kubelet restart' });
+
+        // Give the kubelet 15 s to attempt its first registration, then
+        // capture diagnostics so CloudWatch shows the real error if it fails.
+        await new Promise<void>(r => setTimeout(r, 15_000));
+        const nodeList = run(
+            ['kubectl', 'get', 'nodes', '-o', 'wide', '--no-headers'],
+            { check: false, env: KUBECONFIG },
+        );
+        info(`All registered nodes after kubelet restart: ${nodeList.stdout.trim() || '(none)'}`);
+        const kubeletJournal = run(
+            ['journalctl', '-u', 'kubelet', '--no-pager', '-n', '50', '--output=cat'],
+            { check: false },
+        );
+        if (kubeletJournal.stdout) {
+            info(`Kubelet journal (last 50 lines):\n${kubeletJournal.stdout.slice(0, 4000)}`);
+        }
+        const pendingCsrs = run(
+            ['kubectl', 'get', 'csr', '--no-headers'],
+            { check: false, env: KUBECONFIG },
+        );
+        if (pendingCsrs.stdout.trim()) {
+            info(`Pending CSRs:\n${pendingCsrs.stdout.trim()}`);
+        }
     }
 
     await ssmPut(`${cfg.ssmPrefix}/control-plane-endpoint`, `${cfg.apiDnsName}:6443`, cfg.awsRegion);
