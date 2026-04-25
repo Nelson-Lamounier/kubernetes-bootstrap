@@ -10,14 +10,13 @@
 #
 # ─── Two Modes ─────────────────────────────────────────────────────
 #
-#   PUSH (automatic): S3 sync only — no Step Functions trigger.
-#     Keeps bootstrap + deploy scripts in S3 current so that ASG node
-#     replacement can recover using the latest committed scripts.
-#
-#   DISPATCH (manual): Full bootstrap by default (trigger_bootstrap=true).
-#     Use when manually re-bootstrapping a cluster node.
-#     Uncheck trigger_bootstrap to do an S3-sync-only dispatch.
+#   PUSH (automatic): Full bootstrap — S3 sync + Step Functions trigger.
+#     Script changes go to S3 and SM-A immediately re-bootstraps nodes
+#     so the cluster always runs the committed version of the scripts.
 #     SM-B fires automatically via EventBridge when SM-A succeeds.
+#
+#   DISPATCH (manual): Honour trigger_bootstrap toggle (default true).
+#     Uncheck trigger_bootstrap to do an S3-sync-only dispatch.
 #     To inject config only (no bootstrap), use deploy-post-bootstrap.yml.
 
 name: Deploy SSM Bootstrap to Development
@@ -51,7 +50,7 @@ jobs:
     with:
       environment: development
       cdk-environment: development
-      # Push events: trigger_bootstrap input is absent → evaluates false → S3 sync only.
-      # Dispatch: honour the explicit toggle (default true — bootstrap runs unless unchecked).
-      trigger-bootstrap: ${{ github.event.inputs.trigger_bootstrap == 'true' }}
+      # Push events: always trigger bootstrap so nodes run the committed scripts.
+      # Dispatch: honour the explicit toggle (default true — uncheck for S3-sync-only).
+      trigger-bootstrap: ${{ github.event_name == 'push' || github.event.inputs.trigger_bootstrap == 'true' }}
     secrets: inherit
