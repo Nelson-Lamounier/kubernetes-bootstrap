@@ -48,3 +48,6 @@ infra/.yarn/build-state.yml
 # TypeScript build output
 *.js.map
 *.d.ts
+# Prevent tsc run-without-tsconfig from polluting source tree
+infra/lib/**/*.js
+infra/bin/**/*.js
