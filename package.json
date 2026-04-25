@@ -18,5 +18,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@nelsonlamounier/cdk-deploy-scripts": "^1.0.1"
   }
 }

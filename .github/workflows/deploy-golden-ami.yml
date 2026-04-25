@@ -411,7 +411,40 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
-  # Phase 4: Promote to production
+  # Phase 4a: Trigger cdk-monitoring compute redeploy
+  #
+  # After a new AMI is validated, the compute stacks in cdk-monitoring must
+  # be redeployed so their Launch Templates pick up the new AMI ID. CDK now
+  # resolves the AMI at synth time (valueFromLookup), so a fresh cdk synth
+  # on the next deploy will bake the new AMI ID into the CloudFormation
+  # template and create a new Launch Template version.
+  #
+  # Requires: CRON_REPO_PAT secret — a PAT with actions:write on the
+  # nelson-lamounier/cdk-monitoring repository.
+  # ---------------------------------------------------------------------------
+  trigger-compute-redeploy:
+    name: Trigger cdk-monitoring Compute Redeploy
+    needs: validate
+    if: needs.validate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Dispatch deploy-kubernetes.yml in cdk-monitoring
+        env:
+          AMI_ID: ${{ needs.validate.outputs.ami_id }}
+          GH_TOKEN: ${{ secrets.CRON_REPO_PAT }}
+        run: |
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            /repos/nelson-lamounier/cdk-monitoring/actions/workflows/deploy-kubernetes.yml/dispatches \
+            -f ref=develop \
+            -f "inputs[skip_verification]=false"
+          echo "Dispatched deploy-kubernetes.yml for AMI ${AMI_ID}"
+
+  # ---------------------------------------------------------------------------
+  # Phase 4b: Promote to production
   # Writes the validated AMI ID to /k8s/production/golden-ami/latest.
   # Only runs when promote_to_production=true — never automatic.
   # ---------------------------------------------------------------------------

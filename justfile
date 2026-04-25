@@ -13,9 +13,8 @@
 # This file is the single CLI entry point for local development and ops.
 # CI/CD pipelines also use 'just' for code quality tasks (lint, build, typecheck).
 
-# CDK project root and stacks config — used by @nelson-lamounier/cdk-deploy-scripts
+# CDK project root — used by @nelson-lamounier/cdk-deploy-scripts
 export CDK_PROJECT_ROOT := "infra"
-export CDK_STACKS_CONFIG := justfile_directory() + "/scripts/shared/stacks.js"
 
 # Default recipe — show help
 default:
@@ -1020,6 +1019,23 @@ ec2-disable-source-dest-check instance-id region="eu-west-1" profile="dev-accoun
 [group('k8s')]
 troubleshoot-ami *ARGS:
     npx tsx scripts/troubleshoot-ami.ts \
+      --env development \
+      --region eu-west-1 \
+      --profile dev-account \
+      {{ARGS}}
+
+# Purge old Golden AMIs that are no longer referenced by any Launch Template.
+# Dry-run by default — pass --force to actually deregister and delete snapshots.
+# Always keeps: current SSM AMI + any LT-referenced AMI + N newest (default 2).
+#
+# Usage: just purge-old-amis                                # dry-run, development
+#        just purge-old-amis --env staging                  # dry-run, staging
+#        just purge-old-amis --force                        # delete, development
+#        just purge-old-amis --env production --force       # delete, production
+#        just purge-old-amis --keep-count 3 --force         # keep 3 newest, delete rest
+[group('k8s')]
+purge-old-amis *ARGS:
+    npx tsx scripts/purge-old-amis.ts \
       --env development \
       --region eu-west-1 \
       --profile dev-account \

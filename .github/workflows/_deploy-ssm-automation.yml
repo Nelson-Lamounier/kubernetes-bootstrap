@@ -40,6 +40,11 @@ on:
         required: false
         default: true
         type: boolean
+      instance-refresh:
+        description: "Roll all ASG instances to the current Launch Template (use after a new AMI bake)"
+        required: false
+        default: false
+        type: boolean
     secrets:
       AWS_OIDC_ROLE:
         description: "AWS OIDC role ARN"
@@ -217,12 +222,96 @@ jobs:
           echo "[OK] gitops/ synced"
 
   # ===========================================================================
+  # Phase 2c: Instance Refresh (optional)
+  #
+  # Rolls all ASG instances to the current Launch Template so that nodes
+  # bootstrapped by SM-A are already running the latest Golden AMI.
+  # Only runs when instance-refresh=true (set by deploy-full.yml after a bake).
+  # MinHealthyPercentage=0 allows replacing all nodes at once for dev clusters.
+  # ===========================================================================
+  instance-refresh:
+    name: "Phase 2c — ASG Instance Refresh (roll to new AMI)"
+    needs: [deploy-ssm-cdk, sync-and-verify]
+    if: inputs.instance-refresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+
+      - name: Start instance refresh on all ASGs
+        id: refresh
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          ASGS=$(aws autoscaling describe-auto-scaling-groups \
+            --region "$AWS_REGION" \
+            --query "AutoScalingGroups[?contains(AutoScalingGroupName, \`${CDK_ENV}\`)].AutoScalingGroupName" \
+            --output text)
+          if [ -z "$ASGS" ]; then
+            echo "::warning::No ASGs found for environment ${CDK_ENV} — skipping refresh"
+            exit 0
+          fi
+          REFRESH_IDS=""
+          for ASG in $ASGS; do
+            ID=$(aws autoscaling start-instance-refresh \
+              --auto-scaling-group-name "$ASG" \
+              --region "$AWS_REGION" \
+              --preferences '{"MinHealthyPercentage": 0, "InstanceWarmup": 60}' \
+              --query 'InstanceRefreshId' \
+              --output text 2>/dev/null || echo "")
+            if [ -n "$ID" ]; then
+              echo "Started refresh $ID on $ASG"
+              REFRESH_IDS="$REFRESH_IDS $ASG:$ID"
+            fi
+          done
+          echo "refresh_ids=${REFRESH_IDS}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for instance refresh to complete
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          MAX_WAIT=1500
+          INTERVAL=30
+          ELAPSED=0
+          echo "Waiting for all ASG instance refreshes to complete (max ${MAX_WAIT}s)..."
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            PENDING=$(aws autoscaling describe-instance-refreshes \
+              --region "$AWS_REGION" \
+              --query "InstanceRefreshes[?Status==\`InProgress\` || Status==\`Pending\` || Status==\`RollbackInProgress\`].AutoScalingGroupName" \
+              --output text 2>/dev/null | tr '\t' '\n' | grep "${CDK_ENV}" | wc -l | tr -d ' ')
+            if [ "$PENDING" -eq 0 ]; then
+              echo "All instance refreshes complete (${ELAPSED}s)"
+              break
+            fi
+            echo "  $PENDING refresh(es) still in progress... (${ELAPSED}/${MAX_WAIT}s)"
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+          FAILED=$(aws autoscaling describe-instance-refreshes \
+            --region "$AWS_REGION" \
+            --query "InstanceRefreshes[?Status==\`Failed\` || Status==\`Cancelled\`].AutoScalingGroupName" \
+            --output text 2>/dev/null | tr '\t' '\n' | grep "${CDK_ENV}" || true)
+          if [ -n "$FAILED" ]; then
+            echo "::error::Instance refresh failed for: $FAILED"
+            exit 1
+          fi
+          echo "All ASGs refreshed to new Launch Template"
+
+  # ===========================================================================
   # Phase 3: Trigger Bootstrap — Start Step Functions Executions
   # ===========================================================================
   trigger-bootstrap:
     name: "Phase 3 — Trigger Step Functions Bootstrap"
-    needs: [sync-and-verify]
-    if: inputs.trigger-bootstrap
+    needs: [sync-and-verify, instance-refresh]
+    if: inputs.trigger-bootstrap && (needs.instance-refresh.result == 'success' || needs.instance-refresh.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ${{ inputs.environment }}
