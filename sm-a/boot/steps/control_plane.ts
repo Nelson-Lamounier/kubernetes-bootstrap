@@ -1037,6 +1037,8 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
     });
 
     let lastPodSnapshot = '';
+    let lastDiagnosticAt = 0;
+    const calicoWaitStart = Date.now();
     await waitUntil(
         () => {
             const r = run(['kubectl', 'get', 'pods', '-n', 'calico-system', '--no-headers'],
@@ -1044,8 +1046,6 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
             const lines = r.ok && r.stdout.trim()
                 ? r.stdout.trim().split('\n')
                 : [];
-            // Log every state change (including "(no pods)") so CloudWatch
-            // shows whether the operator is actually scheduling Calico pods
             const snapshot = lines.length === 0
                 ? '(no pods)'
                 : lines.map(l => l.split(/\s+/).slice(0, 3).join(' ')).join(' | ');
@@ -1053,6 +1053,30 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
                 info(`calico-system pods: ${snapshot}`);
                 lastPodSnapshot = snapshot;
             }
+
+            // Every 30 s with no Calico pods scheduled, dump the operator's
+            // logs + Installation CR status + recent events so CloudWatch
+            // shows WHY the operator is not reconciling. Without this, the
+            // wait just polls silently for 5 min and tells us nothing.
+            const elapsed = Date.now() - calicoWaitStart;
+            if (lines.length === 0 && elapsed > 30_000 && elapsed - lastDiagnosticAt > 30_000) {
+                lastDiagnosticAt = elapsed;
+                warn(`No calico-system pods after ${Math.round(elapsed / 1000)}s — dumping operator diagnostics`);
+                const opLogs = run(['kubectl', 'logs', 'deployment/tigera-operator',
+                    '-n', 'tigera-operator', '--tail=40'],
+                    { check: false, quiet: true, env: KUBECONFIG });
+                if (opLogs.stdout) info(`tigera-operator logs (last 40):\n${opLogs.stdout.slice(0, 4000)}`);
+                if (opLogs.stderr) warn(`tigera-operator log stderr: ${opLogs.stderr.slice(0, 500)}`);
+                const inst = run(['kubectl', 'get', 'installation', 'default',
+                    '-o', 'jsonpath={.status}'],
+                    { check: false, quiet: true, env: KUBECONFIG });
+                info(`Installation status: ${inst.stdout.slice(0, 1500) || '(empty)'}`);
+                const events = run(['kubectl', 'get', 'events', '-n', 'tigera-operator',
+                    '--sort-by=.lastTimestamp', '--no-headers'],
+                    { check: false, quiet: true, env: KUBECONFIG });
+                if (events.stdout) info(`tigera-operator events:\n${events.stdout.slice(0, 2000)}`);
+            }
+
             return lines.length > 0 && lines.every(l => l.includes('Running'));
         },
         { timeoutMs: 300_000, label: 'Calico pods Running' },
