@@ -715,6 +715,15 @@ const handleSecondRun = async (cfg: BootConfig): Promise<void> => {
     } else {
         info('API server already running — skipping reconstruction');
         await updateDns(privateIp, cfg);
+        // Restart the kubelet to reset its node-registration backoff.
+        // After a dr-restore the kubelet may have failed to register the node
+        // against the pre-restore API server state and is now deep in
+        // exponential backoff (minutes between retries). Restarting it forces
+        // an immediate re-attempt. Static pods (API server, etcd, etc.) will
+        // also restart, so we wait for /healthz before continuing.
+        info('Restarting kubelet to force node re-registration after dr-restore...');
+        run(['systemctl', 'restart', 'kubelet'], { check: false });
+        await waitUntil(isApiserverRunning, { timeoutMs: 120_000, label: 'API server after kubelet restart' });
     }
 
     await ssmPut(`${cfg.ssmPrefix}/control-plane-endpoint`, `${cfg.apiDnsName}:6443`, cfg.awsRegion);
