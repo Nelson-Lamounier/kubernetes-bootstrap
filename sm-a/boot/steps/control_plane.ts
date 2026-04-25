@@ -701,6 +701,49 @@ const reconstructControlPlane = async (cfg: BootConfig, privateIp: string): Prom
 };
 
 /**
+ * Ensures the `kubeadm-config` ConfigMap in kube-system contains the
+ * cluster's `networking.podSubnet`.
+ *
+ * @remarks
+ * After a DR restore, the kubeadm-config ConfigMap can carry an incomplete
+ * ClusterConfiguration that omits `networking.podSubnet`. The Tigera operator's
+ * IPPool controller reads this field to cross-validate the Installation CR's
+ * `spec.calicoNetwork.ipPools[].cidr`. If absent, the controller fails with:
+ *
+ *     Could not resolve CalicoNetwork IPPool and kubeadm configuration:
+ *     kubeadm configuration is missing required podSubnet field
+ *
+ * and the operator never schedules calico-system pods. This function checks
+ * the CM and re-uploads a complete ClusterConfiguration via
+ * `kubeadm init phase upload-config kubeadm --config <file>` when needed.
+ */
+const ensureKubeadmConfigComplete = (cfg: BootConfig): void => {
+    const check = run(
+        ['/bin/sh', '-c',
+            `kubectl get cm kubeadm-config -n kube-system -o jsonpath='{.data.ClusterConfiguration}' | grep -q 'podSubnet: ${cfg.podCidr}'`],
+        { check: false, quiet: true, env: KUBECONFIG },
+    );
+    if (check.ok) {
+        info(`kubeadm-config already has podSubnet=${cfg.podCidr}`);
+        return;
+    }
+    warn('kubeadm-config missing podSubnet — re-uploading complete ClusterConfiguration');
+    const tmpConfig = '/tmp/kubeadm-uploadcfg.yaml';
+    writeFileSync(tmpConfig, [
+        'apiVersion: kubeadm.k8s.io/v1beta3',
+        'kind: ClusterConfiguration',
+        `kubernetesVersion: v${cfg.k8sVersion}`,
+        'networking:',
+        `  podSubnet: ${cfg.podCidr}`,
+        `  serviceSubnet: ${cfg.serviceCidr}`,
+        `controlPlaneEndpoint: ${cfg.apiDnsName}:6443`,
+        '',
+    ].join('\n'));
+    run(['kubeadm', 'init', 'phase', 'upload-config', 'kubeadm', '--config', tmpConfig]);
+    info(`kubeadm-config re-uploaded with podSubnet=${cfg.podCidr}`);
+};
+
+/**
  * Ensures the apiserver TLS cert SANs include the current instance's private IP.
  *
  * @remarks
@@ -807,6 +850,7 @@ const handleSecondRun = async (cfg: BootConfig): Promise<void> => {
 
     await publishKubeconfigToSsm(cfg);
     ensureBootstrapToken();
+    ensureKubeadmConfigComplete(cfg);
     await ensureKubeProxy(cfg);
     ensureCoreDns(cfg);
 
