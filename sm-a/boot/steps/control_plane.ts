@@ -988,8 +988,18 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
         run(['kubectl', 'delete', 'pods', '--all', '-n', 'calico-system',
             '--grace-period=0', '--force', '--ignore-not-found'],
             { check: false, env: KUBECONFIG });
-        // Brief pause so the operator processes the deletions before we re-apply
-        await new Promise<void>(r => setTimeout(r, 10_000));
+        // Restart the operator pod itself. The tigera-operator may have been
+        // running from the previous incarnation and is holding stale internal
+        // reconciliation state — without restarting it, the freshly-applied
+        // Installation CR below is acknowledged but no calico-system pods
+        // ever get created.
+        run(['kubectl', 'rollout', 'restart', 'deployment/tigera-operator',
+            '-n', 'tigera-operator'], { check: false, env: KUBECONFIG });
+        run(['kubectl', 'rollout', 'status', 'deployment/tigera-operator',
+            '-n', 'tigera-operator', '--timeout=120s'],
+            { check: false, env: KUBECONFIG });
+        // Brief pause so the freshly-restarted operator finishes initial reconcile
+        await new Promise<void>(r => setTimeout(r, 5_000));
     }
 
     const source = existsSync(CACHED_CALICO_OPERATOR)
@@ -1031,10 +1041,14 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
         () => {
             const r = run(['kubectl', 'get', 'pods', '-n', 'calico-system', '--no-headers'],
                 { check: false, quiet: true, env: KUBECONFIG });
-            if (!r.ok || !r.stdout.trim()) return false;
-            const lines = r.stdout.trim().split('\n');
-            // Log only when pod state changes — avoids flooding CloudWatch on every poll
-            const snapshot = lines.map(l => l.split(/\s+/).slice(0, 3).join(' ')).join(' | ');
+            const lines = r.ok && r.stdout.trim()
+                ? r.stdout.trim().split('\n')
+                : [];
+            // Log every state change (including "(no pods)") so CloudWatch
+            // shows whether the operator is actually scheduling Calico pods
+            const snapshot = lines.length === 0
+                ? '(no pods)'
+                : lines.map(l => l.split(/\s+/).slice(0, 3).join(' ')).join(' | ');
             if (snapshot !== lastPodSnapshot) {
                 info(`calico-system pods: ${snapshot}`);
                 lastPodSnapshot = snapshot;
