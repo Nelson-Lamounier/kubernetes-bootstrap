@@ -509,12 +509,20 @@ def handler(event, context):
     );
     fetchFailureOutput.addCatch(pollApiFailed, { errors: ["States.ALL"] });
 
+    // Failure formatter: prioritise actionable pointers over inline log text.
+    // Step Functions truncates the Cause field on display, and SSM stdout
+    // already caps at ~24k chars upstream — embedding both means the most
+    // useful part (stderr tail + the exact aws logs command) gets cut. So:
+    //   1. Lead with the CommandId, InstanceId, and a ready-to-paste
+    //      `aws logs tail` invocation pointing at the precise stream.
+    //   2. Include stderr only (more diagnostic than stdout, typically short).
+    //   3. Drop stdout from the Cause entirely — operators tail CloudWatch.
     const formatFailureCause = new sfn.CustomState(this, `${id}FormatCause`, {
       stateJson: {
         Type: "Pass",
         Parameters: {
           error: "CommandFailed",
-          "cause.$": `States.Format('⚠ Bootstrap step ${id} FAILED.\nSSM status: {}.\n\n─── stdout snapshot (first 2500 chars — see CloudWatch for tail) ───\n{}\n─── stderr ───\n{}\n\nFull logs in CloudWatch:\n  Log group:  ${logGroupName}\n  Log stream: <CommandId>/<InstanceId>/aws-runShellScript/stdout\n\nLast step detail (query SSM after run):\n  aws ssm get-parameter --name {}/bootstrap/status/argocd/<step-name>\n  aws ssm get-parameter --name {}/bootstrap/status/boot/<step-name>', $.${safeId}FailureOutput.StatusDetails, $.${safeId}FailureOutput.StandardOutputContent, $.${safeId}FailureOutput.StandardErrorContent, $.router.ssmPrefix, $.router.ssmPrefix)`,
+          "cause.$": `States.Format('⚠ Bootstrap step ${id} FAILED.\nSSM status: {}.\nCommandId: {}\nInstanceId: {}\n\nTail full logs:\n  aws logs tail ${logGroupName} --log-stream-name-prefix {} --since 1h --follow\n\nOr fetch invocation directly:\n  aws ssm get-command-invocation --command-id {} --instance-id {}\n\nQuery step status in SSM:\n  aws ssm get-parameter --name {}/bootstrap/status/boot/<step-name>\n  aws ssm get-parameter --name {}/bootstrap/status/argocd/<step-name>\n\n─── stderr (full) ───\n{}', $.${safeId}FailureOutput.StatusDetails, $.${id}Result.CommandId, ${instanceIdPath}, $.${id}Result.CommandId, $.${id}Result.CommandId, ${instanceIdPath}, ${ssmPrefixPath}, ${ssmPrefixPath}, $.${safeId}FailureOutput.StandardErrorContent)`,
         },
         ResultPath: `$.${safeId}FailCause`,
       },
