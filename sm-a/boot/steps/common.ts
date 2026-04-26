@@ -48,8 +48,8 @@ export interface RunResult {
 export interface StepRecord {
     /** Step identifier, matching the name passed to {@link makeRunStep}. */
     readonly step: string;
-    /** Terminal status of the step. */
-    readonly status: 'success' | 'failed' | 'skipped';
+    /** Terminal status of the step. `degraded` = step ran but a health check it owns did not pass; pipeline continues, summary surfaces it. */
+    readonly status: 'success' | 'failed' | 'skipped' | 'degraded';
     /** ISO-8601 timestamp at which the step began executing. */
     readonly startedAt: string;
     /** ISO-8601 timestamp at which the step completed (success or failure). */
@@ -383,12 +383,15 @@ export const appendRunSummary = (record: StepRecord): void => {
         const steps: StepRecord[] = (summary.steps as StepRecord[] | undefined) ?? [];
         steps.push(record);
         const failed = steps.filter(s => s.status === 'failed');
+        const degraded = steps.filter(s => s.status === 'degraded');
+        const overallStatus = failed.length > 0 ? 'failed' : degraded.length > 0 ? 'degraded' : 'success';
         writeFileSync(RUN_SUMMARY_FILE, JSON.stringify({
             updatedAt:     new Date().toISOString(),
-            overallStatus: failed.length > 0 ? 'failed' : 'success',
+            overallStatus,
             failureCode:   failed.length > 0 ? classifyFailure(failed[0]!.step, failed[0]!.error ?? '') : null,
             totalSteps:    steps.length,
             failedSteps:   failed.map(s => s.step),
+            degradedSteps: degraded.map(s => s.step),
             steps,
         }, null, 2));
     } catch (e) {
@@ -418,6 +421,20 @@ export const appendRunSummary = (record: StepRecord): void => {
  * await runStep('install-calico', () => installCalico(cfg), cfg, CALICO_MARKER);
  * ```
  */
+/**
+ * Thrown by a step when it ran but a health check it owns did not pass within
+ * the allowed window. Pipeline continues — Step Functions inspects
+ * run_summary.json `overallStatus === 'degraded'` to decide alerting. Use this
+ * instead of `warn() + return` so the failure is not silently classified as
+ * success.
+ */
+export class StepDegraded extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'StepDegraded';
+    }
+}
+
 export const makeRunStep = (scriptName: string) =>
     /**
      * Executes a single bootstrap step with SSM status tracking and idempotency.
@@ -471,20 +488,29 @@ export const makeRunStep = (scriptName: string) =>
             const elapsedMs  = Date.now() - t;
             const finishedAt = new Date().toISOString();
             const errorMsg   = err instanceof Error ? err.message : String(err);
-            error(`Step '${name}' FAILED in ${elapsedMs}ms`, { error: errorMsg });
+            const status: 'failed' | 'degraded' = err instanceof StepDegraded ? 'degraded' : 'failed';
+
+            if (status === 'degraded') {
+                warn(`Step '${name}' DEGRADED in ${elapsedMs}ms — pipeline continues`, { reason: errorMsg });
+            } else {
+                error(`Step '${name}' FAILED in ${elapsedMs}ms`, { error: errorMsg });
+            }
 
             ssmPut(
                 `${cfg.ssmPrefix}/bootstrap/status/boot/${name}`,
                 JSON.stringify({
-                    script: scriptName, step: name, status: 'failed',
+                    script: scriptName, step: name, status,
                     startedAt, finishedAt, elapsedMs,
                     error: errorMsg.slice(0, 3000),
                 }),
                 cfg.awsRegion,
             ).catch(e => warn(`SSM status write failed for '${name}': ${e}`));
 
-            appendRunSummary({ step: name, status: 'failed', startedAt, finishedAt, elapsedMs, error: errorMsg });
-            throw err;
+            appendRunSummary({ step: name, status, startedAt, finishedAt, elapsedMs, error: errorMsg });
+
+            if (status === 'failed') throw err;
+            // Degraded: do NOT touch marker — next run retries the step so a
+            // transient health-check failure can self-heal.
         }
     };
 
