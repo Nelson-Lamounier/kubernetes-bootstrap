@@ -5,29 +5,19 @@
 # The SSM Automation CDK stack is deployed by deploy-cdk.yml.
 #
 # Triggers:
-#   - Push to develop when bootstrap scripts change
-#   - Manual dispatch (workflow_dispatch)
+#   - Manual dispatch only (workflow_dispatch)
 #
-# ─── Two Modes ─────────────────────────────────────────────────────
+# ─── Modes ──────────────────────────────────────────────────────────
 #
-#   PUSH (automatic): Full bootstrap — S3 sync + Step Functions trigger.
-#     Script changes go to S3 and SM-A immediately re-bootstraps nodes
-#     so the cluster always runs the committed version of the scripts.
+#   trigger_bootstrap=true  (default): S3 sync + Step Functions trigger.
 #     SM-B fires automatically via EventBridge when SM-A succeeds.
 #
-#   DISPATCH (manual): Honour trigger_bootstrap toggle (default true).
-#     Uncheck trigger_bootstrap to do an S3-sync-only dispatch.
+#   trigger_bootstrap=false: S3 sync only — no bootstrap triggered.
 #     To inject config only (no bootstrap), use deploy-post-bootstrap.yml.
 
 name: Deploy SSM Bootstrap to Development
 
 on:
-  push:
-    branches: [develop]
-    paths:
-      - 'sm-a/boot/**'
-      - 'system/**'
-      - 'scripts/cd/**'
   workflow_dispatch:
     inputs:
       trigger_bootstrap:
@@ -50,7 +40,6 @@ jobs:
     with:
       environment: development
       cdk-environment: development
-      # Push events: always trigger bootstrap so nodes run the committed scripts.
-      # Dispatch: honour the explicit toggle (default true — uncheck for S3-sync-only).
-      trigger-bootstrap: ${{ github.event_name == 'push' || github.event.inputs.trigger_bootstrap == 'true' }}
+      # Honour the explicit toggle (default true — uncheck for S3-sync-only).
+      trigger-bootstrap: ${{ github.event.inputs.trigger_bootstrap == 'true' }}
     secrets: inherit
