@@ -47,7 +47,7 @@ import { ChangeResourceRecordSetsCommand, Route53Client } from '@aws-sdk/client-
 import {
     ECR_PROVIDER_CONFIG,
     ensureEcrCredentialProvider, error, imds, info, makeRunStep, run,
-    ssmGet, ssmPut, validateKubeadmToken, warn, waitUntil,
+    ssmGet, ssmPut, StepDegraded, validateKubeadmToken, warn, waitUntil,
 } from './common.js';
 
 const runStep = makeRunStep('control_plane');
@@ -492,19 +492,52 @@ const patchApiserverResources = (): void => {
 };
 
 const labelControlPlaneNode = (cfg: BootConfig): void => {
-    const nodeResult = run(
+    // Resolve node name. Prefer selector (kubeadm should have applied
+    // node-role.kubernetes.io/control-plane already); fall back to IMDS
+    // hostname when selector returns empty — second-run / DR-restore paths
+    // have hit cases where kubeadm label was lost or query raced node
+    // registration. Without the fallback, the function silently warns and
+    // exits, which is what left CCM stuck on the uninitialized taint.
+    const selectorResult = run(
         ['kubectl', 'get', 'nodes', '-l', 'node-role.kubernetes.io/control-plane=',
             '-o', 'jsonpath={.items[0].metadata.name}'],
         { check: false, env: KUBECONFIG },
     );
-    const nodeName = nodeResult.stdout.trim();
-    if (!nodeName) { warn('Could not resolve control plane node name — skipping labels'); return; }
+    const nodeName = selectorResult.stdout.trim() || (imds('hostname') ?? '');
+    if (!nodeName) {
+        throw new StepDegraded(
+            'Could not resolve control plane node name (selector empty + IMDS hostname missing) — labels not applied, CCM will stay uninitialized',
+        );
+    }
+
+    // Apply node-role.kubernetes.io/control-plane= explicitly. kubeadm normally
+    // adds this on init, but it can be missing after etcd restore / manual
+    // node deletion / kubeadm reset. CCM nodeSelector targets this label, so
+    // its absence keeps the uninitialized taint forever.
     run(
         ['kubectl', 'label', 'node', nodeName, '--overwrite',
+            'node-role.kubernetes.io/control-plane=',
             'node-pool=control-plane', 'workload=control-plane', `environment=${cfg.environment}`],
         { check: false, env: KUBECONFIG },
     );
-    info(`Control plane node labelled: node-pool=control-plane, environment=${cfg.environment}`);
+
+    // Verify the role label landed. If not, surface as degraded so the run
+    // summary reports it instead of falsely succeeding.
+    const verify = run(
+        ['kubectl', 'get', 'node', nodeName,
+            '-o', 'jsonpath={.metadata.labels.node-role\\.kubernetes\\.io/control-plane}'],
+        { check: false, quiet: true, env: KUBECONFIG },
+    );
+    if (verify.code !== 0 || verify.stdout.trim() === undefined) {
+        // jsonpath returns empty string when label exists with empty value —
+        // treat exit code as the truth signal.
+        if (verify.code !== 0) {
+            throw new StepDegraded(
+                `kubectl get node ${nodeName} failed after labelling — control-plane label cannot be verified`,
+            );
+        }
+    }
+    info(`Control plane node labelled: node=${nodeName}, role=control-plane, environment=${cfg.environment}`);
 };
 
 const publishKubeconfigToSsm = async (cfg: BootConfig): Promise<void> => {
@@ -1131,6 +1164,21 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
         { timeoutMs: 360_000, label: 'calico-node DaemonSet Ready' },
     );
 
+    // waitUntil warns + returns on timeout. Re-check DS readiness; if not
+    // Ready, surface as degraded so the run summary reflects partial CNI
+    // install instead of falsely succeeding.
+    const dsCheck = run(
+        ['kubectl', 'get', 'ds', 'calico-node', '-n', 'calico-system',
+            '-o', 'jsonpath={.status.desiredNumberScheduled} {.status.numberReady}'],
+        { check: false, quiet: true, env: KUBECONFIG },
+    );
+    const [dsDesired, dsReady] = dsCheck.stdout.trim().split(/\s+/);
+    if (!dsDesired || dsDesired === '0' || dsDesired !== dsReady) {
+        throw new StepDegraded(
+            `calico-node DaemonSet not Ready after 360s — desired=${dsDesired ?? '?'} ready=${dsReady ?? '?'}. Node will stay NotReady; downstream steps may also degrade.`,
+        );
+    }
+
     if (existsSync(CALICO_PDB_MANIFEST)) {
         run(['kubectl', 'apply', '--server-side', '-f', CALICO_PDB_MANIFEST], { env: KUBECONFIG });
         info('Calico kube-controllers PodDisruptionBudget applied');
@@ -1173,12 +1221,26 @@ const installCcm = async (_cfg: BootConfig): Promise<void> => {
         { env: KUBECONFIG });
         info('AWS CCM Helm release installed');
 
-        await waitUntil(
-            () => !run(['kubectl', 'get', 'nodes', '-o', 'jsonpath={.items[*].spec.taints}'],
+        const taintGone = (): boolean =>
+            !run(['kubectl', 'get', 'nodes', '-o', 'jsonpath={.items[*].spec.taints}'],
                 { check: false, env: KUBECONFIG }).stdout
-                .includes('node.cloudprovider.kubernetes.io/uninitialized'),
-            { timeoutMs: 120_000, label: 'uninitialised taint removed' },
-        );
+                .includes('node.cloudprovider.kubernetes.io/uninitialized');
+
+        await waitUntil(taintGone, { timeoutMs: 120_000, label: 'uninitialised taint removed' });
+
+        // waitUntil warns + returns on timeout (does not throw). Re-check
+        // explicitly and surface as degraded so the run summary reflects that
+        // CCM is installed but the cluster is not actually usable for
+        // workloads — the taint blocks pod scheduling.
+        if (!taintGone()) {
+            const taints = run(
+                ['kubectl', 'get', 'nodes', '-o', 'jsonpath={.items[*].spec.taints}'],
+                { check: false, env: KUBECONFIG },
+            ).stdout.trim();
+            throw new StepDegraded(
+                `CCM Helm release installed but node.cloudprovider.kubernetes.io/uninitialized taint still present after 120s. Current taints: ${taints || '(empty)'}`,
+            );
+        }
         info('AWS Cloud Controller Manager installed successfully');
     } finally {
         if (existsSync(valuesPath)) unlinkSync(valuesPath);
