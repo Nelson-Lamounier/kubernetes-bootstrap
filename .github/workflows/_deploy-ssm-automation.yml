@@ -314,7 +314,11 @@ jobs:
   trigger-bootstrap:
     name: "Phase 3 — Trigger Step Functions Bootstrap"
     needs: [sync-and-verify, instance-refresh]
-    if: inputs.trigger-bootstrap && (needs.instance-refresh.result == 'success' || needs.instance-refresh.result == 'skipped')
+    if: >-
+      always()
+      && needs.sync-and-verify.result == 'success'
+      && inputs.trigger-bootstrap
+      && (needs.instance-refresh.result == 'success' || needs.instance-refresh.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ${{ inputs.environment }}
