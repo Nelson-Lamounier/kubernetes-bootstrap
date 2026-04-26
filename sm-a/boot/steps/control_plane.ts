@@ -1059,25 +1059,46 @@ const installCalico = async (cfg: BootConfig): Promise<void> => {
         { check: false, quiet: true, env: KUBECONFIG },
     ).ok;
     if (installationExists) {
-        warn('Existing Calico Installation CR found — force-cleaning calico-system for clean rebuild (likely DR stale state)');
-        run(['kubectl', 'delete', 'installation', 'default',
-            '--ignore-not-found', '--timeout=30s'],
-            { check: false, env: KUBECONFIG });
-        run(['kubectl', 'delete', 'pods', '--all', '-n', 'calico-system',
-            '--grace-period=0', '--force', '--ignore-not-found'],
-            { check: false, env: KUBECONFIG });
-        // Restart the operator pod itself. The tigera-operator may have been
-        // running from the previous incarnation and is holding stale internal
-        // reconciliation state — without restarting it, the freshly-applied
-        // Installation CR below is acknowledged but no calico-system pods
-        // ever get created.
-        run(['kubectl', 'rollout', 'restart', 'deployment/tigera-operator',
-            '-n', 'tigera-operator'], { check: false, env: KUBECONFIG });
-        run(['kubectl', 'rollout', 'status', 'deployment/tigera-operator',
-            '-n', 'tigera-operator', '--timeout=120s'],
-            { check: false, env: KUBECONFIG });
-        // Brief pause so the freshly-restarted operator finishes initial reconcile
-        await new Promise<void>(r => setTimeout(r, 5_000));
+        // Only force-rebuild when there's actual evidence of stale state:
+        // (a) calico-system pods stuck Terminating (deletionTimestamp set
+        //     but pod still listed), or
+        // (b) tigera-operator deployment Unavailable.
+        // On a healthy maintenance run neither holds, and the unconditional
+        // delete-and-rollout costs ~58s for no benefit.
+        const stuckTerminating = run(
+            ['kubectl', 'get', 'pods', '-n', 'calico-system',
+                '-o', 'jsonpath={.items[?(@.metadata.deletionTimestamp)].metadata.name}'],
+            { check: false, quiet: true, env: KUBECONFIG },
+        ).stdout.trim();
+        const operatorAvailable = run(
+            ['kubectl', 'get', 'deployment', 'tigera-operator', '-n', 'tigera-operator',
+                '-o', 'jsonpath={.status.conditions[?(@.type=="Available")].status}'],
+            { check: false, quiet: true, env: KUBECONFIG },
+        ).stdout.trim() === 'True';
+
+        const needsForceRebuild = stuckTerminating !== '' || !operatorAvailable;
+
+        if (needsForceRebuild) {
+            warn(`Calico stale state detected (stuckTerminating=[${stuckTerminating}], operatorAvailable=${operatorAvailable}) — force-cleaning calico-system`);
+            run(['kubectl', 'delete', 'installation', 'default',
+                '--ignore-not-found', '--timeout=30s'],
+                { check: false, env: KUBECONFIG });
+            run(['kubectl', 'delete', 'pods', '--all', '-n', 'calico-system',
+                '--grace-period=0', '--force', '--ignore-not-found'],
+                { check: false, env: KUBECONFIG });
+            // Restart the operator: it may be holding stale internal
+            // reconciliation state from the previous incarnation, which
+            // causes a freshly-applied Installation CR to be acknowledged
+            // without any calico-system pods being created.
+            run(['kubectl', 'rollout', 'restart', 'deployment/tigera-operator',
+                '-n', 'tigera-operator'], { check: false, env: KUBECONFIG });
+            run(['kubectl', 'rollout', 'status', 'deployment/tigera-operator',
+                '-n', 'tigera-operator', '--timeout=120s'],
+                { check: false, env: KUBECONFIG });
+            await new Promise<void>(r => setTimeout(r, 5_000));
+        } else {
+            info('Existing Calico Installation CR found and healthy — skipping force-rebuild');
+        }
     }
 
     const source = existsSync(CACHED_CALICO_OPERATOR)
