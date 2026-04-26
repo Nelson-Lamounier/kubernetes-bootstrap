@@ -32,6 +32,8 @@
 #
 # Credentials (repository-level — no GitHub Environments):
 #   vars.AWS_REGION              repository variable  (e.g. eu-west-1)
+#   vars.NOTIFICATION_EMAIL      repository variable  (optional — subscribes
+#                                to AMI build failure SNS topic)
 #   secrets.AWS_OIDC_ROLE        repository secret    (OIDC role ARN)
 #
 # Testing a pre-existing AMI without rebuilding:
@@ -169,7 +171,7 @@ jobs:
       - name: CDK Deploy
         env:
           VPC_ID: ${{ steps.resolve_vpc.outputs.vpc_id }}
-          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+          NOTIFICATION_EMAIL: ${{ vars.NOTIFICATION_EMAIL }}
         run: |
           npx cdk deploy "K8s-GoldenAmi-development" \
             --require-approval never \
