@@ -785,8 +785,9 @@ const ensureApiserverCertCurrent = async (cfg: BootConfig, privateIp: string): P
 
     warn(`apiserver cert SANs do NOT include current private IP ${privateIp} — regenerating (likely stale from DR restore)`);
 
-    const publicIp = imds('public-ipv4');
-    const extraSans = ['127.0.0.1', privateIp, cfg.apiDnsName, ...(publicIp ? [publicIp] : [])].join(',');
+    // Public IP intentionally excluded: rotates on EC2 stop/start, forcing
+    // unnecessary cert regen. External access goes via cfg.apiDnsName (stable).
+    const extraSans = ['127.0.0.1', privateIp, cfg.apiDnsName].join(',');
 
     unlinkSync(certPath);
     unlinkSync(keyPath);
