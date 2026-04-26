@@ -89,6 +89,7 @@ if (vpcId) {
         namePrefix: `k8s-${targetEnvironment}`,
         ssmPrefix: k8sSsmPrefix(targetEnvironment),
         vpcId,
+        notificationEmail: process.env['NOTIFICATION_EMAIL'],
         description: `K8s Golden AMI Image Builder Pipeline — ${targetEnvironment}`,
     });
 } else {

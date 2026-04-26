@@ -47,6 +47,7 @@ import * as path from 'path';
 
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as sns from 'aws-cdk-lib/aws-sns';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as cdk from 'aws-cdk-lib/core';
 
@@ -54,6 +55,7 @@ import { Construct } from 'constructs';
 
 import { Environment } from '../config/environments.js';
 import { K8sConfigs } from '../config/kubernetes/index.js';
+import { GoldenAmiAlertConstruct } from '../constructs/compute/golden-ami-alert.js';
 import { GoldenAmiImageConstruct } from '../constructs/compute/golden-ami-image.js';
 import { buildGoldenAmiComponent } from '../constructs/compute/build-golden-ami-component.js';
 
@@ -80,6 +82,13 @@ export interface GoldenAmiStackProps extends cdk.StackProps {
 
     /** SSM parameter prefix for the base stack (e.g., '/k8s/development') */
     readonly ssmPrefix: string;
+
+    /**
+     * Email address to subscribe to the AMI build failure SNS topic.
+     * When omitted, the topic is still created and wired to EventBridge —
+     * subscribers can be added out-of-band.
+     */
+    readonly notificationEmail?: string;
 }
 
 // =============================================================================
@@ -104,6 +113,8 @@ export class GoldenAmiStack extends cdk.Stack {
     public readonly imageBuilder: GoldenAmiImageConstruct;
     /** The AMI ID produced by Image Builder (CloudFormation token until deployed) */
     public readonly imageId: string;
+    /** SNS topic for Image Builder build failures (FAILED/CANCELLED/TIMED_OUT) */
+    public readonly amiFailureTopic: sns.Topic;
 
     constructor(scope: Construct, id: string, props: GoldenAmiStackProps) {
         super(scope, id, props);
@@ -190,7 +201,23 @@ export class GoldenAmiStack extends cdk.Stack {
         this.imageId = this.imageBuilder.imageId;
 
         // -----------------------------------------------------------------
-        // 4. Stack-level outputs for observability
+        // 4. Build-failure alert: SNS topic + EventBridge rule
+        //
+        // Closes the gap between Image Builder failures and downstream EC2
+        // launches. Without this, a failed bake leaves the SSM AMI parameter
+        // pointing at the previous build and downstream orchestrators silently
+        // roll forward on the stale AMI. Recipe name matches the construct's
+        // own internal naming (`${namePrefix}-golden-ami-recipe`).
+        // -----------------------------------------------------------------
+        const amiAlert = new GoldenAmiAlertConstruct(this, 'AmiBuildFailureAlert', {
+            namePrefix,
+            recipeName: `${namePrefix}-golden-ami-recipe`,
+            notificationEmail: props.notificationEmail,
+        });
+        this.amiFailureTopic = amiAlert.topic;
+
+        // -----------------------------------------------------------------
+        // 5. Stack-level outputs for observability
         // -----------------------------------------------------------------
         new cdk.CfnOutput(this, 'AmiId', {
             value: this.imageId,
@@ -201,6 +228,12 @@ export class GoldenAmiStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'AmiSsmPath', {
             value: configs.image.amiSsmPath,
             description: 'SSM parameter path storing the latest Golden AMI ID',
+        });
+
+        new cdk.CfnOutput(this, 'AmiFailureTopicArn', {
+            value: this.amiFailureTopic.topicArn,
+            description: 'SNS topic ARN for Golden AMI build failures',
+            exportName: `${namePrefix}-golden-ami-failure-topic`,
         });
     }
 }
