@@ -356,6 +356,7 @@ phases:
               find /opt/k8s-bootstrap -name "*.sh" -exec chmod +x {} \\;
               command -v tsx > /dev/null || { echo "FATAL: tsx not installed"; exit 1; }
               npm install --prefix /opt/k8s-bootstrap/sm-a/boot/steps --omit=dev --no-audit --no-fund
+              npm install --prefix /opt/k8s-bootstrap/sm-a/argocd --omit=dev --no-audit --no-fund
               echo "Bootstrap scripts baked: $FILE_COUNT files"
 
       - name: CreateDataDirectory
