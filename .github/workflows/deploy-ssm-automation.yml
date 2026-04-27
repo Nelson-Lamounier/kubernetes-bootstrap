@@ -10,10 +10,10 @@
 # ─── Modes ──────────────────────────────────────────────────────────
 #
 #   trigger_bootstrap=true  (default): S3 sync + Step Functions trigger.
-#     SM-B fires automatically via EventBridge when SM-A succeeds.
+#     After SM-A succeeds, ESO + ArgoCD reconcile all app config.
 #
 #   trigger_bootstrap=false: S3 sync only — no bootstrap triggered.
-#     To inject config only (no bootstrap), use deploy-post-bootstrap.yml.
+#     For verification-only runs, use deploy-post-bootstrap.yml.
 #
 #   instance_refresh=true: Roll all ASG instances to the current Launch
 #     Template before triggering bootstrap (use after a new AMI bake).

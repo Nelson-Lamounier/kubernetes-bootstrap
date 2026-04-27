@@ -12,15 +12,12 @@
 #     → Phase 3: trigger-bootstrap (SM-A, if input=true)
 #     → Phase 4: verify-bootstrap (ubuntu-latest, waits for SFN + public API)
 #
-# ─── Two-State-Machine Architecture ─────────────────────────────────
+# ─── Bootstrap Architecture ─────────────────────────────────────────
 #
 #   SM-A (Bootstrap Orchestrator) — cluster infrastructure
 #     Started by: this pipeline via scripts/cd/trigger-bootstrap.ts
-#     On SUCCEED: EventBridge automatically fires SM-B (self-healing)
-#
-#   SM-B (Config Orchestrator) — application runtime config
-#     Started by: EventBridge ONLY (auto after SM-A SUCCEED)
-#                 OR deploy-post-bootstrap.yml (manual standalone)
+#     On SUCCEED: ESO + ArgoCD reconcile all app config from Git/SSM/SM
+#                 (no post-bootstrap orchestrator runs)
 
 name: Deploy SSM Automation (Reusable)
 
@@ -362,7 +359,7 @@ jobs:
   # Hard failures (exit 1) = SM-A must deliver these:
   #   nodes Ready, kube-system pods, Calico CNI, core namespaces, ArgoCD pods
   #
-  # Warnings only = SM-B territory (fires after SM-A via EventBridge):
+  # Warnings only = ESO/ArgoCD reconciliation territory (eventually consistent):
   #   node labels/taints, Traefik, monitoring, Next.js, app sync status
   # ===========================================================================
   verify-bootstrap:
@@ -518,7 +515,7 @@ jobs:
           echo ""
           echo "[OK] ${READY}/${TOTAL} nodes Ready"
 
-      # ── Check 2: Node labels & CP taint (warn-only — SM-B territory) ───────
+      # ── Check 2: Node labels & CP taint (warn-only — eventually consistent) ───────
       - name: "Check 2 — Node Labels & CP Taint"
         if: steps.kubeconfig.outputs.available == 'true'
         env:
@@ -642,12 +639,12 @@ jobs:
             fi
           done
 
-          # SM-B creates these (warn only)
+          # ArgoCD creates these (warn only — eventually consistent)
           for NS in nextjs-app monitoring; do
             if echo "$NAMESPACES" | grep -qw "$NS"; then
               echo "[OK] Namespace '${NS}' exists"
             else
-              echo "::warning::Namespace '${NS}' not yet created — SM-B (post-bootstrap config) may not have run"
+              echo "::warning::Namespace '${NS}' not yet created — ArgoCD reconciliation pending"
             fi
           done
 
@@ -701,7 +698,7 @@ jobs:
             fi
           done
 
-      # ── Check 7: Workloads (warn-only — SM-B territory) ────────────────────
+      # ── Check 7: Workloads (warn-only — ArgoCD reconciliation) ────────────
       - name: "Check 7 — Workloads (Traefik / Monitoring / Next.js)"
         if: steps.kubeconfig.outputs.available == 'true'
         env:
@@ -710,7 +707,7 @@ jobs:
           # Traefik
           TRAEFIK=$(kubectl get pods -A --no-headers 2>/dev/null | grep traefik || true)
           if [ -z "$TRAEFIK" ]; then
-            echo "::warning::No Traefik pods found — SM-B (post-bootstrap config) may not have run yet"
+            echo "::warning::No Traefik pods found — ArgoCD reconciliation pending"
           else
             TRAEFIK_RUNNING=$(echo "$TRAEFIK" | grep -c 'Running' || true)
             if [ "$TRAEFIK_RUNNING" -ge 1 ]; then
@@ -723,7 +720,7 @@ jobs:
           # Monitoring
           MON_PODS=$(kubectl get pods -n monitoring --no-headers 2>/dev/null || echo "")
           if [ -z "$MON_PODS" ]; then
-            echo "::warning::No pods in monitoring namespace — monitoring stack not yet deployed by SM-B"
+            echo "::warning::No pods in monitoring namespace — ArgoCD has not synced monitoring stack yet"
           else
             for COMP in prometheus grafana loki; do
               if echo "$MON_PODS" | grep -q "$COMP"; then
@@ -737,7 +734,7 @@ jobs:
           # Next.js
           NEXTJS_PODS=$(kubectl get pods -n nextjs-app --no-headers 2>/dev/null || echo "")
           if [ -z "$NEXTJS_PODS" ]; then
-            echo "::warning::No pods in nextjs-app namespace — application not yet deployed by SM-B"
+            echo "::warning::No pods in nextjs-app namespace — ArgoCD has not synced application yet"
           else
             NEXTJS_RUNNING=$(echo "$NEXTJS_PODS" | grep -c 'Running' || true)
             NEXTJS_TOTAL=$(echo "$NEXTJS_PODS" | wc -l | tr -d ' ')
@@ -791,6 +788,6 @@ jobs:
           kubectl get events -A --sort-by='.lastTimestamp' 2>/dev/null | tail -40 || true
 
   # ===========================================================================
-  # NOTE: SM-B fires automatically via EventBridge when SM-A succeeds.
-  # To trigger SM-B manually, use deploy-post-bootstrap.yml.
+  # NOTE: After SM-A succeeds, ESO + ArgoCD reconcile all app config from
+  # Git/SSM/Secrets Manager. Use deploy-post-bootstrap.yml for verification only.
   # ===========================================================================

@@ -6,8 +6,9 @@
  *
  * Each step is wrapped by {@link BootstrapLogger.step}, which:
  * 1. Emits structured JSON lines to `stdout` (consumed by CloudWatch Logs Insights).
- * 2. Writes a status record to SSM Parameter Store so the Step Functions state
- *    machine (SM-B) can observe bootstrap progress without tailing logs.
+ * 2. Writes a status record to SSM Parameter Store so external observers
+ *    (verification jobs, dashboards) can read bootstrap progress without
+ *    tailing CloudWatch.
  *
  * The SSM client is a **lazy singleton** — created on first use and reused for
  * all subsequent writes, avoiding repeated TLS handshake overhead.

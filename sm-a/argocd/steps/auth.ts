@@ -111,10 +111,10 @@ export const createCiBot = (cfg: Config): void => {
     // ConfigMap patches are persisted; the rolling restart only matters when
     // pods can actually schedule. On a control-plane-only cluster (workers not
     // joined yet) the rollout would block until SSM kills the bootstrap (exit
-    // 143). SM-B re-runs ArgoCD bootstrap once workers join, so the restart
-    // happens then with pods that can become Available.
+    // 143). ArgoCD reconciliation will pick up the configmap state once
+    // workers join and pods become schedulable.
     if (!hasSchedulableWorkers(cfg)) {
-        log('  ⚠ No worker nodes — skipping argocd-server rollout (SM-B will retry once workers join)');
+        log('  ⚠ No worker nodes — skipping argocd-server rollout (ArgoCD will reconcile once workers join)');
         log('');
         return;
     }

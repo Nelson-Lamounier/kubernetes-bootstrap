@@ -3,7 +3,7 @@
 #
 # Standalone pipeline to verify ArgoCD health and cluster smoke tests
 # WITHOUT re-triggering SM-A (Bootstrap Orchestrator).
-# Secrets are managed declaratively by ESO ExternalSecrets — no SM-B.
+# Secrets are managed declaratively by ESO; apps by ArgoCD reconciliation.
 #
 # ─── Use This When ─────────────────────────────────────────────────
 #   - Verifying ArgoCD health after manual cluster changes

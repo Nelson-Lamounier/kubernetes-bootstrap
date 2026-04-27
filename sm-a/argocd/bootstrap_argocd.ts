@@ -73,27 +73,27 @@ const main = async (): Promise<void> => {
     await logger.step('provision_crossplane_credentials', () => provisionCrossplaneCredentials(cfg));
     await logger.step('restore_tls_cert',          () => restoreTlsCert(cfg));
 
-    // Non-fatal: cert-manager CRD may not be ready — SM-B retries
+    // Non-fatal: cert-manager CRD may not be ready — ArgoCD will reconcile
     try {
         await logger.step('apply_cert_manager_issuer', () => applyCertManagerIssuer(cfg));
     } catch (e) {
-        log(`  ⚠ apply_cert_manager_issuer failed (non-fatal) — SM-B will retry: ${e}\n`);
+        log(`  ⚠ apply_cert_manager_issuer failed (non-fatal) — ArgoCD will reconcile: ${e}\n`);
     }
 
     await logger.step('wait_for_argocd', () => waitForArgocd(cfg));
 
-    // Non-fatal: Traefik CRDs may not be ready — SM-B retries
+    // Non-fatal: Traefik CRDs may not be ready — ArgoCD will reconcile
     try {
         await logger.step('apply_ingress', () => applyIngress(cfg));
     } catch (e) {
-        log(`  ⚠ apply_ingress failed (non-fatal) — SM-B will retry: ${e}\n`);
+        log(`  ⚠ apply_ingress failed (non-fatal) — ArgoCD will reconcile: ${e}\n`);
     }
 
-    // Non-fatal: same Traefik timing issue — SM-B retries
+    // Non-fatal: same Traefik timing issue — ArgoCD will reconcile
     try {
         await logger.step('create_argocd_ip_allowlist', () => createArgocdIpAllowlist(cfg));
     } catch (e) {
-        log(`  ⚠ create_argocd_ip_allowlist failed (non-fatal) — SM-B will retry: ${e}\n`);
+        log(`  ⚠ create_argocd_ip_allowlist failed (non-fatal) — ArgoCD will reconcile: ${e}\n`);
     }
 
     await logger.step('configure_webhook_secret', () => configureWebhookSecret(cfg));

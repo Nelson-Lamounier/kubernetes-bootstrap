@@ -97,7 +97,7 @@ export const applyIngress = async (cfg: Config): Promise<void> => {
         { check: false, capture: true },
     );
     if (!argoRunningResult.ok || argoRunningResult.stdout.split('\n').filter(l => l.trim() !== '').length === 0) {
-        throw new Error('No ArgoCD pods are Running — cannot apply ingress yet (SM-B will retry)');
+        throw new Error('No ArgoCD pods are Running — cannot apply ingress yet (ArgoCD will reconcile)');
     }
 
     const candidates = [
@@ -203,7 +203,7 @@ export const createArgocdIpAllowlist = async (cfg: Config): Promise<void> => {
     }
 
     if (sourceRanges.length === 0) {
-        throw new Error('No IPs found in SSM for ArgoCD IP allowlist — SM-B will retry');
+        throw new Error('No IPs found in SSM for ArgoCD IP allowlist — ArgoCD will reconcile');
     }
 
     const ipEntries = sourceRanges.map(ip => `      - "${ip}"`).join('\n');

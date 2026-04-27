@@ -9,18 +9,15 @@
  *   4. Polls for completion (wait → check → loop)
  *   5. For control-plane: waits for CA hash publication, then re-joins all worker pools in parallel
  *
- * ## Separation of Concerns
+ * ## Scope
  * SM-A is responsible for cluster infrastructure only:
- *   - control_plane.py — kubeadm init, Calico, CCM, ArgoCD bootstrap
- *   - worker.py — kubeadm join, CloudWatch, EIP association
+ *   - control_plane.ts — kubeadm init, Calico, CCM, ArgoCD bootstrap
+ *   - worker.ts — kubeadm join, CloudWatch, EIP association
  *
- * App config injection (SSM → K8s Secrets/ConfigMaps) is handled by SM-B
- * (`ConfigOrchestratorConstruct`), which triggers automatically via EventBridge
- * when this state machine emits an `ExecutionSucceeded` event.
- *
- * ## Self-Healing Path
- * EC2 replacement → SM-A rebuilds cluster → SM-A SUCCEEDS →
- * EventBridge fires → SM-B re-injects all app secrets automatically.
+ * Application config (Secrets, ConfigMaps) is owned declaratively by ESO
+ * (External Secrets Operator) and ArgoCD reconciliation — no post-bootstrap
+ * orchestrator runs. After SM-A SUCCEEDS, ESO syncs Secrets from AWS Secrets
+ * Manager / SSM, and ArgoCD reconciles all Application manifests from Git.
  *
  * Non-K8s ASGs are silently ignored (no `k8s:bootstrap-role` tag).
  */
@@ -350,43 +347,11 @@ def handler(event, context):
     incrCaPollCount.next(checkCaPollMax);
     waitForCaPoll.next(checkCaParam);
 
-    // ── Notify SM-B via custom EventBridge event (CP path only) ─────────────
-    //
-    // Fires exactly once when the CP script completes AND the join token is
-    // published to SSM. SM-B's EventBridge rule matches this event instead of
-    // the generic SM-A SUCCEEDED, preventing SM-B from firing on every worker
-    // execution that succeeds.
-    const notifySmB = new sfnTasks.EventBridgePutEvents(
-      this,
-      "NotifyConfigOrchestrator",
-      {
-        entries: [
-          {
-            eventBus: events.EventBus.fromEventBusName(
-              this,
-              "DefaultBus",
-              "default",
-            ),
-            source: "custom.k8s-bootstrap",
-            detailType: "ControlPlaneBootstrapCompleted",
-            detail: sfn.TaskInput.fromObject({
-              "ssmPrefix.$": "$.router.ssmPrefix",
-              "instanceId.$": "$.router.instanceId",
-            }),
-          },
-        ],
-        resultPath: JsonPath.DISCARD,
-        comment:
-          "Signal SM-B that CP is ready — fires once per CP bootstrap, never on worker executions",
-      },
-    );
-
     const cpSucceed = new sfn.Succeed(this, "ControlPlaneBootstrapped", {
       comment: "CP bootstrap complete — workers start via their own SM-A executions",
     });
 
-    notifySmB.next(cpSucceed);
-    checkCaParam.next(notifySmB);
+    checkCaParam.next(cpSucceed);
     cpSteps.end.next(initCaPollCount);
     initCaPollCount.next(checkCaParam);
 

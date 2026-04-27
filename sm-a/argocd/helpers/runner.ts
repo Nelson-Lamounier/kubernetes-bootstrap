@@ -423,9 +423,8 @@ export const sleep = (ms: number): Promise<void> =>
  * Used to gate any step that triggers a rolling restart of an ArgoCD workload:
  * on a control-plane-only cluster all argocd-* pods stay `Pending`, so a
  * `kubectl rollout status` will block until SSM kills the bootstrap (exit 143).
- * SM-B re-runs ArgoCD bootstrap once workers are joined, so skipping the
- * synchronous wait is safe — the underlying ConfigMap patch is already
- * applied and will take effect when the new replica becomes Available.
+ * Skipping the synchronous wait is safe — the underlying ConfigMap patch is
+ * already applied; ArgoCD reconciliation will pick it up when workers join.
  */
 export const hasSchedulableWorkers = (cfg: Config): boolean => {
     const result = run(
