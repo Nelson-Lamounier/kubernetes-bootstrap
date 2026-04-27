@@ -46,9 +46,12 @@ spec:
             # Cognito auth creds — K8s Opaque Secret (managed by deploy.py)
             - secretRef:
                 name: {{ .Values.secrets.name }}
-            # DynamoDB tables, S3 bucket, Lambda ARNs, region — plain ConfigMap
-            - configMapRef:
+            # DynamoDB, S3, Lambda refs — ESO syncs SSM into a K8s Secret
+            # (not a ConfigMap). optional: true so the pod can start before
+            # the admin-api-config ExternalSecret is provisioned.
+            - secretRef:
                 name: admin-api-config
+                optional: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

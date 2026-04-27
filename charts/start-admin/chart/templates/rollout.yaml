@@ -62,8 +62,12 @@ spec:
           envFrom:
             - secretRef:
                 name: {{ .Values.secrets.name }}
-            - configMapRef:
+            # ESO syncs SSM into a K8s Secret (not a ConfigMap). optional: true
+            # so the pod can start before the start-admin-config ExternalSecret
+            # is provisioned.
+            - secretRef:
                 name: start-admin-config
+                optional: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:

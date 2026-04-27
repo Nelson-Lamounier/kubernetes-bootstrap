@@ -23,3 +23,11 @@ resources:
   limits:
     cpu: 200m
     memory: 128Mi
+
+# Match the ExternalSecret target name in charts/public-api/external-secrets/
+# nextjs-config.yaml — that ExternalSecret hydrates a Secret named nextjs-config
+# in the public-api namespace (DYNAMODB/BEDROCK refs originally read by nextjs;
+# now also consumed by public-api). The default chart value (public-api-config)
+# would point at a Secret nothing creates.
+config:
+  name: nextjs-config
