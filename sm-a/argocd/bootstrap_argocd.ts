@@ -20,6 +20,7 @@ import {
     seedPrometheusBasicAuth,
     seedEcrCredentials,
     provisionCrossplaneCredentials,
+    provisionArcGithubSecret,
     restoreTlsCert,
     applyCertManagerIssuer,
     provisionArgocdNotificationsSecret,
@@ -71,6 +72,7 @@ const main = async (): Promise<void> => {
     await logger.step('seed_prometheus_basic_auth', () => seedPrometheusBasicAuth(cfg));
     await logger.step('seed_ecr_credentials',      () => seedEcrCredentials(cfg));
     await logger.step('provision_crossplane_credentials', () => provisionCrossplaneCredentials(cfg));
+    await logger.step('provision_arc_github_secret', () => provisionArcGithubSecret(cfg));
     await logger.step('restore_tls_cert',          () => restoreTlsCert(cfg));
 
     // Non-fatal: cert-manager CRD may not be ready — ArgoCD will reconcile

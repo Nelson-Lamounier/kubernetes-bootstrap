@@ -261,6 +261,100 @@ data:
     }
 };
 
+// ─── Step 5c-arc ─────────────────────────────────────────────────────────────
+// Materialise the ARC controller's GitHub App credentials from Secrets Manager
+// into the in-cluster Secret the gha-runner-scale-set chart expects.
+//
+// Without this Secret the controller cannot:
+//   1. Initialise the GitHub Actions service client
+//   2. Register the runner scale set with GitHub
+//   3. Spawn the listener pod that translates workflow_job events into
+//      ephemeral runner pods
+//
+// Result: every workflow with `runs-on: k8s-runner` queues forever and never
+// runs (which is what bit us on 2026-04-27 — the manual prerequisite was
+// never automated).
+//
+// Source secret JSON shape (in AWS Secrets Manager):
+//   {
+//     "github_app_id":              "<app id>",
+//     "github_app_installation_id": "<installation id>",
+//     "github_app_private_key":     "<PEM-encoded private key>"
+//   }
+//
+// The K8s Secret keys mirror those JSON fields exactly — that is the layout
+// required by the gha-runner-scale-set chart (githubConfigSecret prop).
+
+export const provisionArcGithubSecret = async (cfg: Config): Promise<void> => {
+    log('=== Step 5c-arc: Provisioning ARC GitHub App credentials ===');
+
+    const secretName = `k8s/${cfg.env}/arc-github-app`;
+
+    if (cfg.dryRun) {
+        log(`  [DRY-RUN] Would read Secrets Manager secret: ${secretName}`);
+        return;
+    }
+
+    const secretStr = await secretsManagerGet(cfg, secretName);
+    if (secretStr === null) {
+        log(`  ⚠ ARC GitHub App credentials not found in Secrets Manager: ${secretName}`);
+        log('     ARC controller will continue retrying — workflows with runs-on: k8s-runner will queue.');
+        return;
+    }
+    log(`  ✓ Retrieved credentials from Secrets Manager (${secretName})`);
+
+    let creds: Record<string, string>;
+    try {
+        creds = JSON.parse(secretStr) as Record<string, string>;
+    } catch {
+        log(`  ⚠ ARC secret is not valid JSON — check format of: ${secretName}`);
+        return;
+    }
+    const appId          = creds['github_app_id'];
+    const installationId = creds['github_app_installation_id'];
+    const privateKey     = creds['github_app_private_key'];
+
+    if (!appId || !installationId || !privateKey) {
+        log('  ⚠ Missing one of: github_app_id, github_app_installation_id, github_app_private_key');
+        return;
+    }
+
+    // Ensure arc-runners namespace exists. The chart sets CreateNamespace=true
+    // but ArgoCD's RBAC reconcile runs before the namespace exists on a fresh
+    // cluster, so we create it imperatively here. Idempotent.
+    const nsYaml = `apiVersion: v1
+kind: Namespace
+metadata:
+  name: arc-runners
+`;
+    kubectlApplyStdin(nsYaml, cfg, { check: false });
+
+    // Base64-encode each field once. Using `data:` (not `stringData:`) keeps
+    // the multi-line PEM intact without YAML block-scalar indentation issues.
+    const b64 = (s: string): string => Buffer.from(s).toString('base64');
+
+    const secretYaml = `apiVersion: v1
+kind: Secret
+metadata:
+  name: arc-github-secret
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/managed-by: bootstrap
+    app.kubernetes.io/part-of: arc
+type: Opaque
+data:
+  github_app_id: ${b64(appId)}
+  github_app_installation_id: ${b64(installationId)}
+  github_app_private_key: ${b64(privateKey)}
+`;
+    const result = kubectlApplyStdin(secretYaml, cfg, { check: false });
+    if (result.ok) {
+        log('  ✓ arc-github-secret provisioned in arc-runners');
+    } else {
+        log(`  ⚠ Failed to apply arc-github-secret: ${result.stderr}`);
+    }
+};
+
 // ─── Step 5d-pre ─────────────────────────────────────────────────────────────
 
 export const restoreTlsCert = async (cfg: Config): Promise<void> => {
