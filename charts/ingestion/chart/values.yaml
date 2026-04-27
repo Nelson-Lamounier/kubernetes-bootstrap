@@ -1,0 +1,15 @@
+# @format
+namespace: ingestion
+
+# ServiceAccount used by ingestion Job pods.
+# AWS credentials (Bedrock InvokeModel) come from the EC2 Instance Profile
+# (IMDS) of the worker node — same pattern as admin-api.
+ingestionServiceAccount:
+  name: ingestion-sa
+
+# admin-api creates ingestion Jobs in this namespace. The Role below grants
+# its ServiceAccount permission to create/list/get Jobs and read pod logs
+# (so admin-api can stream Job progress back to the UI).
+adminApi:
+  serviceAccountName: admin-api
+  namespace: admin-api

@@ -1,0 +1,43 @@
+# @format
+# RBAC: lets the admin-api ServiceAccount (in the admin-api namespace) create
+# and observe Jobs in the ingestion namespace. Required because the ingestion
+# trigger endpoint POSTs Jobs to the Kubernetes API instead of invoking a
+# Lambda (Phase 3 cut-over).
+#
+# Subject references admin-api's SA by name across namespace boundaries —
+# this is the standard cross-namespace pattern: Role + RoleBinding both live
+# in the resource's namespace (ingestion); the Subject's `namespace` field
+# points at where the SA lives (admin-api).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: admin-api-job-creator
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: ingestion
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: admin-api-job-creator
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: ingestion
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.adminApi.serviceAccountName }}
+    namespace: {{ .Values.adminApi.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: admin-api-job-creator
