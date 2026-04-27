@@ -89,8 +89,9 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: patcher
-          # Official upstream kubectl image (no Bitnami archive risk).
-          image: registry.k8s.io/kubectl:v1.31.0
+          # alpine/k8s bundles kubectl + a real shell (registry.k8s.io/kubectl
+          # is distroless — no /bin/sh, can't run our patch script).
+          image: alpine/k8s:1.31.4
           imagePullPolicy: IfNotPresent
           # Required: the nextjs namespace has a ResourceQuota that
           # rejects pods without explicit requests + limits.
