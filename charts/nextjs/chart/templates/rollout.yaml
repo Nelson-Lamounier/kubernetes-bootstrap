@@ -73,9 +73,12 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: "{{ .Values.otel.serviceName }}"
           envFrom:
+            # nextjs-secrets and nextjs-config are BOTH Secrets (ESO syncs SSM
+            # Parameter Store values into K8s Secrets, not ConfigMaps).
+            # Treating both as secretRef matches ESO's output kind.
             - secretRef:
                 name: {{ .Values.secrets.name }}
-            - configMapRef:
+            - secretRef:
                 name: nextjs-config
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

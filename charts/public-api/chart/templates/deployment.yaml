@@ -70,7 +70,9 @@ spec:
           # automatically from the EC2 Instance Profile via IMDS.
           # ---------------------------------------------------------------
           envFrom:
-            - configMapRef:
+            # ESO syncs SSM into a K8s Secret, not a ConfigMap.
+            # secretRef matches ESO's output kind for the same name.
+            - secretRef:
                 name: {{ .Values.config.name }}
 
           # ---------------------------------------------------------------
