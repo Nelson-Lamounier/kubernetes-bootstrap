@@ -86,30 +86,30 @@ pdb:
 # ---------------------------------------------------------------------------
 # Ingress (Traefik IngressRoute CRD)
 # ---------------------------------------------------------------------------
-# IMPORTANT: ingress.enabled is intentionally false.
+# Ownership: split between ArgoCD/Helm (resource shape) and a PostSync hook
+# Job (runtime secret value). deploy.py is removed — its responsibilities
+# are now:
+#   - Secrets: ESO ExternalSecrets in charts/nextjs/external-secrets/
+#   - IngressRoute matchRule secret: the ingressroute-patcher Job, which
+#     reads the ESO-managed nextjs-cloudfront-origin-secret and patches
+#     /spec/routes/0/match at PostSync time.
 #
-# The IngressRoute's match rule contains the CloudFront origin secret
-# (HeaderRegexp), which is a runtime value read from SSM.  Helm — and
-# therefore ArgoCD — cannot manage a resource whose definition changes at
-# deploy time without committing secrets to git.
-#
-# deploy.py (Step 5) is the SOLE owner of the 'nextjs' IngressRoute:
-#   - It creates the IngressRoute on first deploy.
-#   - It reads the live IngressRoute, rebuilds the match rule with the
-#     real secret from SSM, and applies the patch on every deploy.
-#   - ArgoCD never touches this object.
-#
-# Do NOT set ingress.enabled: true — that transfers ownership back to
-# ArgoCD, which will overwrite the runtime-injected match rule with
-# the placeholder on every sync, breaking CloudFront routing.
+# The CloudFront origin secret (HeaderRegexp value) is NOT rendered into
+# the IngressRoute by Helm — the chart ships a never-matching placeholder
+# (cloudfront.originSecret) so the manifest is self-contained in git.
+# argocd-apps/nextjs.yaml uses ignoreDifferences + RespectIgnoreDifferences
+# so selfHeal does not revert the patched matchRule.
 ingress:
-  enabled: false
-  host: ""  # Used by deploy.py to build Host() match clause from NEXTAUTH_URL
+  enabled: true
+  # Override per-environment in charts/nextjs/nextjs-values.yaml.
+  host: ""
+  # Path scope of the rule. Combined with Host() and HeaderRegexp() at
+  # patch time. Must use Traefik v3 / Go regex syntax inside HeaderRegexp.
   matchRule: "PathPrefix(`/`)"
   entryPoint: web
 
 # ---------------------------------------------------------------------------
-# Secrets (injected via deploy.py → Kubernetes Secret)
+# Secrets (synced by ESO from SSM into a Kubernetes Secret)
 #
 # Contains ONLY sensitive auth values — not AWS resource references.
 # Expected keys:
@@ -129,9 +129,10 @@ secrets:
   name: nextjs-secrets
 
 # ---------------------------------------------------------------------------
-# Config (injected via deploy.py → Kubernetes ConfigMap)
+# Config (synced by ESO from SSM into a Kubernetes Secret)
 #
-# Non-sensitive infrastructure references — safe for plain ConfigMap storage.
+# Non-sensitive infrastructure references. ESO produces a Secret (not a
+# ConfigMap) because that is its native output kind.
 # AWS credentials are NOT here; they come from the EC2 Instance Profile (IMDS).
 # Expected keys:
 #   DYNAMODB_TABLE_NAME    — Content DynamoDB table
@@ -151,18 +152,23 @@ config:
 # ---------------------------------------------------------------------------
 # CloudFront Security
 # ---------------------------------------------------------------------------
-# originSecret is read from SSM /k8s/{env}/cloudfront-origin-secret by
-# deploy.py (Step 5) at deploy time.  deploy.py builds and applies the
-# Traefik IngressRoute directly as a Kubernetes object — not via Helm.
+# The placeholder below is what the chart renders into the IngressRoute
+# matchRule's HeaderRegexp(). The real value lives in the K8s Secret
+# nextjs-cloudfront-origin-secret (synced by ESO from SSM key
+# /k8s/{env}/cloudfront-origin-secret) and is patched into
+# /spec/routes/0/match by the ingressroute-patcher PostSync hook Job.
 #
-# The IngressRoute match rule uses HeaderRegexp (Traefik v3 / Go regex).
-# During secret rotation, deploy.py temporarily uses "OLD|NEW" so Traefik
-# accepts both values while CloudFront propagates (~15 min).
+# Why a placeholder rather than a Helm-rendered real value:
+#   - ArgoCD Helm rendering happens in repo-server, which has no access
+#     to the cluster's Secrets (Helm `lookup` is a no-op under
+#     `helm template`). The actual value cannot be present at render time.
 #
-# This value is NOT rendered into the IngressRoute by Helm.  The field
-# below exists only so the chart can be linted without errors.
+# Rotation: update SSM, then trigger a sync of the nextjs Application
+# (ESO refreshes within 5m; the PostSync hook re-runs on sync). For the
+# rotation overlap window, use a regex like "OLD|NEW" in SSM directly so
+# Traefik accepts both during CloudFront propagation.
 cloudfront:
-  originSecret: "^PLACEHOLDER_NEVER_MATCHES$"  # Never rendered — IngressRoute is managed by deploy.py
+  originSecret: "^PLACEHOLDER_NEVER_MATCHES$"  # patched at PostSync from ESO Secret nextjs-cloudfront-origin-secret
 
 # ---------------------------------------------------------------------------
 # Resource Quota (namespace-level limits)

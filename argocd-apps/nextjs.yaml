@@ -5,9 +5,17 @@
 # ArgoCD recognizes this as a Helm-type source and renders the chart
 # with values from nextjs-values.yaml.
 #
-# Secrets (DynamoDB table, S3 bucket, API URL) are pre-seeded
-# by the SSM Automation pipeline / deploy.py via kubectl create secret.
+# Secrets (DynamoDB table, S3 bucket, API URL) are synced from SSM by
+# External Secrets Operator (charts/nextjs/external-secrets/) into
+# Kubernetes Secrets that the Deployment consumes via envFrom.secretRef.
 # ArgoCD manages all declarative Helm-rendered manifests.
+#
+# IngressRoute matchRule: the chart renders a placeholder; a PostSync hook
+# Job (charts/nextjs/chart/templates/ingressroute-patcher.yaml) reads the
+# ESO-managed nextjs-cloudfront-origin-secret and patches the live rule.
+# The ignoreDifferences block below stops selfHeal from reverting that
+# patch — RespectIgnoreDifferences=true is required for the ignore rule to
+# apply to sync (not just diff) operations.
 #
 # Credential: SSH Deploy Key (read+write) — stored in K8s secret
 # via bootstrap-argocd.sh from SSM parameter.
@@ -58,6 +66,17 @@ spec:
     server: https://kubernetes.default.svc
     namespace: nextjs-app
 
+  # Don't reconcile drift on the IngressRoute's matchRule string — it is
+  # owned by the ingressroute-patcher PostSync hook (real CloudFront origin
+  # secret cannot live in git, and Helm `lookup` is a no-op under
+  # `helm template` in repo-server).
+  ignoreDifferences:
+    - group: traefik.io
+      kind: IngressRoute
+      name: nextjs
+      jsonPointers:
+        - /spec/routes/0/match
+
   syncPolicy:
     automated:
       prune: true
@@ -68,6 +87,8 @@ spec:
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
       - ServerSideApply=true
+      # Required so ignoreDifferences applies to sync, not just diff.
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:

@@ -37,3 +37,10 @@ resourceQuota:
 
 pdb:
   enabled: true
+
+# Traefik IngressRoute — Host() match clause.
+# matchRule + originSecret defaults live in chart/values.yaml; the runtime
+# secret value is patched in by the ingressroute-patcher PostSync hook.
+ingress:
+  enabled: true
+  host: "nelsonlamounier.com"
