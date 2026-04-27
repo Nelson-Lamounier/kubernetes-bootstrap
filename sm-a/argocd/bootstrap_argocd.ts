@@ -20,6 +20,7 @@ import {
     seedPrometheusBasicAuth,
     seedEcrCredentials,
     provisionCrossplaneCredentials,
+    provisionArcCrds,
     provisionArcGithubSecret,
     restoreTlsCert,
     applyCertManagerIssuer,
@@ -67,6 +68,10 @@ const main = async (): Promise<void> => {
     await logger.step('create_default_project',    () => createDefaultProject(cfg));
     await logger.step('configure_argocd_server',   () => configureArgocdServer(cfg));
     await logger.step('configure_health_checks',   () => configureHealthChecks(cfg));
+    // Apply ARC CRDs before applyRootApp so by the time ArgoCD reconciles
+    // arc-controller (sync-wave 2), the actions.github.com/v1alpha1 schemas
+    // are present and the controller pod doesn't crash-loop on startup.
+    await logger.step('provision_arc_crds',        () => provisionArcCrds(cfg));
     await logger.step('apply_root_app',            () => applyRootApp(cfg));
     await logger.step('inject_monitoring_helm_params', () => injectMonitoringHelmParams(cfg));
     await logger.step('seed_prometheus_basic_auth', () => seedPrometheusBasicAuth(cfg));

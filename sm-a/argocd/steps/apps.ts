@@ -261,6 +261,74 @@ data:
     }
 };
 
+// ─── Step 5b-arc ─────────────────────────────────────────────────────────────
+// Install the actions.github.com/v1alpha1 CRDs (AutoscalingRunnerSet,
+// AutoscalingListener, EphemeralRunner, EphemeralRunnerSet) before ArgoCD
+// reconciles the arc-controller Application.
+//
+// The gha-runner-scale-set-controller chart ships these CRDs but the
+// arc-controller Application sets `helm.skipCrds: true` because their
+// schemas exceed ArgoCD's 262144-byte annotation limit on Helm-deployed
+// resources. Without them the controller pod crash-loops on startup with:
+//   "failed to get API group resources: unable to retrieve the complete
+//    list of server APIs: actions.github.com/v1alpha1: the server could
+//    not find the requested resource"
+//
+// We pull the chart imperatively here (helm + kubectl are baked into the
+// AMI) and apply the bundled CRDs server-side. Idempotent on re-runs.
+//
+// Placed BEFORE applyRootApp so by the time ArgoCD sync-waves get to
+// arc-controller (sync-wave 2), the CRDs are guaranteed present.
+
+const ARC_CHART_REPO = 'oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller';
+const ARC_CHART_VERSION = '0.10.*';
+
+export const provisionArcCrds = (cfg: Config): void => {
+    log('=== Step 5b-arc: Installing ARC CRDs (skipped by chart) ===');
+
+    if (cfg.dryRun) {
+        log(`  [DRY-RUN] Would helm-pull ${ARC_CHART_REPO} and kubectl-apply crds/`);
+        return;
+    }
+
+    const workdir = '/tmp/arc-crds';
+
+    // Clean any prior pull (idempotency on retry); ignore errors.
+    run(['rm', '-rf', workdir], cfg, { check: false });
+    run(['mkdir', '-p', workdir], cfg, { check: false });
+
+    const pull = run(
+        ['helm', 'pull', ARC_CHART_REPO,
+            '--version', ARC_CHART_VERSION,
+            '--destination', workdir,
+            '--untar'],
+        cfg,
+        { check: false, capture: true },
+    );
+    if (!pull.ok) {
+        log(`  ⚠ helm pull failed: ${pull.stderr || pull.stdout}`);
+        log('     ARC controller will crash-loop until CRDs are applied manually.');
+        return;
+    }
+
+    const crdDir = `${workdir}/gha-runner-scale-set-controller/crds`;
+    const apply = run(
+        ['kubectl', 'apply',
+            '--server-side', '--force-conflicts',
+            '-f', crdDir],
+        cfg,
+        { check: false, capture: true },
+    );
+    if (apply.ok) {
+        log('  ✓ ARC CRDs applied (actions.github.com/v1alpha1)');
+    } else {
+        log(`  ⚠ kubectl apply failed: ${apply.stderr || apply.stdout}`);
+    }
+
+    // Cleanup the chart untar (small, but no reason to leave it).
+    run(['rm', '-rf', workdir], cfg, { check: false });
+};
+
 // ─── Step 5c-arc ─────────────────────────────────────────────────────────────
 // Materialise the ARC controller's GitHub App credentials from Secrets Manager
 // into the in-cluster Secret the gha-runner-scale-set chart expects.
