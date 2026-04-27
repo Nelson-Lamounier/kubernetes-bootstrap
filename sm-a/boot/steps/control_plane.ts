@@ -707,6 +707,22 @@ const reconstructControlPlane = async (cfg: BootConfig, privateIp: string): Prom
 
     await updateDns(privateIp, cfg);
 
+    // The apiserver cert restored from S3 PKI backup carries the OLD instance's
+    // IP SANs. The new instance has a different private IP, so kubelet's
+    // node-registration POST to https://<currentIP>:6443 will fail TLS
+    // verification ("certificate is valid for ..., not <currentIP>") and the
+    // node never registers. Regenerate the cert with current SANs BEFORE
+    // bringing up the static control-plane pods so they load the fresh cert.
+    const certPath = '/etc/kubernetes/pki/apiserver.crt';
+    const keyPath  = '/etc/kubernetes/pki/apiserver.key';
+    if (existsSync(certPath)) unlinkSync(certPath);
+    if (existsSync(keyPath))  unlinkSync(keyPath);
+    const extraSans = ['127.0.0.1', privateIp, cfg.apiDnsName].join(',');
+    run(['kubeadm', 'init', 'phase', 'certs', 'apiserver',
+        `--apiserver-cert-extra-sans=${extraSans}`,
+        `--apiserver-advertise-address=${privateIp}`]);
+    info(`Regenerated apiserver cert with SANs: ${extraSans}`);
+
     const apiEndpoint = `${cfg.apiDnsName}:6443`;
     run(['kubeadm', 'init', 'phase', 'kubeconfig', 'all', `--control-plane-endpoint=${apiEndpoint}`]);
     run(['kubeadm', 'init', 'phase', 'kubelet-start',
