@@ -1,0 +1,35 @@
+# @format
+# ExternalSecret: admin-ip-allowlist (in monitoring namespace)
+#
+# Hydrates the operator IP allowlist into a K8s Secret. Consumed at sync
+# time by the allowlist-patcher Job (Helm-rendered PostSync hook in
+# charts/monitoring/chart/templates/traefik/allowlist-patcher.yaml),
+# which reads .data.ipv4 / .data.ipv6 and rewrites the admin-ip-allowlist
+# Middleware's spec.ipAllowList.sourceRange.
+#
+# This replaces the previous CI step that injected ALLOW_IPV4/ALLOW_IPV6
+# from GitHub Environment secrets into Helm values — the IPs now live in
+# SSM and are rotated there.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: admin-ip-allowlist
+  namespace: monitoring
+  annotations:
+    kubernetes.io/description: "Operator IP allowlist for ops.* IngressRoutes — patched in by PostSync hook"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: admin-ip-allowlist
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: ipv4
+      remoteRef:
+        key: /k8s/development/monitoring/allow-ipv4
+    - secretKey: ipv6
+      remoteRef:
+        key: /k8s/development/monitoring/allow-ipv6

@@ -8,6 +8,13 @@
 # Secrets are managed by ESO (External Secrets Operator) via ExternalSecrets
 # in charts/monitoring/external-secrets/ — no manual seeding needed.
 #
+# admin-ip-allowlist Middleware sourceRange: the chart renders an empty
+# array; a PostSync hook Job (allowlist-patcher) reads the ESO-managed
+# admin-ip-allowlist Secret (data.ipv4 + data.ipv6, comma-split) and
+# patches /spec/ipAllowList/sourceRange. The ignoreDifferences block
+# below stops selfHeal from reverting that patch — RespectIgnoreDifferences
+# is required for the ignore rule to apply to sync, not just diff.
+#
 # Credential: SSH Deploy Key (read-only) — stored in K8s secret
 # via bootstrap-argocd.sh from SSM parameter.
 
@@ -38,6 +45,16 @@ spec:
     server: https://kubernetes.default.svc
     namespace: monitoring
 
+  # Don't reconcile drift on the admin-ip-allowlist sourceRange — it is
+  # owned by the allowlist-patcher PostSync hook (real CIDRs cannot live
+  # in git, and Helm `lookup` is a no-op under `helm template`).
+  ignoreDifferences:
+    - group: traefik.io
+      kind: Middleware
+      name: admin-ip-allowlist
+      jsonPointers:
+        - /spec/ipAllowList/sourceRange
+
   syncPolicy:
     automated:
       prune: true
@@ -47,6 +64,8 @@ spec:
       - CreateNamespace=true
       - PruneLast=true
       - ServerSideApply=true
+      # Required so ignoreDifferences applies to sync, not just diff.
+      - RespectIgnoreDifferences=true
     retry:
       limit: 3
       backoff:

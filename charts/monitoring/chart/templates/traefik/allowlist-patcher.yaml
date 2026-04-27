@@ -1,0 +1,140 @@
+{{- /*
+allowlist-patcher — PostSync hook that closes the same gap the nextjs
+ingressroute-patcher closes for the CloudFront origin secret: writing a
+value into a Traefik CRD spec field (here, Middleware.spec.ipAllowList.
+sourceRange) that ESO cannot populate directly.
+
+Flow on every ArgoCD sync:
+  1. ArgoCD applies the admin-ip-allowlist Middleware with sourceRange: []
+     (chart's values default — no IPs in git).
+  2. PostSync hook fires this Job.
+  3. Job reads .data.ipv4 / .data.ipv6 from the ESO-managed Secret
+     admin-ip-allowlist and PATCHes /spec/ipAllowList/sourceRange with
+     the comma-split CIDR list.
+  4. argocd-apps/monitoring.yaml ignoreDifferences +
+     RespectIgnoreDifferences=true stops selfHeal from reverting the
+     patched sourceRange on subsequent reconciles.
+
+Rotation: update SSM /k8s/{env}/monitoring/allow-ipv{4,6}, trigger an
+ArgoCD sync of the monitoring Application — ESO refreshes within 5m and
+the Job re-patches. selfHeal does NOT auto-trigger on Secret content
+changes, so the manual sync is the trigger.
+*/ -}}
+{{- if .Values.adminAccess.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: monitoring-allowlist-patcher
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: monitoring-allowlist-patcher
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["admin-ip-allowlist"]
+    verbs: ["get"]
+  - apiGroups: ["traefik.io"]
+    resources: ["middlewares"]
+    resourceNames: ["admin-ip-allowlist"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-allowlist-patcher
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: monitoring-allowlist-patcher
+    namespace: {{ .Values.namespace }}
+roleRef:
+  kind: Role
+  name: monitoring-allowlist-patcher
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: monitoring-allowlist-patcher
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+  labels:
+    {{- include "monitoring.labels" . | nindent 4 }}
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "monitoring.labels" . | nindent 8 }}
+        platform.engineering/role: allowlist-patcher
+    spec:
+      serviceAccountName: monitoring-allowlist-patcher
+      restartPolicy: OnFailure
+      containers:
+        - name: patcher
+          # alpine/k8s: kubectl + a real shell. The upstream
+          # registry.k8s.io/kubectl image is distroless (no /bin/sh).
+          image: alpine/k8s:1.31.4
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: TARGET_NAMESPACE
+              value: {{ .Values.namespace | quote }}
+          command: ["/bin/sh", "-eu", "-c"]
+          args:
+            - |
+              SECRET_JSON=""
+              for i in $(seq 1 30); do
+                SECRET_JSON=$(kubectl -n "$TARGET_NAMESPACE" get secret admin-ip-allowlist -o json 2>/dev/null || true)
+                [ -n "$SECRET_JSON" ] && break
+                echo "waiting for ESO to populate admin-ip-allowlist (attempt $i/30)"
+                sleep 5
+              done
+              if [ -z "$SECRET_JSON" ]; then
+                echo "ERROR: admin-ip-allowlist Secret was not populated by ESO within 150s"
+                exit 1
+              fi
+              IPV4_B64=$(echo "$SECRET_JSON" | sed -n 's/.*"ipv4":[[:space:]]*"\([^"]*\)".*/\1/p')
+              IPV6_B64=$(echo "$SECRET_JSON" | sed -n 's/.*"ipv6":[[:space:]]*"\([^"]*\)".*/\1/p')
+              IPV4=$(echo -n "$IPV4_B64" | base64 -d)
+              IPV6=$(echo -n "$IPV6_B64" | base64 -d)
+              # Build a JSON array of CIDRs from comma-separated SSM values.
+              # Both keys may contain multiple entries; drop empties.
+              CIDRS_JSON=$(printf '%s,%s' "$IPV4" "$IPV6" | tr ',' '\n' | awk 'NF' \
+                | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+                | awk 'BEGIN{printf "["} {if (NR>1) printf ","; printf "\"%s\"", $0} END{printf "]"}')
+              if [ "$CIDRS_JSON" = "[]" ]; then
+                echo "ERROR: ESO Secret produced no CIDRs (ipv4=\"$IPV4\" ipv6=\"$IPV6\")"
+                exit 1
+              fi
+              echo "patching middleware.traefik.io/admin-ip-allowlist sourceRange=$CIDRS_JSON"
+              kubectl -n "$TARGET_NAMESPACE" patch middleware.traefik.io admin-ip-allowlist --type=json \
+                -p "[{\"op\":\"replace\",\"path\":\"/spec/ipAllowList/sourceRange\",\"value\":${CIDRS_JSON}}]"
+{{- end }}
