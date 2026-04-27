@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs';
 import bcryptjs from 'bcryptjs';
 import type { Config } from '../helpers/config.js';
 import {
+    hasSchedulableWorkers,
     log,
     run,
     sleep,
@@ -106,6 +107,17 @@ export const createCiBot = (cfg: Config): void => {
     log(rbacResult.ok
         ? '  ✓ argocd-rbac-cm patched with ci-readonly policy'
         : `  ⚠ Failed to patch argocd-rbac-cm: ${rbacResult.stderr}`);
+
+    // ConfigMap patches are persisted; the rolling restart only matters when
+    // pods can actually schedule. On a control-plane-only cluster (workers not
+    // joined yet) the rollout would block until SSM kills the bootstrap (exit
+    // 143). SM-B re-runs ArgoCD bootstrap once workers join, so the restart
+    // happens then with pods that can become Available.
+    if (!hasSchedulableWorkers(cfg)) {
+        log('  ⚠ No worker nodes — skipping argocd-server rollout (SM-B will retry once workers join)');
+        log('');
+        return;
+    }
 
     // Guard: check if argocd-server rollout is in progress before restart
     const quickStatusResult = run(
