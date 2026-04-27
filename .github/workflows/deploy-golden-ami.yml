@@ -75,7 +75,9 @@ on:
       - "infra/lib/constructs/compute/**"
       - "infra/lib/stacks/golden-ami-stack.ts"
       - "infra/lib/config/kubernetes/configurations.ts"
-      - "sm-a/boot/steps/**"
+      # Whole sm-a/ tree is baked into the AMI; argocd-only changes must
+      # also trigger a rebake or they stay stale on every fresh instance.
+      - "sm-a/**"
       - ".github/workflows/deploy-golden-ami.yml"
 
 concurrency:

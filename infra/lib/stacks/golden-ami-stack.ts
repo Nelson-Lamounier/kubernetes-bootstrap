@@ -145,17 +145,36 @@ export class GoldenAmiStack extends cdk.Stack {
         // YAML with all Kubernetes install steps. Software versions come
         // from the centralised K8sImageConfig.
         // -----------------------------------------------------------------
-        // Hash every .ts file in sm-a/boot/steps/ so that any source change
-        // (not just package.json) invalidates the component YAML content hash
-        // and forces CDK to create a new CfnImage, triggering an AMI re-bake.
-        const stepsDir = path.resolve(__dirname, '../../../../sm-a/boot/steps');
-        const stepsHash = fs.existsSync(stepsDir)
+        // Hash all source baked into the AMI at /opt/k8s-bootstrap/ so any
+        // change invalidates the component YAML content hash and forces CDK
+        // to create a new CfnImage, triggering an AMI re-bake.
+        //
+        // Previously this only covered sm-a/boot/steps/*.ts, which left
+        // sm-a/argocd/** invisible to the bake trigger — argocd-only edits
+        // produced a CDK no-op deploy and the AMI never rolled forward. The
+        // walker now covers the whole sm-a/ tree (boot + argocd + future
+        // dirs) for {ts,yaml,yml,sh,json}, sorted for determinism. Excludes
+        // node_modules/, dist/, and .yarn/ (build/cache artefacts that don't
+        // affect runtime behaviour).
+        const smaRoot = path.resolve(__dirname, '../../../../sm-a');
+        const stepsHash = fs.existsSync(smaRoot)
             ? (() => {
                 const h = crypto.createHash('sha256');
-                fs.readdirSync(stepsDir)
-                    .filter(f => f.endsWith('.ts'))
+                const exts = new Set(['.ts', '.yaml', '.yml', '.sh', '.json']);
+                const skip = new Set(['node_modules', 'dist', '.yarn']);
+                const walk = (dir: string): string[] => {
+                    const out: string[] = [];
+                    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+                        if (skip.has(ent.name)) continue;
+                        const full = path.join(dir, ent.name);
+                        if (ent.isDirectory()) out.push(...walk(full));
+                        else if (exts.has(path.extname(ent.name))) out.push(full);
+                    }
+                    return out;
+                };
+                walk(smaRoot)
                     .sort()                          // deterministic order
-                    .forEach(f => h.update(fs.readFileSync(path.join(stepsDir, f))));
+                    .forEach(f => h.update(fs.readFileSync(f)));
                 return h.digest('hex').slice(0, 12);
             })()
             : undefined;
