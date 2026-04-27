@@ -63,6 +63,11 @@ spec:
               name: platform-rds-credentials
               key: PGPASSWORD
               optional: false
+        # Bitnami legacy 1.23.1 image errors with "PGBOUNCER_PORT: value is
+        # not an integer" if this env var is unset, even though the docs
+        # claim a default of 5432. Setting explicitly.
+        - name: PGBOUNCER_PORT
+          value: "5432"
         - name: PGBOUNCER_POOL_MODE
           value: {{ .Values.pgbouncer.poolMode }}
         - name: PGBOUNCER_MAX_CLIENT_CONN
