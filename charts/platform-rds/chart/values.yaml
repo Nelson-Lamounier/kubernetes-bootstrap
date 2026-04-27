@@ -1,0 +1,24 @@
+# @format
+namespace: platform
+
+pgbouncer:
+  image:
+    repository: bitnami/pgbouncer
+    tag: "1.23.1"
+  poolMode: transaction
+  maxClientConn: 200
+  defaultPoolSize: 20
+  replicas: 1
+
+bootstrap:
+  image:
+    repository: ""
+    tag: latest
+  serviceAccountName: platform-rds-bootstrap-sa
+
+awsRegion: "eu-west-1"
+
+migration:
+  enabled: false
+  articlesTable: ""
+  strategistTable: ""

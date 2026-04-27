@@ -1,0 +1,103 @@
+# @format
+# ArgoCD Application: AWS EBS CSI Driver
+#
+# Deploys the AWS EBS CSI Driver as a DaemonSet to enable dynamic
+# provisioning of EBS-backed PersistentVolumes via the `ebs-sc`
+# StorageClass. Replaces the legacy local-path-provisioner.
+#
+# Prerequisites (handled in CDK):
+#   - All EC2 instance roles have EC2 volume + KMS permissions
+#   - Nodes tagged with kubernetes.io/cluster/<id>=owned
+#
+# The chart deploys:
+#   - ebs-csi-controller (Deployment) — handles CreateVolume/DeleteVolume
+#   - ebs-csi-node (DaemonSet) — handles NodeStageVolume/NodePublishVolume
+#   - ebs-sc StorageClass — GP3, encrypted, WaitForFirstConsumer
+#
+# Sync Wave: 4 (Cluster Utilities — same wave as former local-path-provisioner)
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-ebs-csi-driver
+  annotations:
+    kubernetes.io/description: >-
+      AWS EBS CSI Driver — dynamic provisioning of encrypted GP3
+      EBS volumes for Kubernetes PersistentVolumeClaims.
+    argocd.argoproj.io/sync-wave: "4"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://kubernetes-sigs.github.io/aws-ebs-csi-driver
+    chart: aws-ebs-csi-driver
+    targetRevision: "2.*"
+    helm:
+      values: |
+        # ── Controller (Deployment) ──────────────────────────────────
+        # Runs on the control-plane node; handles CSI CreateVolume,
+        # DeleteVolume, AttachVolume, DetachVolume RPCs.
+        controller:
+          replicaCount: 1
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              effect: NoSchedule
+          resources:
+            requests:
+              cpu: 10m
+              memory: 40Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+
+        # ── Node (DaemonSet) ─────────────────────────────────────────
+        # Runs on every node; handles NodeStageVolume / NodePublishVolume.
+        node:
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              effect: NoSchedule
+          resources:
+            requests:
+              cpu: 10m
+              memory: 40Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi
+
+        # ── StorageClass ─────────────────────────────────────────────
+        storageClasses:
+          - name: ebs-sc
+            annotations:
+              storageclass.kubernetes.io/is-default-class: "true"
+            parameters:
+              type: gp3
+              encrypted: "true"
+            reclaimPolicy: Delete
+            volumeBindingMode: WaitForFirstConsumer
+            allowVolumeExpansion: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

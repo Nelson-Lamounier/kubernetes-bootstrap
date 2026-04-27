@@ -1,0 +1,106 @@
+# @format
+# ArgoCD Application: Actions Runner Controller (ARC)
+#
+# Installs the GitHub Actions Runner Scale Set Controller from the official
+# OCI Helm chart. The controller manages runner pod lifecycle and exposes a
+# webhook server (port 9000) that receives GitHub workflow_job events —
+# enabling faster scale-up than long-polling alone.
+#
+# Webhook flow:
+#   GitHub → NLB → Traefik → arc-webhook-ingressroute → this controller
+#   Controller → creates RunnerScaleSet runner pods on workflow_job queued
+#
+# Placement: monitoring pool (same reasoning as cluster-autoscaler —
+# the controller must not run on the general pool it manages).
+#
+# Requires ArgoCD v2.8+ for OCI Helm registry support.
+# GHCR requires authentication even for public OCI packages — a PAT with
+# read:packages scope must be stored as an ArgoCD repository secret.
+#
+# Chart: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc-controller
+  annotations:
+    kubernetes.io/description: "GitHub Actions Runner Controller — webhook-mode scale-set controller"
+    argocd.argoproj.io/sync-wave: "2"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+    chart: gha-runner-scale-set-controller
+    targetRevision: "0.10.*"
+    helm:
+      # CRDs are bootstrapped manually via `kubectl apply --server-side`
+      # to avoid ArgoCD's 262144-byte annotation limit on large schemas.
+      skipCrds: true
+      # Predictable service name for the Traefik IngressRoute.
+      # Webhook service will be: arc-controller-webhook-server
+      releaseName: arc-controller
+      values: |
+        fullnameOverride: arc-controller
+
+        replicaCount: 1
+
+        # ── Webhook server (faster scale-up) ────────────────────────────────────
+        # Receives workflow_job events from GitHub via the arc-webhook IngressRoute.
+        # GitHub sends POST /webhook on job queued → controller creates runner pod
+        # immediately rather than waiting for the next long-poll cycle.
+        webhookServer:
+          enabled: true
+          port: 9000
+
+        # ── Node placement ───────────────────────────────────────────────────────
+        # MUST NOT run on the general pool it manages (same as cluster-autoscaler).
+        nodeSelector:
+          node-pool: monitoring
+
+        tolerations:
+          - key: dedicated
+            value: monitoring
+            operator: Equal
+            effect: NoSchedule
+
+        # ── Resources ────────────────────────────────────────────────────────────
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+
+        # ── Prometheus metrics ───────────────────────────────────────────────────
+        metrics:
+          controllerManagerAddr: ":8080"
+          listenerAddr: ":8080"
+          listenerEndpoint: "/metrics"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: arc-systems
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

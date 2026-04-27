@@ -1,0 +1,48 @@
+# @format
+# ExternalSecret: nextjs-config
+#
+# Replaces the nextjs-config ConfigMap previously created by SM-B deploy.py.
+# Consumed by nextjs Deployment via envFrom.secretRef.
+# SSM paths: /nextjs/development/* and /bedrock-dev/api-url
+#
+# Referenced by: cdk-monitoring/kubernetes-app/workloads/charts/nextjs/chart/templates/deployment.yaml
+#   envFrom.secretRef: name: nextjs-config
+
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: nextjs-config
+  namespace: nextjs-app
+  annotations:
+    kubernetes.io/description: "nextjs non-sensitive runtime config from SSM — replaces SM-B ConfigMap"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: nextjs-config
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: DYNAMODB_TABLE_NAME
+      remoteRef:
+        key: /nextjs/development/dynamodb-table-name
+    - secretKey: ASSETS_BUCKET_NAME
+      remoteRef:
+        key: /nextjs/development/assets-bucket-name
+    - secretKey: COGNITO_USER_POOL_ID
+      remoteRef:
+        key: /nextjs/development/auth/cognito-user-pool-id
+    - secretKey: COGNITO_CLIENT_ID
+      remoteRef:
+        key: /nextjs/development/auth/cognito-client-id
+    - secretKey: COGNITO_ISSUER_URL
+      remoteRef:
+        key: /nextjs/development/auth/cognito-issuer-url
+    - secretKey: COGNITO_DOMAIN
+      remoteRef:
+        key: /nextjs/development/auth/cognito-domain
+    - secretKey: BEDROCK_API_URL
+      remoteRef:
+        key: /bedrock-dev/api-url

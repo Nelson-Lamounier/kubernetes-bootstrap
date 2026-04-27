@@ -1,0 +1,22 @@
+{{- if .Values.loki.pdb.enabled }}
+# ---------------------------------------------------------------
+# PodDisruptionBudget — Loki
+#
+# Prevents the sole Loki replica from being evicted during
+# CA scale-down or node drain events.
+# Loki eviction causes log gaps (Promtail buffers briefly but
+# extended downtime loses entries).
+# ---------------------------------------------------------------
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: loki
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "loki" | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.loki.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "loki" | nindent 6 }}
+{{- end }}

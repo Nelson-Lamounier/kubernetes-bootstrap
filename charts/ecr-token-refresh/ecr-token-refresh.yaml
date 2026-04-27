@@ -1,0 +1,169 @@
+# @format
+# ECR Token Refresh — CronJob + RBAC
+#
+# ECR authorization tokens expire every 12 hours. This CronJob runs every
+# 6 hours to refresh the ecr-credentials docker-registry secret in the
+# argocd namespace. ArgoCD Image Updater references this secret to
+# authenticate when checking ECR for new container images.
+#
+# Credential source: EC2 instance profile (via the IMDS metadata endpoint).
+# The instance profile must have ecr:GetAuthorizationToken permission.
+#
+# Resources created:
+#   - ServiceAccount (ecr-token-refresh)
+#   - Role (secrets CRUD in argocd namespace)
+#   - RoleBinding
+#   - CronJob (runs every 6 hours)
+# =============================================================================
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ecr-token-refresh
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: ecr-token-refresh
+    app.kubernetes.io/part-of: argocd
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ecr-token-refresh
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: ecr-token-refresh
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ecr-token-refresh
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: ecr-token-refresh
+subjects:
+  - kind: ServiceAccount
+    name: ecr-token-refresh
+    namespace: argocd
+roleRef:
+  kind: Role
+  name: ecr-token-refresh
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ecr-token-refresh
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: ecr-token-refresh
+    app.kubernetes.io/part-of: argocd
+spec:
+  # Run every 6 hours (ECR tokens last 12h — refresh at 50% lifetime)
+  schedule: "0 */6 * * *"
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ecr-token-refresh
+        spec:
+          serviceAccountName: ecr-token-refresh
+          restartPolicy: OnFailure
+          containers:
+            - name: refresh
+              image: amazon/aws-cli:2.24.0
+              env:
+                - name: AWS_DEFAULT_REGION
+                  value: "eu-west-1"
+                - name: ECR_REGISTRY
+                  value: "771826808455.dkr.ecr.eu-west-1.amazonaws.com"
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  echo "[RUN] Refreshing ECR token for ${ECR_REGISTRY}"
+
+                  # 1. Get ECR authorization token
+                  TOKEN=$(aws ecr get-login-password --region "${AWS_DEFAULT_REGION}")
+                  if [ -z "$TOKEN" ]; then
+                    echo "[FAIL] Failed to get ECR token"
+                    exit 1
+                  fi
+                  echo "[PASS] ECR token obtained"
+
+                  # 2. Build docker config JSON
+                  AUTH=$(printf "AWS:%s" "$TOKEN" | base64 | tr -d '\n')
+                  CONFIG_JSON=$(printf '{"auths":{"%s":{"auth":"%s"}}}' "$ECR_REGISTRY" "$AUTH")
+                  B64_CONFIG=$(printf '%s' "$CONFIG_JSON" | base64 | tr -d '\n')
+
+                  # 3. Create/update the secret via the K8s API
+                  SA_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                  API="https://kubernetes.default.svc"
+                  CA="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+                  # Try to update existing secret; if it doesn't exist, create it
+                  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                    -X GET "${API}/api/v1/namespaces/argocd/secrets/ecr-credentials" \
+                    -H "Authorization: Bearer ${SA_TOKEN}" \
+                    --cacert "${CA}")
+
+                  SECRET_BODY=$(cat <<EOF
+                  {
+                    "apiVersion": "v1",
+                    "kind": "Secret",
+                    "metadata": {
+                      "name": "ecr-credentials",
+                      "namespace": "argocd",
+                      "labels": {
+                        "app.kubernetes.io/managed-by": "ecr-token-refresh"
+                      }
+                    },
+                    "type": "kubernetes.io/dockerconfigjson",
+                    "data": {
+                      ".dockerconfigjson": "${B64_CONFIG}"
+                    }
+                  }
+                  EOF
+                  )
+
+                  if [ "$HTTP_CODE" = "200" ]; then
+                    # Secret exists — replace it
+                    curl -sf -X PUT \
+                      "${API}/api/v1/namespaces/argocd/secrets/ecr-credentials" \
+                      -H "Authorization: Bearer ${SA_TOKEN}" \
+                      -H "Content-Type: application/json" \
+                      --cacert "${CA}" \
+                      -d "${SECRET_BODY}" > /dev/null
+                    echo "[PASS] ecr-credentials secret updated"
+                  else
+                    # Secret does not exist — create it
+                    curl -sf -X POST \
+                      "${API}/api/v1/namespaces/argocd/secrets" \
+                      -H "Authorization: Bearer ${SA_TOKEN}" \
+                      -H "Content-Type: application/json" \
+                      --cacert "${CA}" \
+                      -d "${SECRET_BODY}" > /dev/null
+                    echo "[PASS] ecr-credentials secret created"
+                  fi
+
+                  echo "[PASS] ECR token refresh complete"
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 50m
+                  memory: 64Mi

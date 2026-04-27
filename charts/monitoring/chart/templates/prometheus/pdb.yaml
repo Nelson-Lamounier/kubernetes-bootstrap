@@ -1,0 +1,22 @@
+{{- if .Values.prometheus.pdb.enabled }}
+# ---------------------------------------------------------------
+# PodDisruptionBudget — Prometheus
+#
+# Prevents the sole Prometheus replica from being evicted
+# simultaneously during CA scale-down or node drain events.
+# All historical metrics data would be unavailable if Prometheus
+# restarts while writing to its PVC WAL.
+# ---------------------------------------------------------------
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: prometheus
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.prometheus.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "prometheus" | nindent 6 }}
+{{- end }}

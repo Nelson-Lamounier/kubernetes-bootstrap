@@ -1,0 +1,88 @@
+# @format
+# PgBouncer Deployment
+#
+# Connection pooler in front of Platform RDS.
+# All pods in the cluster connect to pgbouncer.platform.svc.cluster.local:5432 —
+# NEVER directly to RDS.
+#
+# Pool mode: transaction (correct for stateless HTTP handlers)
+# Max server connections: 20 (well under RDS t4g.micro limit of ~85)
+# Max client connections: 200 (multiplexes all K8s pods)
+#
+# optional: false on secretKeyRef holds the pod in Pending until ESO syncs the
+# secrets — no initContainer or kubectl access required.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pgbouncer
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/component: connection-pooler
+spec:
+  replicas: {{ .Values.pgbouncer.replicas }}
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      containers:
+      - name: pgbouncer
+        image: {{ .Values.pgbouncer.image.repository }}:{{ .Values.pgbouncer.image.tag }}
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRESQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: platform-rds-config
+              key: PGHOST
+              optional: false
+        - name: POSTGRESQL_PORT
+          value: "5432"
+        - name: POSTGRESQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: platform-rds-config
+              key: PGDATABASE
+              optional: false
+        - name: POSTGRESQL_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: platform-rds-credentials
+              key: PGUSER
+              optional: false
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-rds-credentials
+              key: PGPASSWORD
+              optional: false
+        - name: PGBOUNCER_POOL_MODE
+          value: {{ .Values.pgbouncer.poolMode }}
+        - name: PGBOUNCER_MAX_CLIENT_CONN
+          value: {{ .Values.pgbouncer.maxClientConn | quote }}
+        - name: PGBOUNCER_DEFAULT_POOL_SIZE
+          value: {{ .Values.pgbouncer.defaultPoolSize | quote }}
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        livenessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 5
+          periodSeconds: 5

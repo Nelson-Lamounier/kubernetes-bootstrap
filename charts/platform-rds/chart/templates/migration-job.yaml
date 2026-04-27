@@ -1,0 +1,52 @@
+# @format
+# K8s Job: dynamo-to-pg-migration
+#
+# One-shot DynamoDB → PostgreSQL data migration.
+# Enabled only when .Values.migration.enabled = true (default: false).
+# Run once after dual-write is deployed; safe to re-run (ON CONFLICT DO NOTHING).
+#
+# Trigger manually:
+#   helm upgrade platform-rds . --set migration.enabled=true -n platform \
+#     --set migration.articlesTable=<table> --set migration.strategistTable=<table>
+#   kubectl wait --for=condition=complete job/dynamo-to-pg-migration -n platform --timeout=600s
+#   helm upgrade platform-rds . --set migration.enabled=false -n platform
+{{- if .Values.migration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dynamo-to-pg-migration
+  namespace: {{ .Values.namespace }}
+  annotations:
+    kubernetes.io/description: "One-shot DynamoDB to PostgreSQL content migration"
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: {{ .Values.bootstrap.image.repository }}:{{ .Values.bootstrap.image.tag }}
+          command: ["node", "dist/migrate-dynamo.js"]
+          env:
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.awsRegion | default "eu-west-1" | quote }}
+            - name: ARTICLES_TABLE
+              value: {{ .Values.migration.articlesTable | quote }}
+            - name: STRATEGIST_TABLE
+              value: {{ .Values.migration.strategistTable | quote }}
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+            - secretRef:
+                name: platform-rds-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "200m"
+{{- end }}

@@ -1,0 +1,43 @@
+# @format
+# ExternalSecret: nextjs-config (in public-api namespace)
+#
+# public-api reads DYNAMODB_TABLE_NAME, BEDROCK_API_URL, STRATEGIST_TABLE_NAME,
+# BEDROCK_API_KEY_SECRET_ARN from this Secret (was ConfigMap).
+#
+# Static literals injected as Deployment env entries (not here):
+#   DYNAMODB_GSI1_NAME = "gsi1-status-date"
+#   DYNAMODB_GSI2_NAME = "gsi2-tag-date"
+#   ALLOWED_ORIGINS    = "https://nelsonlamounier.com"
+#
+# Referenced by: cdk-monitoring/kubernetes-app/workloads/charts/public-api/chart/templates/deployment.yaml
+#   envFrom.secretRef: name: nextjs-config
+
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: nextjs-config
+  namespace: public-api
+  annotations:
+    kubernetes.io/description: "public-api runtime config from SSM — replaces SM-B ConfigMap"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: nextjs-config
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: DYNAMODB_TABLE_NAME
+      remoteRef:
+        key: /nextjs/development/dynamodb-table-name
+    - secretKey: BEDROCK_API_URL
+      remoteRef:
+        key: /bedrock-dev/api-url
+    - secretKey: STRATEGIST_TABLE_NAME
+      remoteRef:
+        key: /bedrock-dev/strategist-table-name
+    - secretKey: BEDROCK_API_KEY_SECRET_ARN
+      remoteRef:
+        key: /bedrock-dev/bedrock-api-key-secret-arn

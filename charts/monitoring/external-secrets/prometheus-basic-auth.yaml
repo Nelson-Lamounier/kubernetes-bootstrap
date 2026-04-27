@@ -1,0 +1,29 @@
+# @format
+# ExternalSecret: prometheus-basic-auth-secret
+#
+# Resolves the htpasswd-formatted string from SSM.
+# The value in SSM must be in Traefik basicAuth format: "user:bcrypt_hash"
+#
+# Referenced by: charts/monitoring/chart/templates/traefik/basicauth-middleware.yaml
+# SSM path: /k8s/{env}/prometheus-basic-auth
+
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: prometheus-basic-auth-secret
+  namespace: monitoring
+  annotations:
+    kubernetes.io/description: "Prometheus basic-auth credentials from SSM"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: prometheus-basic-auth-secret
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: users
+      remoteRef:
+        key: /k8s/development/monitoring/prometheus-basic-auth

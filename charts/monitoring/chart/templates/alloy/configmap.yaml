@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alloy-config
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+data:
+  config.alloy: |
+    // =========================================================================
+    // Grafana Alloy — Faro Collector Pipeline
+    // Receives client-side telemetry from Grafana Faro SDK and forwards:
+    //   • Logs → Loki
+    //   • Traces → Tempo (via OTLP)
+    // =========================================================================
+
+    // --- Faro Receiver ---
+    // Listens for Faro SDK payloads (Web Vitals, JS errors, client spans, logs)
+    faro.receiver "default" {
+      server {
+        listen_address = "0.0.0.0"
+        listen_port    = {{ .Values.alloy.service.faroPort }}
+
+        cors_allowed_origins = [{{ range $i, $origin := .Values.alloy.ingress.corsAllowedOrigins }}{{ if $i }}, {{ end }}{{ $origin | quote }}{{ end }}]
+      }
+
+      output {
+        logs   = [loki.process.faro.receiver]
+        traces = [otelcol.exporter.otlp.tempo.input]
+      }
+    }
+
+    // --- Relabel Faro Logs ---
+    // Inject the job="faro" static label required by the RUM dashboard queries
+    loki.process "faro" {
+      forward_to = [loki.write.default.receiver]
+      
+      stage.static_labels {
+        values = {
+          job = "faro",
+        }
+      }
+    }
+
+    // --- Loki Writer ---
+    // Forwards Faro logs (JS errors, console logs, Web Vitals events) to Loki
+    loki.write "default" {
+      endpoint {
+        url = "http://loki.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.loki.service.port }}/loki/api/v1/push"
+      }
+    }
+
+    // --- OTLP Exporter (Tempo) ---
+    // Forwards client-side spans to Tempo for trace correlation
+    otelcol.exporter.otlp "tempo" {
+      client {
+        endpoint = "tempo.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.tempo.service.otlpGrpcPort }}"
+
+        tls {
+          insecure = true
+        }
+      }
+    }
+
+    // --- Self-monitoring ---
+    // Expose Alloy internal metrics for Prometheus scraping
+    prometheus.exporter.self "default" {
+    }

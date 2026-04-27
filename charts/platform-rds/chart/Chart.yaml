@@ -1,0 +1,7 @@
+# @format
+apiVersion: v2
+name: platform-rds
+description: Platform RDS infrastructure — namespace, PgBouncer connection pooler, DDL bootstrap Job
+type: application
+version: 0.1.0
+appVersion: "16.6"

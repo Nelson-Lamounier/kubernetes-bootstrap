@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-data
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "loki" | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if .Values.loki.pvc.storageClass }}
+  storageClassName: {{ .Values.loki.pvc.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.loki.pvc.size }}

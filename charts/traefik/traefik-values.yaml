@@ -1,0 +1,166 @@
+# @format
+# Traefik Helm Values — DaemonSet with hostNetwork (Hybrid-HA)
+#
+# Compatible with Traefik Helm chart v3.x (traefik/traefik)
+#
+# Ensures every node in the kubeadm cluster listens on ports 80/443,
+# enabling seamless EIP failover between nodes. When the EIP moves to
+# a different node, Traefik is already running and serving traffic.
+#
+# Key design decisions:
+#   - DaemonSet (not Deployment): 1 Traefik pod per node
+#   - hostNetwork: true — binds directly to node ethernet (no kube-proxy hop)
+#   - dnsPolicy: ClusterFirstWithHostNet — resolves K8s services in host net mode
+#   - Control plane toleration — Traefik must also run on the control plane node
+#   - Prometheus metrics on port 9100 (matches existing scrape targets)
+#   - OTLP tracing to Tempo (preserves existing observability)
+#
+# Install: helm install traefik traefik/traefik -n kube-system -f traefik-values.yaml
+# Chart:   https://traefik.github.io/charts
+
+# DaemonSet ensures one Traefik pod per node
+deployment:
+  kind: DaemonSet
+  # Required when hostNetwork: true — resolves K8s service DNS in host net mode
+  dnsPolicy: ClusterFirstWithHostNet
+
+# Rolling update strategy — required when hostNetwork: true
+# Two pods cannot bind the same host port, so maxUnavailable must be > 0
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+    maxSurge: 0
+
+# Bind directly to node network — ports 80/443 available as-is
+hostNetwork: true
+
+# Run on ALL nodes including control plane and monitoring
+# (required for EIP failover — Traefik must bind 80/443 on every node)
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+  - key: dedicated
+    value: monitoring
+    operator: Equal
+    effect: NoSchedule
+
+# Entry points (bound to host network — port IS the host port)
+ports:
+  web:
+    port: 80
+    expose:
+      default: true
+    exposedPort: 80
+    protocol: TCP
+  websecure:
+    port: 443
+    expose:
+      default: true
+    exposedPort: 443
+    protocol: TCP
+    # TLS terminated by Traefik using cert-manager-issued certificate
+    # stored as Kubernetes Secret (ops-tls-cert). CloudFront handles
+    # TLS for the public Next.js frontend separately.
+    tls:
+      enabled: true
+  metrics:
+    port: 9100
+    expose:
+      default: false
+    exposedPort: 9100
+    protocol: TCP
+
+# Disable LoadBalancer service (using hostNetwork + EIP instead)
+service:
+  enabled: false
+
+# Prometheus metrics
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+
+# OTLP tracing → Tempo (in-cluster)
+tracing:
+  otlp:
+    grpc:
+      endpoint: "tempo.monitoring.svc.cluster.local:4317"
+      insecure: true
+
+# Additional CLI arguments
+additionalArguments:
+  - "--tracing.otlp.grpc.endpoint=tempo.monitoring.svc.cluster.local:4317"
+  - "--tracing.otlp.grpc.insecure=true"
+  - "--metrics.prometheus=true"
+  - "--metrics.prometheus.entryPoint=metrics"
+  - "--metrics.prometheus.addEntryPointsLabels=true"
+  - "--metrics.prometheus.addRoutersLabels=true"
+  - "--metrics.prometheus.addServicesLabels=true"
+
+# Logging
+logs:
+  general:
+    level: INFO
+  access:
+    enabled: true
+
+# TLS Certificate — cert-manager
+#
+# TLS certificates are managed by cert-manager (ClusterIssuer + Certificate CR)
+# and stored as a Kubernetes Secret (ops-tls-cert) in kube-system.
+# This replaces Traefik's built-in ACME resolver so certs are available
+# on ALL nodes via etcd, not just the node with the EBS volume.
+#
+# cert-manager handles:
+#   - ACME DNS-01 challenge (TXT record in Route 53 public hosted zone)
+#   - Certificate issuance and renewal (30 days before expiry)
+#   - Storage as kubernetes.io/tls Secret
+#
+# See: k8s-bootstrap/system/cert-manager/
+tlsStore:
+  default:
+    defaultCertificate:
+      secretName: ops-tls-cert
+
+# Security context — allow binding to privileged ports 80/443
+# The chart defaults to non-root (uid 65532) with all capabilities dropped,
+# which prevents binding to ports < 1024. We add NET_BIND_SERVICE.
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+    add: [NET_BIND_SERVICE]
+  readOnlyRootFilesystem: true
+
+podSecurityContext:
+  runAsGroup: 0
+  runAsNonRoot: false
+  runAsUser: 0
+
+# Resources — right-sized from kubectl top (observed actual usage).
+# Traefik: observed cpu ~1m, memory ~42Mi (DaemonSet, 1 pod per node).
+# Requests set to 120% of observed p50; limits generous for traffic bursts.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# PodDisruptionBudget — disabled for DaemonSet.
+#
+# Kubernetes PDB controller does not count DaemonSet-owned pods in Total/Current/Desired,
+# so the PDB always reports disruptionsAllowed: 0 regardless of pod health. ArgoCD v3's
+# PDB health check marks Degraded whenever disruptionsAllowed == 0, causing the traefik
+# Application to show Degraded permanently even with all pods Running.
+#
+# DaemonSets don't benefit from PDB protection anyway — the scheduler guarantees exactly
+# one pod per node and the DaemonSet controller recreates evicted pods immediately.
+# Rolling node maintenance is controlled by updateStrategy.rollingUpdate.maxUnavailable: 1.
+podDisruptionBudget:
+  enabled: false
