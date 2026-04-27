@@ -184,11 +184,17 @@ jobs:
 
       # -----------------------------------------------------------------------
       # Phase 2 — Sync Bootstrap Scripts to S3
-      # Ensures sm-a/boot/ and gitops/ are present in the scripts bucket so
-      # that any instance bootstrapped from the current or a future AMI can
-      # resolve /opt/k8s-bootstrap/sm-a/boot/steps/ at runtime.
+      #
+      # Syncs the FULL sm-a/ tree (sm-a/boot/ + sm-a/argocd/ + future) and
+      # gitops/ to the scripts bucket. The runtime SSM document re-syncs all
+      # of sm-a/ on each bootstrap so committed fixes take effect without an
+      # AMI re-bake. node_modules stay AMI-baked (excluded here).
+      #
+      # Phase 2b verifies every local source file landed in S3 — a missing
+      # file in S3 is a hard pipeline failure, not a silent drift.
       # -----------------------------------------------------------------------
-      - name: "Phase 2 — Sync sm-a/boot/ + gitops/ to S3"
+      - name: "Phase 2 — Sync sm-a/ + gitops/ to S3"
+        id: s3-sync
         env:
           CDK_ENV: ${{ inputs.cdk-environment }}
           AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
@@ -203,20 +209,96 @@ jobs:
             echo "::error::SSM parameter $SSM_KEY not found"
             exit 1
           fi
+          echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
 
-          aws s3 sync sm-a/boot "s3://${BUCKET}/k8s-bootstrap/sm-a/boot/" \
+          aws s3 sync sm-a "s3://${BUCKET}/k8s-bootstrap/sm-a/" \
             --delete \
+            --exclude "**/node_modules/*" \
             --exclude "**/__pycache__/*" \
             --exclude "**/*.pyc" \
             --exclude "**/.venv/*" \
+            --exclude "**/.yarn/*" \
+            --exclude "**/dist/*" \
+            --exclude "**/*.tsbuildinfo" \
             --region "$AWS_REGION"
-          echo "[OK] sm-a/boot/ synced"
+          echo "[OK] sm-a/ synced (boot + argocd)"
 
           aws s3 sync gitops "s3://${BUCKET}/k8s-bootstrap/gitops/" \
             --delete \
             --exclude "**/__pycache__/*" \
             --region "$AWS_REGION"
           echo "[OK] gitops/ synced"
+
+      # -----------------------------------------------------------------------
+      # Phase 2b — Verify every local source file landed in S3
+      #
+      # This is the regression guard. Build a manifest of files that must
+      # exist in S3 (TypeScript, YAML, shell, package.json, install manifests)
+      # under sm-a/ and gitops/, then diff against the actual S3 listing.
+      # Any local file that is missing from S3 fails the workflow.
+      #
+      # Excludes match the sync excludes above. Adding a new top-level dir
+      # under sm-a/ is automatically covered — find walks the local tree.
+      # -----------------------------------------------------------------------
+      - name: "Phase 2b — Verify S3 sync covered all source files"
+        env:
+          BUCKET: ${{ steps.s3-sync.outputs.bucket }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          set -euo pipefail
+
+          # Files that MUST exist in S3 (matches sync excludes)
+          # Patterns intentionally restrictive: only files the bootstrap reads.
+          INCLUDE_EXTS='\.ts$|\.yaml$|\.yml$|\.sh$|\.json$|\.py$'
+          EXCLUDE_PATHS='/node_modules/|/__pycache__/|/\.venv/|/\.yarn/|/dist/|\.tsbuildinfo$|/tests/'
+
+          local_manifest=$(mktemp)
+          remote_manifest=$(mktemp)
+          trap 'rm -f "$local_manifest" "$remote_manifest"' EXIT
+
+          # Build local manifest: paths relative to repo root, sorted.
+          for ROOT in sm-a gitops; do
+            find "$ROOT" -type f \
+              | grep -E "$INCLUDE_EXTS" \
+              | grep -Ev "$EXCLUDE_PATHS" || true
+          done | sort > "$local_manifest"
+
+          LOCAL_COUNT=$(wc -l < "$local_manifest" | tr -d ' ')
+          echo "Local manifest: ${LOCAL_COUNT} files"
+
+          # Build remote manifest by listing S3 keys under the prefixes.
+          for PREFIX in sm-a gitops; do
+            aws s3api list-objects-v2 \
+              --bucket "$BUCKET" \
+              --prefix "k8s-bootstrap/${PREFIX}/" \
+              --query 'Contents[].Key' \
+              --output text \
+              --region "$AWS_REGION" 2>/dev/null \
+              | tr '\t' '\n' \
+              | sed 's|^k8s-bootstrap/||' \
+              | grep -E "$INCLUDE_EXTS" \
+              | grep -Ev "$EXCLUDE_PATHS" || true
+          done | sort > "$remote_manifest"
+
+          REMOTE_COUNT=$(wc -l < "$remote_manifest" | tr -d ' ')
+          echo "Remote manifest: ${REMOTE_COUNT} files"
+
+          # Files present locally but missing from S3 → hard failure.
+          missing=$(comm -23 "$local_manifest" "$remote_manifest" || true)
+          if [ -n "$missing" ]; then
+            echo "::error::S3 sync incomplete — these local files are missing from s3://${BUCKET}/k8s-bootstrap/:"
+            echo "$missing" | sed 's/^/  - /'
+            exit 1
+          fi
+
+          # Files present in S3 but not locally → warning (likely stale, --delete should clear them).
+          extra=$(comm -13 "$local_manifest" "$remote_manifest" || true)
+          if [ -n "$extra" ]; then
+            echo "::warning::S3 has files not present locally (--delete should remove these on next sync):"
+            echo "$extra" | sed 's/^/  - /'
+          fi
+
+          echo "[OK] All ${LOCAL_COUNT} local source files verified in S3"
 
   # ===========================================================================
   # Phase 2c: Instance Refresh (optional)
