@@ -67,6 +67,12 @@ secrets:
   # Contains: COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_ISSUER_URL
   name: admin-api-secrets
 
+# ── ServiceAccount ────────────────────────────────────────────────────────────
+# Named SA so the cross-namespace RoleBinding in the ingestion namespace
+# (admin-api-job-creator) can grant Job CRUD + pod log read.
+serviceAccount:
+  name: admin-api
+
 # ── Health probes ─────────────────────────────────────────────────────────────
 probes:
   readiness:
