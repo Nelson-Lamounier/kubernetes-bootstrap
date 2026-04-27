@@ -775,6 +775,15 @@ const doJoin = async (endpoint: string, cfg: WorkerConfig): Promise<void> => {
             throw new Error(`API server at ${endpoint} not healthy after ${cfg.joinMaxRetries} attempts`);
         }
 
+        // kubelet is a systemd-enabled unit baked into the AMI. Before kubeadm
+        // join writes /var/lib/kubelet/config.yaml the unit crash-loops every
+        // ~10s and racks up a high restart counter. The crash loop interferes
+        // with kubeadm join's TLS bootstrap (kubeadm starts kubelet but the
+        // unit may already be in restart back-off). Stop it cleanly so kubeadm
+        // owns the lifecycle for this attempt.
+        run(['systemctl', 'stop', 'kubelet'], { check: false });
+        run(['systemctl', 'reset-failed', 'kubelet'], { check: false });
+
         info('Running kubeadm join...');
         const joinRes = run(
             ['kubeadm', 'join', endpoint,
