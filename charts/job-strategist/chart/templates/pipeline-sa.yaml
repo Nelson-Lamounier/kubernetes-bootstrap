@@ -1,0 +1,9 @@
+# @format
+# ServiceAccount mounted by job-strategist Job pods (analysis + coaching).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.pipelineServiceAccount.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: job-strategist

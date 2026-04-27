@@ -1,0 +1,11 @@
+# @format
+# ServiceAccount mounted by article-pipeline Job pods.
+# AWS perms (bedrock:InvokeModel, s3:GetObject for draft staging) come from
+# the EC2 Instance Profile of the worker node — IMDS pattern.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.pipelineServiceAccount.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: article-pipeline

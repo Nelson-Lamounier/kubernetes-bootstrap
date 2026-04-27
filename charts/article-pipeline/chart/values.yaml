@@ -1,0 +1,9 @@
+# @format
+namespace: article-pipeline
+
+pipelineServiceAccount:
+  name: article-pipeline-sa
+
+adminApi:
+  serviceAccountName: admin-api
+  namespace: admin-api

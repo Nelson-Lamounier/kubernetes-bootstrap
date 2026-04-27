@@ -1,0 +1,30 @@
+# @format
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: article-pipeline
+  annotations:
+    kubernetes.io/description: "article-pipeline namespace infra — SA + RBAC; Jobs are created by admin-api"
+    argocd.argoproj.io/sync-wave: "3"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: develop
+    path: charts/article-pipeline/chart
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: article-pipeline
+  syncPolicy:
+    automated: { prune: true, selfHeal: true, allowEmpty: false }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff: { duration: 5s, factor: 2, maxDuration: 3m }
