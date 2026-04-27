@@ -3,7 +3,12 @@ namespace: platform
 
 pgbouncer:
   image:
-    repository: bitnami/pgbouncer
+    # Bitnami purged most images from docker.io/bitnami/* in 2025 and moved
+    # the archived tags under docker.io/bitnamilegacy/*. Pinning here to
+    # keep the cluster pullable; review for a maintained alternative
+    # (Bitnami Premium, official Postgres + sidecar, or edoburu/pgbouncer)
+    # before next major upgrade.
+    repository: bitnamilegacy/pgbouncer
     tag: "1.23.1"
   poolMode: transaction
   maxClientConn: 200
