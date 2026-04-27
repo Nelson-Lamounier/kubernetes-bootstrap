@@ -82,11 +82,15 @@ export function buildGoldenAmiComponent(input: GoldenAmiComponentInput): string 
     // Extract major.minor for Kubernetes dnf repo (e.g., '1.35')
     const k8sMinorVersion = clusterConfig.kubernetesVersion.split('.').slice(0, 2).join('.');
 
-    const extraHashComment = extraHash ? `# scripts-hash: ${extraHash}\n` : '';
+    // Compact "#hash" prefix (was "# scripts-hash: hash") to save bytes —
+    // every char counts against the 16000-byte AWS::ImageBuilder::Component
+    // Data limit. The hash exists solely to invalidate the component version
+    // when source files change; the prefix carried no information.
+    const extraHashComment = extraHash ? `#${extraHash}\n` : '';
 
     return `${extraHashComment}
 name: GoldenAmiInstall
-description: Install containerd, kubeadm, kubelet, kubectl, Calico manifests, and K8sGPT
+description: Install containerd, kubeadm, kubelet, kubectl, Calico, K8sGPT
 schemaVersion: 1.0
 
 phases:
