@@ -74,6 +74,31 @@ spec:
           # The manually committed workloads/argocd-apps/public-api.yaml is used instead.
           - path: charts/public-api
             exclude: true
+          # Platform charts below have hand-crafted argocd-apps/<name>.yaml manifests
+          # (multi-source Helm, custom valueFiles paths, or non-standard layouts that
+          # don't match the workload-generator template of {{path}}/chart +
+          # ../{{path.basename}}-values.yaml). Excluded so the generator doesn't
+          # collide with the hand-crafted Applications.
+          - path: charts/traefik
+            exclude: true
+          - path: charts/argocd-notifications
+            exclude: true
+          - path: charts/cert-manager-config
+            exclude: true
+          - path: charts/ecr-token-refresh
+            exclude: true
+          - path: charts/external-secrets-config
+            exclude: true
+          - path: charts/ingestion
+            exclude: true
+          - path: charts/crossplane-providers
+            exclude: true
+          - path: charts/crossplane-xrds
+            exclude: true
+          - path: charts/monitoring
+            exclude: true
+          - path: charts/platform-rds
+            exclude: true
 
   template:
     metadata:
