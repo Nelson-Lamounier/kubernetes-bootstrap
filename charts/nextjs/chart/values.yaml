@@ -1,0 +1,232 @@
+# @format
+# Default values for the nextjs-app Helm chart.
+# Override per-environment via nextjs-values.yaml.
+
+namespace: nextjs-app
+
+# ---------------------------------------------------------------------------
+# Application Image
+# ---------------------------------------------------------------------------
+image:
+  repository: "" # Overridden at deploy time via --set image.repository=<ECR_URI>
+  tag: "" # Overridden by nextjs-values.yaml or ArgoCD Image Updater write-back
+  pullPolicy: Always
+
+# ---------------------------------------------------------------------------
+# Deployment
+# ---------------------------------------------------------------------------
+replicas: 2
+port: 3000
+
+resources:
+  requests:
+    cpu: 25m       # Observed p50: ~10m. 25m covers burst (ISR caching, auth middleware).
+    memory: 192Mi  # Observed p50: ~124Mi. 192Mi covers peak without over-reservation.
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Security context for the pod
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+# Security context for the container
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false # Next.js ISR writes to /app/.next/server at runtime; emptyDir there clobbers build output
+
+# ---------------------------------------------------------------------------
+# Node Placement
+# ---------------------------------------------------------------------------
+nodeSelector:
+  node-pool: general
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 3000
+
+# ---------------------------------------------------------------------------
+# Health Probes
+# ---------------------------------------------------------------------------
+probes:
+  readiness:
+    path: /api/health
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  liveness:
+    path: /api/health
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# Horizontal Pod Autoscaler
+# ---------------------------------------------------------------------------
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilization: 70
+
+# ---------------------------------------------------------------------------
+# PodDisruptionBudget
+# ---------------------------------------------------------------------------
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# Ingress (Traefik IngressRoute CRD)
+# ---------------------------------------------------------------------------
+# IMPORTANT: ingress.enabled is intentionally false.
+#
+# The IngressRoute's match rule contains the CloudFront origin secret
+# (HeaderRegexp), which is a runtime value read from SSM.  Helm — and
+# therefore ArgoCD — cannot manage a resource whose definition changes at
+# deploy time without committing secrets to git.
+#
+# deploy.py (Step 5) is the SOLE owner of the 'nextjs' IngressRoute:
+#   - It creates the IngressRoute on first deploy.
+#   - It reads the live IngressRoute, rebuilds the match rule with the
+#     real secret from SSM, and applies the patch on every deploy.
+#   - ArgoCD never touches this object.
+#
+# Do NOT set ingress.enabled: true — that transfers ownership back to
+# ArgoCD, which will overwrite the runtime-injected match rule with
+# the placeholder on every sync, breaking CloudFront routing.
+ingress:
+  enabled: false
+  host: ""  # Used by deploy.py to build Host() match clause from NEXTAUTH_URL
+  matchRule: "PathPrefix(`/`)"
+  entryPoint: web
+
+# ---------------------------------------------------------------------------
+# Secrets (injected via deploy.py → Kubernetes Secret)
+#
+# Contains ONLY sensitive auth values — not AWS resource references.
+# Expected keys:
+#   NEXTAUTH_SECRET          — NextAuth.js signing secret
+#   NEXTAUTH_URL             — NextAuth.js public URL
+#   AUTH_COGNITO_USER_POOL_ID — Cognito user pool ID
+#   AUTH_COGNITO_ID          — Cognito app client ID
+#   AUTH_COGNITO_ISSUER      — Cognito issuer URL
+#   AUTH_COGNITO_DOMAIN      — Cognito hosted UI domain
+#   AUTH_COGNITO_SECRET      — dummy value (public client)
+#   BEDROCK_AGENT_API_KEY    — Bedrock Agent API key
+#   REVALIDATION_SECRET      — ISR revalidation token
+#   NEXT_PUBLIC_API_URL      — API Gateway URL (contains account ID)
+#   NEXT_PUBLIC_FARO_ENABLED — Grafana Faro RUM toggle
+# ---------------------------------------------------------------------------
+secrets:
+  name: nextjs-secrets
+
+# ---------------------------------------------------------------------------
+# Config (injected via deploy.py → Kubernetes ConfigMap)
+#
+# Non-sensitive infrastructure references — safe for plain ConfigMap storage.
+# AWS credentials are NOT here; they come from the EC2 Instance Profile (IMDS).
+# Expected keys:
+#   DYNAMODB_TABLE_NAME    — Content DynamoDB table
+#   DYNAMODB_GSI1_NAME     — GSI for status+date queries
+#   DYNAMODB_GSI2_NAME     — GSI for tag+date queries
+#   ASSETS_BUCKET_NAME     — S3 assets bucket name
+#   BEDROCK_AGENT_API_URL  — Bedrock Agent base URL
+#   SSM_BEDROCK_PREFIX     — SSM path prefix for Bedrock params
+#   PUBLISH_LAMBDA_ARN     — Article publish pipeline Lambda ARN
+#   STRATEGIST_TABLE_NAME  — Strategist DynamoDB table
+#   STRATEGIST_TRIGGER_ARN — Strategist trigger Lambda ARN
+#   AWS_DEFAULT_REGION     — AWS region for SDK default credential chain
+# ---------------------------------------------------------------------------
+config:
+  name: nextjs-config
+
+# ---------------------------------------------------------------------------
+# CloudFront Security
+# ---------------------------------------------------------------------------
+# originSecret is read from SSM /k8s/{env}/cloudfront-origin-secret by
+# deploy.py (Step 5) at deploy time.  deploy.py builds and applies the
+# Traefik IngressRoute directly as a Kubernetes object — not via Helm.
+#
+# The IngressRoute match rule uses HeaderRegexp (Traefik v3 / Go regex).
+# During secret rotation, deploy.py temporarily uses "OLD|NEW" so Traefik
+# accepts both values while CloudFront propagates (~15 min).
+#
+# This value is NOT rendered into the IngressRoute by Helm.  The field
+# below exists only so the chart can be linted without errors.
+cloudfront:
+  originSecret: "^PLACEHOLDER_NEVER_MATCHES$"  # Never rendered — IngressRoute is managed by deploy.py
+
+# ---------------------------------------------------------------------------
+# Resource Quota (namespace-level limits)
+# ---------------------------------------------------------------------------
+# Sized for blue/green: 2x replicas running simultaneously + headroom.
+# Formula: (replicas × 2 × per-pod limit) × 1.5 safety margin
+resourceQuota:
+  hard:
+    requests.cpu: "300m"  # 2x replicas × 25m × 2 (blue+green) × 1.5 safety margin
+    requests.memory: 1536Mi
+    limits.cpu: "3"
+    limits.memory: 3Gi
+    persistentvolumeclaims: "2"
+
+# ---------------------------------------------------------------------------
+# Topology Spread Constraints
+# ---------------------------------------------------------------------------
+# Enforces maxSkew: 1 across nodes for the 2-replica blue/green deployment.
+# Prevents both active and preview pods from landing on the same node.
+# The Descheduler evicts violating pods when CA adds a new node.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    # ScheduleAnyway: on a 2-node cluster DoNotSchedule blocks pod creation
+    # when maxSkew is already violated. ScheduleAnyway allows the scheduler
+    # to still place the pod; the Descheduler rebalances async via eviction.
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app: nextjs
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry (OTel) — Tracing Configuration
+# ---------------------------------------------------------------------------
+otel:
+  enabled: true
+  endpoint: "http://tempo.monitoring.svc.cluster.local:4317"
+  serviceName: "nextjs-frontend"
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Network Policy
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  nodesCidr: "10.0.0.0/16"
+  podCidr: "192.168.0.0/16"
+
+# ---------------------------------------------------------------------------
+# Argo Rollouts — Blue/Green Strategy Configuration
+# ---------------------------------------------------------------------------
+# Both active and preview ReplicaSets run simultaneously.
+# Pre-promotion analysis validates the preview against Prometheus
+# metrics before traffic switches.
+rollout:
+  blueGreen:
+    autoPromotionEnabled: false   # Require manual promotion (CI promote step)
+    autoPromotionSeconds: 0       # 0 = disabled; any non-zero value auto-promotes after N seconds
+                                  # even when autoPromotionEnabled is false (Argo Rollouts quirk).
+    scaleDownDelaySeconds: 30     # Wait 30s before scaling down old RS
+  analysis:
+    interval: 60s
+    count: 3
+    failureLimit: 1
+    consecutiveErrorLimit: 5
+    errorRateThreshold: 0.05
+    latencyThresholdMs: 2000

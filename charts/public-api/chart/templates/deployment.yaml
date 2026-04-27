@@ -1,0 +1,128 @@
+{{/*
+@format
+public-api — Kubernetes Deployment + Service
+
+Key differences from the golden-path template:
+  - No secretRef — public-api has zero secrets
+  - Mounts ConfigMap (public-api-config) via envFrom.configMapRef
+  - readOnlyRootFilesystem: true — the API has no filesystem writes
+  - Non-root user (uid 1001) matches Dockerfile USER directive
+*/}}
+
+---
+# ============================================================
+# NAMESPACE
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    kubernetes.io/metadata.name: {{ .Values.namespace }}
+
+---
+# ============================================================
+# DEPLOYMENT
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    platform.engineering/layer: bff
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}
+        platform.engineering/layer: bff
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Release.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+
+          # ---------------------------------------------------------------
+          # Environment — ConfigMap ONLY (no secretRef)
+          #
+          # AWS credentials are NOT injected here — they are resolved
+          # automatically from the EC2 Instance Profile via IMDS.
+          # ---------------------------------------------------------------
+          envFrom:
+            - configMapRef:
+                name: {{ .Values.config.name }}
+
+          # ---------------------------------------------------------------
+          # Health Probes — three-probe model (golden-path standard)
+          # ---------------------------------------------------------------
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.startup.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+          # Graceful shutdown — drain in-flight requests before SIGTERM
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+
+---
+# ============================================================
+# SERVICE
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}

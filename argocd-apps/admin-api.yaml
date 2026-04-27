@@ -1,0 +1,74 @@
+# @format
+# ArgoCD Application: admin-api
+#
+# BFF (Backend for Frontend) for the start-admin TanStack application.
+# Provides write-heavy REST endpoints protected by Cognito JWT bearer auth.
+#
+# Credential Model:
+#   admin-api-secrets  (K8s Secret — managed by deploy.py)
+#     → COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_ISSUER_URL
+#
+#   admin-api-config   (K8s ConfigMap — managed by deploy.py)
+#     → DYNAMODB_TABLE_NAME, DYNAMODB_GSI{1,2}_NAME, ASSETS_BUCKET_NAME,
+#       PUBLISH_LAMBDA_ARN, ARTICLE_TRIGGER_ARN, STRATEGIST_*, AWS_DEFAULT_REGION
+#
+#   IMDS     → AWS SDK credentials (DynamoDB, S3, Lambda) — ZERO K8s secrets
+#
+# IngressRoute:
+#   Managed by deploy.py Step 4. Routes /api/admin/* (priority 200) to
+#   admin-api:3002. Higher priority than public-api's /api/* (priority 100).
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: admin-api
+  annotations:
+    kubernetes.io/description: "ArgoCD application for the admin-api BFF service (start-admin TanStack)"
+    argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps — same wave as nextjs + start-admin
+    # -----------------------------------------------------------------------
+    # ArgoCD Image Updater — automatically update container image tag
+    # when a new image is pushed to ECR by the CI pipeline.
+    # -----------------------------------------------------------------------
+    argocd-image-updater.argoproj.io/image-list: "admin-api=771826808455.dkr.ecr.eu-west-1.amazonaws.com/admin-api"
+    argocd-image-updater.argoproj.io/admin-api.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/admin-api.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+    argocd-image-updater.argoproj.io/admin-api.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/admin-api.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/repo-kubernetes-bootstrap"
+    argocd-image-updater.argoproj.io/git-branch: develop
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: develop
+    path: charts/admin-api/chart
+    helm:
+      valueFiles:
+        - ../admin-api-values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: admin-api
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

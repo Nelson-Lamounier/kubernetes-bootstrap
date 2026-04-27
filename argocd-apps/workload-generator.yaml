@@ -1,13 +1,13 @@
 # @format
 # ArgoCD ApplicationSet: Workload Generator — Self-Service Templates
 #
-# Watches `kubernetes-app/workloads/charts/*/` directories in Git.
+# Watches `charts/*/` directories in Git.
 # When a developer adds a new Helm chart directory, ArgoCD automatically
 # creates an Application for it — zero manual ArgoCD configuration needed.
 #
 # How it works:
-#   1. Developer creates kubernetes-app/workloads/charts/my-service/chart/
-#   2. Developer creates kubernetes-app/workloads/charts/my-service/my-service-values.yaml
+#   1. Developer creates charts/my-service/chart/
+#   2. Developer creates charts/my-service/my-service-values.yaml
 #   3. ArgoCD ApplicationSet detects the new directory via Git
 #   4. ArgoCD creates a new Application 'my-service' pointing to the chart
 #   5. ArgoCD syncs the chart into the my-service namespace
@@ -40,39 +40,39 @@ spec:
     #   - The golden-path-service template itself (it's a template, not a workload)
     # ---------------------------------------------------------------
     - git:
-        repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+        repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
         revision: develop
         directories:
-          - path: kubernetes-app/workloads/charts/*
-          - path: kubernetes-app/workloads/charts/golden-path-service
+          - path: charts/*
+          - path: charts/golden-path-service
             exclude: true
           # nextjs is excluded because it requires custom annotations
           # (ArgoCD Image Updater, ECR write-back) and a specific namespace
           # (nextjs-app) that the generic template cannot provide.
           # The manually committed workloads/argocd-apps/nextjs.yaml is used instead.
-          - path: kubernetes-app/workloads/charts/nextjs
+          - path: charts/nextjs
             exclude: true
           # start-admin is excluded for the same reason as nextjs:
           # it requires ArgoCD Image Updater annotations (ECR SHA tag tracking,
           # git write-back to .argocd-source-start-admin.yaml) that the generic
           # ApplicationSet template cannot inject.
           # The manually committed workloads/argocd-apps/start-admin.yaml is used instead.
-          - path: kubernetes-app/workloads/charts/start-admin
+          - path: charts/start-admin
             exclude: true
           # wiki-mcp is excluded because it requires ArgoCD Image Updater annotations
           # (ECR SHA tag tracking, git write-back to .argocd-source-wiki-mcp.yaml).
           # The manually committed workloads/argocd-apps/wiki-mcp.yaml is used instead.
-          - path: kubernetes-app/workloads/charts/wiki-mcp
+          - path: charts/wiki-mcp
             exclude: true
           # admin-api is excluded because it requires ArgoCD Image Updater annotations
           # (ECR SHA tag tracking, git write-back to .argocd-source-admin-api.yaml).
           # The manually committed workloads/argocd-apps/admin-api.yaml is used instead.
-          - path: kubernetes-app/workloads/charts/admin-api
+          - path: charts/admin-api
             exclude: true
           # public-api is excluded because it requires ArgoCD Image Updater annotations
           # (ECR SHA tag tracking, git write-back to .argocd-source-public-api.yaml).
           # The manually committed workloads/argocd-apps/public-api.yaml is used instead.
-          - path: kubernetes-app/workloads/charts/public-api
+          - path: charts/public-api
             exclude: true
 
   template:
@@ -92,7 +92,7 @@ spec:
       project: default
 
       source:
-        repoURL: git@github.com:Nelson-Lamounier/cdk-monitoring.git
+        repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
         targetRevision: develop
         path: "{{path}}/chart"
         helm:

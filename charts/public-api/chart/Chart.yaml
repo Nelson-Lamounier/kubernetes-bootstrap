@@ -1,0 +1,17 @@
+apiVersion: v2
+name: public-api
+description: >
+  BFF public-api — read-only DynamoDB data API for the portfolio Next.js frontend.
+  Receives credentials from the EC2 Instance Profile via IMDS (no K8s Secrets).
+  Configuration is sourced from the nextjs-config ConfigMap.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - portfolio
+  - api
+  - bff
+  - dynamodb
+home: https://github.com/Nelson-Lamounier/cdk-monitoring
+maintainers:
+  - name: Nelson Lamounier

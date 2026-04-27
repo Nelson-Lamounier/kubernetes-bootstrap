@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------
+# Pre-Promotion Analysis Template — Prometheus metric validation
+#
+# Runs during the blue/green pre-promotion phase. Queries Prometheus:
+#   1. Error rate (5xx / total requests) — must be below threshold
+#   2. P95 latency — must be below threshold
+#
+# If either metric breaches its threshold, the AnalysisRun fails
+# and the Rollout pauses — the preview is NOT promoted to active.
+#
+# Metrics source: Traefik request metrics (always available).
+# Wrapped PromQL with scalar() to convert vector results into
+# scalars, preventing []float64 type errors.
+# ---------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: start-admin-bluegreen-analysis
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "start-admin.fullLabels" . | nindent 4 }}
+spec:
+  args:
+    - name: service-name
+  metrics:
+    # ----- Error Rate: 5xx errors / total requests (via Traefik) -----
+    - name: error-rate
+      interval: {{ .Values.rollout.analysis.interval }}
+      count: {{ .Values.rollout.analysis.count }}
+      failureLimit: {{ .Values.rollout.analysis.failureLimit }}
+      consecutiveErrorLimit: {{ .Values.rollout.analysis.consecutiveErrorLimit }}
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090/prometheus
+          query: |
+            scalar(
+              sum(rate(
+                traefik_service_requests_total{
+                  service=~"start-admin-start-admin-.*@kubernetes",
+                  code=~"5.."
+                }[5m]
+              )) /
+              sum(rate(
+                traefik_service_requests_total{
+                  service=~"start-admin-start-admin-.*@kubernetes"
+                }[5m]
+              ))
+            )
+      successCondition: "isNaN(result) || result < {{ .Values.rollout.analysis.errorRateThreshold }}"
+    # ----- P95 Latency: 95th percentile response time (via Traefik) -----
+    - name: p95-latency
+      interval: {{ .Values.rollout.analysis.interval }}
+      count: {{ .Values.rollout.analysis.count }}
+      failureLimit: {{ .Values.rollout.analysis.failureLimit }}
+      consecutiveErrorLimit: {{ .Values.rollout.analysis.consecutiveErrorLimit }}
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090/prometheus
+          query: |
+            scalar(
+              histogram_quantile(0.95,
+                sum(rate(
+                  traefik_service_request_duration_seconds_bucket{
+                    service=~"start-admin-start-admin-.*@kubernetes"
+                  }[5m]
+                )) by (le)
+              ) * 1000
+            )
+      successCondition: "isNaN(result) || result < {{ .Values.rollout.analysis.latencyThresholdMs }}"

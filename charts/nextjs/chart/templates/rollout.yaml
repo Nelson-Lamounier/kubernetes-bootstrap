@@ -1,0 +1,107 @@
+# ---------------------------------------------------------------
+# Blue/Green Rollout — Argo Rollouts progressive delivery
+#
+# Two full ReplicaSets run side by side:
+#   activeService  → receives production traffic (nextjs)
+#   previewService → receives zero traffic until promoted (nextjs-preview)
+#
+# Pre-promotion analysis queries Prometheus for error rate and
+# P95 latency. If metrics breach thresholds, the rollout pauses
+# and does NOT promote automatically.
+#
+# After manual promotion, the preview becomes active and the old
+# ReplicaSet scales down after scaleDownDelaySeconds.
+# ---------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: nextjs
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "nextjs.fullLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "nextjs.selectorLabels" . | nindent 6 }}
+  strategy:
+    blueGreen:
+      activeService: nextjs
+      previewService: nextjs-preview
+      autoPromotionEnabled: {{ .Values.rollout.blueGreen.autoPromotionEnabled }}
+      {{- if .Values.rollout.blueGreen.autoPromotionSeconds }}
+      autoPromotionSeconds: {{ .Values.rollout.blueGreen.autoPromotionSeconds }}
+      {{- end }}
+      scaleDownDelaySeconds: {{ .Values.rollout.blueGreen.scaleDownDelaySeconds | default 30 }}
+      prePromotionAnalysis:
+        templates:
+          - templateName: nextjs-bluegreen-analysis
+        args:
+          - name: service-name
+            value: "nextjs-frontend"
+  template:
+    metadata:
+      labels:
+        {{- include "nextjs.fullLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nextjs
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.port }}
+              name: http
+              protocol: TCP
+          env:
+            - name: AUTH_TRUST_HOST
+              value: "true"
+            - name: OTEL_SDK_DISABLED
+              value: "{{ not .Values.otel.enabled }}"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "{{ .Values.otel.endpoint }}"
+            - name: OTEL_SERVICE_NAME
+              value: "{{ .Values.otel.serviceName }}"
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.name }}
+            - configMapRef:
+                name: nextjs-config
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: nextjs-cache
+              mountPath: /app/.next/cache
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: {{ .Values.port }}
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: {{ .Values.port }}
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+      volumes:
+        - name: nextjs-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

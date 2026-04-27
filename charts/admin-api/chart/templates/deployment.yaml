@@ -1,0 +1,93 @@
+# ── admin-api Deployment ──────────────────────────────────────────────────────
+#
+# BFF for the start-admin TanStack application.
+#
+# Environment injection:
+#   secretRef:    admin-api-secrets   — Cognito auth creds (K8s Opaque Secret)
+#   configMapRef: admin-api-config    — DynamoDB, S3, Lambda refs (plain ConfigMap)
+#
+# AWS credentials: NOT injected — resolved via EC2 Instance Profile (IMDS).
+#
+# IngressRoute: NOT defined here — owned by deploy.py (Step 5).
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-api
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "admin-api.fullLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "admin-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "admin-api.fullLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: admin-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.port }}
+              name: http
+              protocol: TCP
+          envFrom:
+            # Cognito auth creds — K8s Opaque Secret (managed by deploy.py)
+            - secretRef:
+                name: {{ .Values.secrets.name }}
+            # DynamoDB tables, S3 bucket, Lambda ARNs, region — plain ConfigMap
+            - configMapRef:
+                name: admin-api-config
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: {{ .Values.port }}
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: {{ .Values.port }}
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+# ── Service ───────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-api
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "admin-api.fullLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "admin-api.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP

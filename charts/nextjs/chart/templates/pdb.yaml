@@ -1,0 +1,21 @@
+{{- if .Values.pdb.enabled }}
+# ---------------------------------------------------------------
+# PodDisruptionBudget — protects availability during node drains
+#
+# Ensures at least {{ .Values.pdb.minAvailable }} pod(s) remain
+# available during voluntary disruptions (node maintenance,
+# cluster upgrades, spot instance reclamation).
+# ---------------------------------------------------------------
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nextjs
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "nextjs.fullLabels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "nextjs.selectorLabels" . | nindent 6 }}
+{{- end }}

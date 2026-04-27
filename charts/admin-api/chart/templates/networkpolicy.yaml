@@ -1,0 +1,57 @@
+# ── admin-api NetworkPolicy ───────────────────────────────────────────────────
+#
+# Default-deny with targeted allow rules:
+#   Ingress: Only Traefik (from kube-system) on port 3002
+#   Egress:  DynamoDB/S3/Lambda (AWS APIs) + Cognito JWKS endpoint + DNS
+#
+# AWS API calls go via the VPC endpoint or NAT gateway — no special rule
+# needed beyond allowing all egress (both are reachable from the pod network).
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: admin-api-network-policy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "admin-api.fullLabels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "admin-api.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow Traefik ingress controller from kube-system
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: {{ .Values.port }}
+
+    # Allow Prometheus scraping from monitoring namespace (if metrics added later)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: {{ .Values.port }}
+
+    # Allow in-cluster BFF calls from start-admin (server-to-server, no public exposure)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: start-admin
+      ports:
+        - protocol: TCP
+          port: {{ .Values.port }}
+
+  egress:
+    # Allow all egress — AWS API endpoints (DynamoDB, S3, Lambda, Cognito JWKS)
+    # are reachable via NAT gateway. Restricting to specific CIDR ranges
+    # is impractical for multi-service AWS workloads.
+    - {}

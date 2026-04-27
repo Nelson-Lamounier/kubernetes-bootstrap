@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: start-admin-quota
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "start-admin.labels" . | nindent 4 }}
+spec:
+  hard:
+    {{- toYaml .Values.resourceQuota.hard | nindent 4 }}

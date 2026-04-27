@@ -1,0 +1,36 @@
+{{/*
+@format
+public-api — Traefik IngressRoute
+
+IMPORTANT: This resource is intentionally NOT rendered by this chart
+(ingress.enabled is false in values.yaml).
+
+The IngressRoute is owned exclusively by deploy.py (Step 3), which
+creates/patches it imperatively at deploy time. This avoids the race
+condition where ArgoCD would revert the CloudFront origin secret in
+the Host() match rule between deployments.
+
+See: charts/public-api/deploy.py → Step 3
+*/}}
+
+{{- if .Values.ingress.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    kubernetes.io/description: "IngressRoute for {{ .Release.Name }}"
+spec:
+  entryPoints:
+    - {{ .Values.ingress.entryPoint }}
+  routes:
+    - match: Host(`{{ .Values.ingress.host }}`) && PathPrefix(`{{ .Values.ingress.pathPrefix }}`)
+      kind: Rule
+      services:
+        - name: {{ .Release.Name }}
+          port: {{ .Values.service.port }}
+{{- end }}

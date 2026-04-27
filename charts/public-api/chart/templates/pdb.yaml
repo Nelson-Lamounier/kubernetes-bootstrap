@@ -1,0 +1,23 @@
+{{- if .Values.pdb.enabled }}
+# ---------------------------------------------------------------
+# PodDisruptionBudget — protects public-api availability during
+# voluntary disruptions (CA scale-down, spot reclamation, drain).
+#
+# minAvailable: 1 prevents the sole replica from being evicted
+# before a replacement is scheduled on another node.
+# ---------------------------------------------------------------
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    platform.engineering/layer: bff
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}
+{{- end }}

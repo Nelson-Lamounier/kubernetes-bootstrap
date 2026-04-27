@@ -9,7 +9,7 @@
 #   DYNAMODB_GSI2_NAME = "gsi2-tag-date"
 #   ALLOWED_ORIGINS    = "https://nelsonlamounier.com"
 #
-# Referenced by: cdk-monitoring/kubernetes-app/workloads/charts/public-api/chart/templates/deployment.yaml
+# Referenced by: cdk-monitoring/charts/public-api/chart/templates/deployment.yaml
 #   envFrom.secretRef: name: nextjs-config
 
 apiVersion: external-secrets.io/v1beta1

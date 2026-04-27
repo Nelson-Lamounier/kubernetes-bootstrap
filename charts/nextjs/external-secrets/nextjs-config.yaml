@@ -5,7 +5,7 @@
 # Consumed by nextjs Deployment via envFrom.secretRef.
 # SSM paths: /nextjs/development/* and /bedrock-dev/api-url
 #
-# Referenced by: cdk-monitoring/kubernetes-app/workloads/charts/nextjs/chart/templates/deployment.yaml
+# Referenced by: cdk-monitoring/charts/nextjs/chart/templates/deployment.yaml
 #   envFrom.secretRef: name: nextjs-config
 
 apiVersion: external-secrets.io/v1beta1
