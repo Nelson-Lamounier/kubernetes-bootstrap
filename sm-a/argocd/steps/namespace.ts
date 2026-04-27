@@ -70,14 +70,21 @@ stringData:
 ${indentedKey}
 `;
 
-    // cdk-monitoring: workloads ApplicationSet still sources charts from this repo
+    // cdk-monitoring: workloads ApplicationSet sources charts from this repo
     kubectlApplyStdin(makeRepoSecret('repo-cdk-monitoring', 'git@github.com:Nelson-Lamounier/cdk-monitoring.git'), cfg);
 
-    // kubernetes-bootstrap: platform ArgoCD Applications + charts now live here after merge.
-    // Same deploy key — add the public key as a deploy key in kubernetes-bootstrap repo settings.
+    // kubernetes-bootstrap: bootstrap scripts repo
     kubectlApplyStdin(makeRepoSecret('repo-kubernetes-bootstrap', 'git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git'), cfg);
 
-    log('  ✓ SSH Deploy Key repo credentials applied (cdk-monitoring + kubernetes-bootstrap)\n');
+    // kubernetes-platform: platform Application manifests + Helm charts.
+    // platform-root-app.yaml and workloads-root-app.yaml both source from
+    // this repo (argocd-apps/ and charts/ paths). Without this secret ArgoCD
+    // cannot list refs and every Application stays at sync status Unknown.
+    // Same deploy key — add the public key as a deploy key on the
+    // kubernetes-platform GitHub repo.
+    kubectlApplyStdin(makeRepoSecret('repo-kubernetes-platform', 'git@github.com:Nelson-Lamounier/kubernetes-platform.git'), cfg);
+
+    log('  ✓ SSH Deploy Key repo credentials applied (cdk-monitoring + kubernetes-bootstrap + kubernetes-platform)\n');
 };
 
 // Step 3b: Preserve JWT signing key before ArgoCD re-install blanks argocd-secret
