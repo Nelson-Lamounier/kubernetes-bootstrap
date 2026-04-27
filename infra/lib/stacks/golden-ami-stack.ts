@@ -156,7 +156,14 @@ export class GoldenAmiStack extends cdk.Stack {
         // dirs) for {ts,yaml,yml,sh,json}, sorted for determinism. Excludes
         // node_modules/, dist/, and .yarn/ (build/cache artefacts that don't
         // affect runtime behaviour).
-        const smaRoot = path.resolve(__dirname, '../../../../sm-a');
+        // __dirname = infra/lib/stacks/ → ../../../ = repo root → sm-a/
+        // Previous code had ../../../../sm-a, which resolved one level above
+        // the repo and didn't exist. fs.existsSync returned false silently,
+        // extraHash was always undefined, the YAML never carried the source
+        // hash, and the component version (sha256 of the YAML) never changed.
+        // Result: every cdk deploy since this hash mechanism was added has
+        // been a no-op. AMI never rebaked from source changes.
+        const smaRoot = path.resolve(__dirname, '../../../sm-a');
         const stepsHash = fs.existsSync(smaRoot)
             ? (() => {
                 const h = crypto.createHash('sha256');
