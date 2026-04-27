@@ -701,16 +701,15 @@ Kustomize manifests, and plain YAML in Git, then automatically applies
 them to the cluster.
 
 ArgoCD manages all applications via the App-of-Apps pattern:
-  - platform-root Application → discovers platform apps in platform/argocd-apps/ directory
-  - workloads-root Application → discovers workload apps in workloads/argocd-apps/ directory
-  - Platform Applications: traefik, monitoring, metrics-server, local-path-provisioner, argo-rollouts
-  - Workload Applications: nextjs
+  - platform-root Application → discovers all apps in kubernetes-platform/argocd-apps/ directory
+  - All Applications (platform infra + workloads) live under that single path,
+    ordering controlled via argocd.argoproj.io/sync-wave annotations.
 
 ROOT CAUSE: bootstrap_argocd.py has not run yet. This script:
   1. Creates the argocd namespace
   2. Installs ArgoCD via its manifest
   3. Configures the repo SSH deploy key
-  4. Applies the App-of-Apps root Applications (platform-root-app.yaml + workloads-root-app.yaml)
+  4. Applies the App-of-Apps root Application (platform-root-app.yaml)
   5. ArgoCD then auto-discovers all child Applications from Git
 
 WHERE TO LOOK:
@@ -748,8 +747,8 @@ DIAGNOSTIC:
     fi
   done
 
-  # Check App-of-Apps root Applications (platform + workloads)
-  for ROOT_NAME in platform-root workloads-root; do
+  # Check App-of-Apps root Application (platform-root manages everything)
+  for ROOT_NAME in platform-root; do
     ROOT_APP=$(kube get application $ROOT_NAME -n argocd --no-headers 2>/dev/null || echo "")
     if [ -n "$ROOT_APP" ]; then
       ROOT_STATUS=$(echo "$ROOT_APP" | awk '{print $2}')
@@ -768,18 +767,16 @@ DIAGNOSTIC:
     else
       fail "App-of-Apps $ROOT_NAME Application NOT found" \
 "The '$ROOT_NAME' Application is a parent that discovers child Applications
-from the corresponding argocd-apps/ directory in Git.
+from kubernetes-platform/argocd-apps/ in Git.
 
-It should be applied by bootstrap_argocd.py via:
+It should be applied by bootstrap_argocd.ts via:
   kubectl apply -f platform-root-app.yaml
-  kubectl apply -f workloads-root-app.yaml
 
 WITHOUT IT: ArgoCD cannot discover or manage applications.
 
 DIAGNOSTIC:
   kubectl get applications -n argocd
-  ls -la /opt/k8s-bootstrap/sm-a/argocd/platform-root-app.yaml
-  ls -la /opt/k8s-bootstrap/sm-a/argocd/workloads-root-app.yaml"
+  ls -la /opt/k8s-bootstrap/sm-a/argocd/platform-root-app.yaml"
     fi
   done
 
@@ -807,8 +804,7 @@ DIAGNOSTIC:
 The root Application should auto-discover child Applications from Git.
 
 DIAGNOSTIC:
-  kubectl describe application platform-root -n argocd
-  kubectl describe application workloads-root -n argocd"
+  kubectl describe application platform-root -n argocd"
   fi
 fi
 

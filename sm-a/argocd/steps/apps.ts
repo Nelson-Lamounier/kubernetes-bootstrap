@@ -15,13 +15,12 @@ import { restoreCert } from '../helpers/tls-cert.js';
 // ─── Step 5 ──────────────────────────────────────────────────────────────────
 
 export const applyRootApp = (cfg: Config): void => {
-    log('=== Step 5: Applying App-of-Apps roots (platform + workloads) ===');
-    for (const name of ['platform-root-app.yaml', 'workloads-root-app.yaml'] as const) {
-        log(`  → Applying ${name}`);
-        const result = run(['kubectl', 'apply', '-f', `${cfg.argocdDir}/${name}`], cfg, { check: false });
-        log(result.ok ? `  ✓ ${name} applied` : `  ⚠ Failed to apply ${name}: ${result.stderr}`);
-    }
-    log('✓ App-of-Apps roots applied\n');
+    log('=== Step 5: Applying App-of-Apps root (platform-root) ===');
+    const name = 'platform-root-app.yaml';
+    log(`  → Applying ${name}`);
+    const result = run(['kubectl', 'apply', '-f', `${cfg.argocdDir}/${name}`], cfg, { check: false });
+    log(result.ok ? `  ✓ ${name} applied` : `  ⚠ Failed to apply ${name}: ${result.stderr}`);
+    log('✓ App-of-Apps root applied\n');
 };
 
 // ─── Step 5b ─────────────────────────────────────────────────────────────────

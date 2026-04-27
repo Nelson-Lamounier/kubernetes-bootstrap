@@ -77,11 +77,10 @@ ${indentedKey}
     kubectlApplyStdin(makeRepoSecret('repo-kubernetes-bootstrap', 'git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git'), cfg);
 
     // kubernetes-platform: platform Application manifests + Helm charts.
-    // platform-root-app.yaml and workloads-root-app.yaml both source from
-    // this repo (argocd-apps/ and charts/ paths). Without this secret ArgoCD
-    // cannot list refs and every Application stays at sync status Unknown.
-    // Same deploy key — add the public key as a deploy key on the
-    // kubernetes-platform GitHub repo.
+    // platform-root-app.yaml sources from this repo (argocd-apps/ + charts/).
+    // Without this secret ArgoCD cannot list refs and every Application
+    // stays at sync status Unknown. Same deploy key — add the public key
+    // as a deploy key on the kubernetes-platform GitHub repo.
     kubectlApplyStdin(makeRepoSecret('repo-kubernetes-platform', 'git@github.com:Nelson-Lamounier/kubernetes-platform.git'), cfg);
 
     log('  ✓ SSH Deploy Key repo credentials applied (cdk-monitoring + kubernetes-bootstrap + kubernetes-platform)\n');
