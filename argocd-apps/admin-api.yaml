@@ -71,7 +71,7 @@ spec:
         argocd-image-updater.argoproj.io/admin-api.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
         argocd-image-updater.argoproj.io/admin-api.helm.image-name: image.repository
         argocd-image-updater.argoproj.io/admin-api.helm.image-tag: image.tag
-        argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/repo-kubernetes-bootstrap"
+        argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
         argocd-image-updater.argoproj.io/git-branch: "{{gitBranch}}"
       labels:
         app.kubernetes.io/part-of: argocd

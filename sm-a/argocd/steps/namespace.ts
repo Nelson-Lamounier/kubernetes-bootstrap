@@ -83,6 +83,54 @@ ${indentedKey}
     log('  ✓ SSH Deploy Key repo credentials applied (cdk-monitoring + kubernetes-bootstrap)\n');
 };
 
+// Step 3c: Provision argocd-image-updater writeback SSH key (separate from the
+// repo-* sync keys — sync stays read-only, write-back uses a write-enabled
+// deploy key on Nelson-Lamounier/kubernetes-bootstrap).
+//
+// SSM source: ${cfg.ssmPrefix}/argocd/image-updater-deploy-key (SecureString).
+// Result: K8s Secret argocd/argocd-image-updater-writeback-key with a single
+// `sshPrivateKey` field. The 4 ArgoCD Application/ApplicationSet manifests
+// (admin-api, public-api, nextjs, start-admin) reference it via the
+// argocd-image-updater.argoproj.io/write-back-method annotation:
+//   git:secret:argocd/argocd-image-updater-writeback-key
+//
+// Why this is its own Secret (not the repo-kubernetes-bootstrap secret):
+//   - sync uses a read-only key (least privilege; a compromised sync key
+//     can't push malicious .argocd-source-*.yaml back into git).
+//   - write-back uses a write-enabled key, scoped to image-updater only.
+//   - Splitting them keeps the blast radius small and makes the audit trail
+//     unambiguous: any push from the writeback key is image-updater.
+export const provisionImageUpdaterWriteback = async (cfg: Config): Promise<void> => {
+    log('=== Step 3c: Provisioning ArgoCD Image Updater writeback key ===');
+    if (cfg.dryRun) {
+        log('  [DRY-RUN] Would resolve image-updater deploy key from SSM and apply Secret\n');
+        return;
+    }
+    const ssmPath = `${cfg.ssmPrefix}/argocd/image-updater-deploy-key`;
+    const key = await ssmGet(cfg, ssmPath, true);
+    if (!key) {
+        log(`  ⚠ Image Updater write-back key not found in SSM — store at: ${ssmPath}`);
+        log('    Without it ECR pushes won\'t auto-roll Rollouts (manual edit of\n');
+        log('    .argocd-source-<app>.yaml will be required per release).\n');
+        return;
+    }
+    const indented = key.trimEnd().split('\n').map(l => `    ${l}`).join('\n');
+    const manifest = `apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-image-updater-writeback-key
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "Write-enabled deploy key for kubernetes-bootstrap — used by argocd-image-updater write-back only"
+type: Opaque
+stringData:
+  sshPrivateKey: |
+${indented}
+`;
+    kubectlApplyStdin(manifest, cfg);
+    log('  ✓ Image Updater writeback Secret applied (argocd/argocd-image-updater-writeback-key)\n');
+};
+
 // Step 3b: Preserve JWT signing key before ArgoCD re-install blanks argocd-secret
 // Source 1: in-cluster kubectl get secret
 // Source 2: SSM backup (DR — fresh cluster)
