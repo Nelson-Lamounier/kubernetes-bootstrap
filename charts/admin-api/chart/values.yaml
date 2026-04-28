@@ -25,6 +25,33 @@ image:
   tag: "latest" # Overridden by ArgoCD Image Updater write-back
   pullPolicy: IfNotPresent
 
+# ── K8s Job images (consumed by admin-api routes that create Jobs) ────────────
+# repository + tag are tracked by ArgoCD Image Updater (see argocd-apps/admin-api.yaml
+# image-list annotations). On every ECR push the Updater writes the new tag to
+# .argocd-source-admin-api.yaml; ArgoCD re-renders the Deployment env block which
+# projects these as INGESTION_IMAGE / ARTICLE_PIPELINE_IMAGE / STRATEGIST_PIPELINE_IMAGE
+# so the admin-api process picks up the URI without ConfigMap regeneration.
+#
+# namespace + serviceAccount are static defaults — these match the chart layout
+# in kubernetes-bootstrap/charts/{ingestion,article-pipeline,job-strategist}/.
+ingestionImage:
+  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/ingestion
+  tag: "latest"             # written by Image Updater on first ECR push
+  namespace: ingestion
+  serviceAccount: ingestion-sa
+
+articlePipelineImage:
+  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/article-pipeline
+  tag: "latest"
+  namespace: article-pipeline
+  serviceAccount: article-pipeline-sa
+
+strategistPipelineImage:
+  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/job-strategist
+  tag: "latest"
+  namespace: job-strategist
+  serviceAccount: job-strategist-sa
+
 replicas: 1
 
 # Port 3002 — admin-api (public-api uses 3001)

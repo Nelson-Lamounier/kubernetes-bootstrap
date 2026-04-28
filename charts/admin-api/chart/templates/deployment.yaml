@@ -43,15 +43,41 @@ spec:
             - containerPort: {{ .Values.port }}
               name: http
               protocol: TCP
+          env:
+            # K8s Job image URIs — written by ArgoCD Image Updater on each
+            # ECR push. Image Updater watches the 3 ECR repos declared in
+            # argocd-apps/admin-api.yaml `image-list` and writes the new
+            # tags to .argocd-source-admin-api.yaml; ArgoCD then re-renders
+            # this template so the env values pick up the new tags.
+            - name: INGESTION_IMAGE
+              value: "{{ .Values.ingestionImage.repository }}:{{ .Values.ingestionImage.tag }}"
+            - name: ARTICLE_PIPELINE_IMAGE
+              value: "{{ .Values.articlePipelineImage.repository }}:{{ .Values.articlePipelineImage.tag }}"
+            - name: STRATEGIST_PIPELINE_IMAGE
+              value: "{{ .Values.strategistPipelineImage.repository }}:{{ .Values.strategistPipelineImage.tag }}"
+            # Static K8s wiring for Job creation by admin-api routes.
+            - name: INGESTION_NAMESPACE
+              value: {{ .Values.ingestionImage.namespace | quote }}
+            - name: INGESTION_SERVICE_ACCOUNT
+              value: {{ .Values.ingestionImage.serviceAccount | quote }}
+            - name: ARTICLE_PIPELINE_NAMESPACE
+              value: {{ .Values.articlePipelineImage.namespace | quote }}
+            - name: ARTICLE_PIPELINE_SERVICE_ACCOUNT
+              value: {{ .Values.articlePipelineImage.serviceAccount | quote }}
+            - name: STRATEGIST_PIPELINE_NAMESPACE
+              value: {{ .Values.strategistPipelineImage.namespace | quote }}
+            - name: STRATEGIST_PIPELINE_SERVICE_ACCOUNT
+              value: {{ .Values.strategistPipelineImage.serviceAccount | quote }}
           envFrom:
-            # Cognito auth creds — K8s Opaque Secret (managed by deploy.py)
+            # admin-api runtime config — ESO syncs SSM (Cognito + RDS PG creds
+            # via separate ExternalSecrets) into a single K8s Opaque Secret.
             - secretRef:
                 name: {{ .Values.secrets.name }}
-            # DynamoDB, S3, Lambda refs — ESO syncs SSM into a K8s Secret
-            # (not a ConfigMap). optional: true so the pod can start before
-            # the admin-api-config ExternalSecret is provisioned.
+            # platform-rds-credentials — PG_HOST/PORT/DATABASE/USER/PASSWORD
+            # synced from Secrets Manager via ESO. Same pattern other
+            # PG-consuming pods use across the cluster.
             - secretRef:
-                name: admin-api-config
+                name: platform-rds-credentials
                 optional: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
