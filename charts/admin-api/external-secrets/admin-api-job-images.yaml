@@ -1,0 +1,62 @@
+# @format
+# ExternalSecret: admin-api-job-images
+#
+# Syncs the 3 K8s Job image URIs from SSM into a Kubernetes Secret. The
+# admin-api Rollout mounts this Secret as files at /etc/admin-api/images/
+# so the admin-api process can read the latest URI on each Job creation
+# WITHOUT triggering a pod restart.
+#
+# Why a separate Secret (not part of admin-api-secrets):
+#   - admin-api-secrets is consumed via envFrom — its values become env
+#     vars frozen at pod start. A change there requires a rolling restart.
+#   - This Secret is consumed via volumeMounts. The kubelet auto-updates
+#     the projected files when the upstream Secret changes (~60s eventual
+#     consistency). Decoupled completely from the Blue/Green Rollout.
+#
+# Path of an image URI from CI to admin-api:
+#   1. ai-applications GitHub Actions push image to ECR
+#   2. Same workflow writes <repo>:<tag> to SSM /k8s/{env}/job-images/{app}
+#   3. This ExternalSecret refreshes (refreshInterval 5m)
+#   4. K8s Secret 'admin-api-job-images' rotates with the new key value
+#   5. kubelet updates the mounted file at /etc/admin-api/images/{app}
+#   6. Next admin-api Job-creation request reads the file → uses new URI
+#
+# Refresh interval (5m): the SSM-side change rate is at most a few times
+# per day per app (CI pushes), so a 5-minute lag for image visibility is
+# acceptable. Lower than 5m would burn ESO API quota for no real benefit.
+#
+# Referenced by: kubernetes-bootstrap charts/admin-api/chart/templates/rollout.yaml
+#   spec.template.spec.volumes:
+#     - name: job-images
+#       secret:
+#         secretName: admin-api-job-images
+#   spec.template.spec.containers[0].volumeMounts:
+#     - name: job-images
+#       mountPath: /etc/admin-api/images
+#       readOnly: true
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: admin-api-job-images
+  namespace: admin-api
+  annotations:
+    kubernetes.io/description: "K8s Job image URIs from SSM — file-mounted, no pod restart on update"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: admin-api-job-images
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: ingestion
+      remoteRef:
+        key: /k8s/development/job-images/ingestion
+    - secretKey: article-pipeline
+      remoteRef:
+        key: /k8s/development/job-images/article-pipeline
+    - secretKey: job-strategist
+      remoteRef:
+        key: /k8s/development/job-images/job-strategist

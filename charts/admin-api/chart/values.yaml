@@ -4,53 +4,58 @@
 # BFF for the start-admin TanStack application.
 # Handles write operations: article publish, update, delete, asset upload.
 #
-# ─── Zero-Secret Design ───────────────────────────────────────────────────────
-# This service uses ONLY TWO Kubernetes resources for env injection:
+# ─── Config Sources ───────────────────────────────────────────────────────────
+# admin-api consumes config from three K8s resources, all managed declaratively
+# (no deploy.py — that pattern was decommissioned post-Phase-2):
 #
-#   admin-api-secrets   (K8s Opaque Secret)  — Cognito auth creds ONLY
-#   admin-api-config    (K8s ConfigMap)       — DynamoDB, S3, Lambda refs
+#   admin-api-secrets        (Opaque Secret, ESO-synced from SSM)
+#                            → Cognito auth + non-sensitive infrastructure refs
+#   platform-rds-credentials (Opaque Secret, ESO-synced from Secrets Manager)
+#                            → PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
+#   admin-api-job-images     (Opaque Secret, ESO-synced from SSM, mounted as files)
+#                            → /etc/admin-api/images/{ingestion,article-pipeline,
+#                              job-strategist} — full <repo>:<tag> URIs that
+#                              admin-api reads on each Job creation. Decoupled
+#                              from the Blue/Green Rollout: image updates do
+#                              NOT trigger admin-api restart.
 #
-# Both are managed exclusively by deploy.py.
-# AWS SDK credentials come from EC2 Instance Profile (IMDS) — NOT from K8s.
-#
-# ─── Route Ownership ──────────────────────────────────────────────────────────
-# The Traefik IngressRoute is owned by deploy.py (Step 5), NOT ArgoCD.
-# ingress.enabled is therefore false — this chart never creates an IngressRoute.
+# AWS SDK credentials come from the EC2 Instance Profile (IMDS) — never K8s.
 # ─────────────────────────────────────────────────────────────────────────────
 
 namespace: admin-api
 
+# ── admin-api container image ─────────────────────────────────────────────────
+# repository + tag tracked by ArgoCD Image Updater on the admin-api ArgoCD app
+# (image-list: admin-api=...). On each ECR push the Updater writes the new tag
+# into .argocd-source-admin-api.yaml; ArgoCD re-renders → new ReplicaSet enters
+# Blue/Green pre-promotion analysis (see rollout.* below).
 image:
   repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/admin-api
-  tag: "latest" # Overridden by ArgoCD Image Updater write-back
+  tag: "latest"
   pullPolicy: IfNotPresent
 
-# ── K8s Job images (consumed by admin-api routes that create Jobs) ────────────
-# repository + tag are tracked by ArgoCD Image Updater (see argocd-apps/admin-api.yaml
-# image-list annotations). On every ECR push the Updater writes the new tag to
-# .argocd-source-admin-api.yaml; ArgoCD re-renders the Deployment env block which
-# projects these as INGESTION_IMAGE / ARTICLE_PIPELINE_IMAGE / STRATEGIST_PIPELINE_IMAGE
-# so the admin-api process picks up the URI without ConfigMap regeneration.
+# ── K8s Job image URIs (file-mounted, decoupled from admin-api Rollout) ───────
+# The Job-image bytes themselves come from the admin-api-job-images ESO Secret
+# (see external-secrets/admin-api-job-images.yaml). This values block only
+# carries the namespace + ServiceAccount each Job runs as — those are static
+# (the namespace charts in kubernetes-bootstrap declare them) and must match
+# the actual K8s objects.
 #
-# namespace + serviceAccount are static defaults — these match the chart layout
-# in kubernetes-bootstrap/charts/{ingestion,article-pipeline,job-strategist}/.
-ingestionImage:
-  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/ingestion
-  tag: "latest"             # written by Image Updater on first ECR push
-  namespace: ingestion
-  serviceAccount: ingestion-sa
-
-articlePipelineImage:
-  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/article-pipeline
-  tag: "latest"
-  namespace: article-pipeline
-  serviceAccount: article-pipeline-sa
-
-strategistPipelineImage:
-  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/job-strategist
-  tag: "latest"
-  namespace: job-strategist
-  serviceAccount: job-strategist-sa
+# `mountPath` is the directory where each ESO secretKey becomes a file:
+#   /etc/admin-api/images/ingestion          — ESO secretKey 'ingestion'
+#   /etc/admin-api/images/article-pipeline   — ESO secretKey 'article-pipeline'
+#   /etc/admin-api/images/job-strategist     — ESO secretKey 'job-strategist'
+jobImages:
+  mountPath: /etc/admin-api/images
+  ingestion:
+    namespace: ingestion
+    serviceAccount: ingestion-sa
+  articlePipeline:
+    namespace: article-pipeline
+    serviceAccount: article-pipeline-sa
+  strategistPipeline:
+    namespace: job-strategist
+    serviceAccount: job-strategist-sa
 
 replicas: 1
 
@@ -135,3 +140,23 @@ pdb:
 # Empty by default (replicas: 1 — no spread needed).
 # Set when scaling to replicas > 1 to enforce maxSkew: 1 across nodes.
 topologySpreadConstraints: []
+
+# ── Argo Rollouts — Blue/Green Strategy ───────────────────────────────────────
+# Mirrors the nextjs configuration. Pre-promotion analysis runs Prometheus
+# queries against the preview ReplicaSet's Traefik metrics; if either error
+# rate or P95 latency breach the threshold the rollout pauses and does NOT
+# auto-promote. Manual promotion uses:
+#   kubectl argo rollouts promote admin-api -n admin-api
+rollout:
+  blueGreen:
+    autoPromotionEnabled: false   # require explicit promote step
+    autoPromotionSeconds: 0
+    scaleDownDelaySeconds: 30
+  analysis:
+    interval: 60s
+    count: 3
+    failureLimit: 1
+    consecutiveErrorLimit: 5
+    errorRateThreshold: 0.05      # < 5% 5xx
+    latencyThresholdMs: 1500      # admin-api routes are pure PG / K8s-API calls
+                                  # — tighter than nextjs (which renders pages)

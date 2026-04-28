@@ -26,46 +26,25 @@ metadata:
     kubernetes.io/description: "ArgoCD application for the admin-api BFF service (start-admin TanStack)"
     argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps — same wave as nextjs + start-admin
     # -----------------------------------------------------------------------
-    # ArgoCD Image Updater — automatically update 4 container image tags
-    # when a new image is pushed to any of the 4 ECR repos by CI.
+    # ArgoCD Image Updater — tracks ONLY admin-api's own container image.
     #
-    # admin-api          — the pod itself (image.repository / image.tag)
-    # ingestion          — K8s Job image consumed by /api/admin/ingestion/trigger
-    # article-pipeline   — K8s Job image consumed by /api/admin/pipelines/article-job
-    # job-strategist     — K8s Job image consumed by /api/admin/pipelines/strategist-job
-    #                       AND /api/admin/applications/:slug/coach (coach Job)
+    # The 3 K8s Job image URIs (ingestion, article-pipeline, job-strategist)
+    # are NOT watched here. They flow CI → SSM → ESO → file mount on the
+    # admin-api pod (see charts/admin-api/external-secrets/
+    # admin-api-job-images.yaml). This decouples Job image updates from the
+    # admin-api Blue/Green Rollout: pushing a new ingestion image does NOT
+    # cause an admin-api restart.
     #
-    # The 3 K8s Job images are projected onto the admin-api Deployment as env
-    # vars (INGESTION_IMAGE / ARTICLE_PIPELINE_IMAGE / STRATEGIST_PIPELINE_IMAGE)
-    # by the chart template. Each push triggers a rolling restart of admin-api
-    # so it picks up the new URI when creating Jobs.
+    # Strategy: 'newest-build' picks the most recently built image by timestamp.
+    # Filter:   Accepts SHA tags with optional run-attempt suffix (e.g. abc123-r1).
+    # Write-back: Commits .argocd-source-admin-api.yaml to Git so selfHeal
+    #             enforces the updated tag instead of reverting it.
     # -----------------------------------------------------------------------
-    argocd-image-updater.argoproj.io/image-list: >-
-      admin-api=771826808455.dkr.ecr.eu-west-1.amazonaws.com/admin-api,
-      ingestion=771826808455.dkr.ecr.eu-west-1.amazonaws.com/ingestion,
-      article-pipeline=771826808455.dkr.ecr.eu-west-1.amazonaws.com/article-pipeline,
-      job-strategist=771826808455.dkr.ecr.eu-west-1.amazonaws.com/job-strategist
-
+    argocd-image-updater.argoproj.io/image-list: "admin-api=771826808455.dkr.ecr.eu-west-1.amazonaws.com/admin-api"
     argocd-image-updater.argoproj.io/admin-api.update-strategy: newest-build
     argocd-image-updater.argoproj.io/admin-api.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
     argocd-image-updater.argoproj.io/admin-api.helm.image-name: image.repository
     argocd-image-updater.argoproj.io/admin-api.helm.image-tag: image.tag
-
-    argocd-image-updater.argoproj.io/ingestion.update-strategy: newest-build
-    argocd-image-updater.argoproj.io/ingestion.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
-    argocd-image-updater.argoproj.io/ingestion.helm.image-name: ingestionImage.repository
-    argocd-image-updater.argoproj.io/ingestion.helm.image-tag: ingestionImage.tag
-
-    argocd-image-updater.argoproj.io/article-pipeline.update-strategy: newest-build
-    argocd-image-updater.argoproj.io/article-pipeline.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
-    argocd-image-updater.argoproj.io/article-pipeline.helm.image-name: articlePipelineImage.repository
-    argocd-image-updater.argoproj.io/article-pipeline.helm.image-tag: articlePipelineImage.tag
-
-    argocd-image-updater.argoproj.io/job-strategist.update-strategy: newest-build
-    argocd-image-updater.argoproj.io/job-strategist.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
-    argocd-image-updater.argoproj.io/job-strategist.helm.image-name: strategistPipelineImage.repository
-    argocd-image-updater.argoproj.io/job-strategist.helm.image-tag: strategistPipelineImage.tag
-
     argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/repo-kubernetes-bootstrap"
     argocd-image-updater.argoproj.io/git-branch: develop
   namespace: argocd
