@@ -93,14 +93,22 @@ ingress:
 #
 # public-api has NO K8s Secrets — zero sensitive values.
 # All AWS credentials come from the EC2 Instance Profile (IMDS).
-# Expected keys:
-#   DYNAMODB_TABLE_NAME    — Content DynamoDB table
-#   DYNAMODB_GSI1_NAME     — GSI for status+date queries
-#   DYNAMODB_GSI2_NAME     — GSI for tag+date queries
-#   AWS_DEFAULT_REGION     — AWS region for SDK default credential chain
+#
+# Runtime config layout:
+#   - K8s Secret public-api-core        → DYNAMODB_TABLE_NAME (REQUIRED)
+#   - K8s Secret public-api-bedrock     → BEDROCK_API_URL, BEDROCK_API_KEY_SECRET_ARN (optional)
+#   - K8s Secret public-api-strategist  → STRATEGIST_TABLE_NAME (optional)
+#   - Helm `env:` (below)               → DYNAMODB_GSI1_NAME, DYNAMODB_GSI2_NAME,
+#                                         AWS_DEFAULT_REGION, ALLOWED_ORIGINS
 # ---------------------------------------------------------------------------
-config:
-  name: public-api-config
+dynamodb:
+  # The application reads `gsi1pk` and `gsi2pk` attributes; these are the
+  # DynamoDB GSI names that hold those keys (status+date and tag+date).
+  gsi1Name: "gsi1-status-date"
+  gsi2Name: "gsi2-tag-date"
+
+awsRegion: "eu-west-1"
+allowedOrigins: "https://nelsonlamounier.com,http://localhost:3000"
 
 # ---------------------------------------------------------------------------
 # Network Policy — Default-deny; allow from Traefik + same namespace

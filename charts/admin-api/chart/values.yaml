@@ -93,11 +93,25 @@ containerSecurityContext:
     drop:
       - ALL
 
-# ── K8s resources (deploy.py as sole owner) ───────────────────────────────────
+# ── ESO-managed Secrets ──────────────────────────────────────────────────────
+# admin-api-secrets    — required  (Cognito + DDB content table)
+# admin-api-bedrock    — optional  (assets bucket + Bedrock pipeline ARNs +
+#                                   strategist table; populated as the
+#                                   matching ai-applications/infra Bedrock
+#                                   CDK stacks deploy)
+# admin-api-job-images — optional  (file-mount of K8s Job image URIs)
+# platform-rds-credentials — required (PG_HOST/PORT/DATABASE/USER/PASSWORD)
 secrets:
-  # Name of the K8s Secret managed by deploy.py.
-  # Contains: COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_ISSUER_URL
   name: admin-api-secrets
+
+# ── Static config literals (not in SSM — don't churn) ────────────────────────
+dynamodb:
+  # The application reads `gsi1pk` and `gsi2pk` attributes; these are the
+  # DynamoDB GSI names that hold those keys (status+date and tag+date).
+  gsi1Name: "gsi1-status-date"
+  gsi2Name: "gsi2-tag-date"
+
+awsRegion: "eu-west-1"
 
 # ── ServiceAccount ────────────────────────────────────────────────────────────
 # Named SA so the cross-namespace RoleBinding in the ingestion namespace

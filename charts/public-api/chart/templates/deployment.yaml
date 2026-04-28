@@ -41,6 +41,12 @@ spec:
       app.kubernetes.io/name: {{ .Release.Name }}
   template:
     metadata:
+      annotations:
+        # Reloader rolls the pod when any of these Secrets' content changes
+        # (e.g. SSM rotation, or a Bedrock CDK stack publishing a new key
+        # that ESO then syncs in). selfHeal must NOT revert this annotation
+        # — argocd-apps/public-api.yaml ignoreDifferences handles that.
+        secret.reloader.stakater.com/reload: "public-api-core,public-api-bedrock,public-api-strategist"
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}
         platform.engineering/layer: bff
@@ -64,16 +70,49 @@ spec:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
 
           # ---------------------------------------------------------------
-          # Environment — ConfigMap ONLY (no secretRef)
+          # Environment
           #
           # AWS credentials are NOT injected here — they are resolved
           # automatically from the EC2 Instance Profile via IMDS.
+          #
+          # Static literals injected directly (no SSM round-trip needed —
+          # these don't change between deploys and don't belong in ESO).
+          # ---------------------------------------------------------------
+          env:
+            - name: DYNAMODB_GSI1_NAME
+              value: {{ .Values.dynamodb.gsi1Name | quote }}
+            - name: DYNAMODB_GSI2_NAME
+              value: {{ .Values.dynamodb.gsi2Name | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.awsRegion | quote }}
+            - name: ALLOWED_ORIGINS
+              value: {{ .Values.allowedOrigins | quote }}
+          # ---------------------------------------------------------------
+          # ESO syncs SSM into K8s Secrets (not ConfigMaps). Each
+          # ExternalSecret in charts/public-api/external-secrets/ produces
+          # one Secret with a specific failure-blast-radius:
+          #
+          #   public-api-core         REQUIRED — the only mandatory keys.
+          #                           If this fails to sync the pod won't
+          #                           pass the config.ts fail-fast check.
+          #   public-api-bedrock      OPTIONAL — Bedrock chatbot config.
+          #                           Routes return 503 until populated.
+          #   public-api-strategist   OPTIONAL — strategist table refs.
+          #                           /api/resumes/active returns 204.
+          #
+          # `optional: true` on the OPTIONAL refs lets the pod boot before
+          # the corresponding Bedrock CDK stack has deployed. Reloader picks
+          # up the eventual content change and rolls the pod automatically.
           # ---------------------------------------------------------------
           envFrom:
-            # ESO syncs SSM into a K8s Secret, not a ConfigMap.
-            # secretRef matches ESO's output kind for the same name.
             - secretRef:
-                name: {{ .Values.config.name }}
+                name: public-api-core
+            - secretRef:
+                name: public-api-bedrock
+                optional: true
+            - secretRef:
+                name: public-api-strategist
+                optional: true
 
           # ---------------------------------------------------------------
           # Health Probes — three-probe model (golden-path standard)

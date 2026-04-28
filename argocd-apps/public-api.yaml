@@ -55,6 +55,15 @@ spec:
     server: https://kubernetes.default.svc
     namespace: public-api
 
+  # Don't reconcile drift on Deployment pod template annotations —
+  # Stakater Reloader stamps `last-reload-from-X` here when a watched
+  # Secret's content changes; selfHeal would otherwise revert it.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations
+
   syncPolicy:
     automated:
       prune: true
@@ -65,6 +74,7 @@ spec:
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:

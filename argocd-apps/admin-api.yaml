@@ -92,6 +92,16 @@ spec:
         server: https://kubernetes.default.svc
         namespace: "{{namespace}}"
 
+      # Don't reconcile drift on Rollout pod template annotations —
+      # Stakater Reloader stamps `last-reload-from-X` here when a watched
+      # Secret's content changes (Bedrock SSM keys landing, RDS password
+      # rotation, Cognito rotation). selfHeal would otherwise revert it.
+      ignoreDifferences:
+        - group: argoproj.io
+          kind: Rollout
+          jsonPointers:
+            - /spec/template/metadata/annotations
+
       syncPolicy:
         automated:
           prune: true
@@ -102,6 +112,8 @@ spec:
           - PruneLast=true
           - ApplyOutOfSyncOnly=true
           - ServerSideApply=true
+          # Required so ignoreDifferences applies to sync, not just diff.
+          - RespectIgnoreDifferences=true
         retry:
           limit: 5
           backoff:

@@ -49,6 +49,13 @@ spec:
             value: "admin-api"
   template:
     metadata:
+      annotations:
+        # Reloader rolls the pod when any of these Secrets' content changes
+        # — Bedrock CDK stacks publishing new SSM keys, ESO refreshing
+        # platform-rds-credentials on RDS password rotation, or Cognito
+        # value rotation. selfHeal must NOT revert this annotation —
+        # argocd-apps/admin-api.yaml ignoreDifferences handles that.
+        secret.reloader.stakater.com/reload: "admin-api-secrets,admin-api-bedrock,admin-api-job-images,platform-rds-credentials"
       labels:
         {{- include "admin-api.fullLabels" . | nindent 8 }}
     spec:
@@ -88,14 +95,37 @@ spec:
             # ExternalSecret admin-api-job-images.
             - name: JOB_IMAGES_DIR
               value: {{ .Values.jobImages.mountPath | quote }}
+            # Static literals — don't change between deploys, no SSM
+            # round-trip needed.
+            - name: DYNAMODB_GSI1_NAME
+              value: {{ .Values.dynamodb.gsi1Name | quote }}
+            - name: DYNAMODB_GSI2_NAME
+              value: {{ .Values.dynamodb.gsi2Name | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.awsRegion | quote }}
+          # ---------------------------------------------------------------
+          # ESO syncs SSM / Secrets Manager into K8s Secrets. Each
+          # ExternalSecret in charts/admin-api/external-secrets/ produces
+          # one Secret with a specific failure-blast-radius:
+          #
+          #   admin-api-secrets        REQUIRED — Cognito + DDB content table.
+          #   platform-rds-credentials REQUIRED — PG host/port/db/user/pass.
+          #   admin-api-bedrock        OPTIONAL — assets bucket + 4 Lambda
+          #                            ARNs + strategist table. Populated as
+          #                            Bedrock CDK stacks deploy. Code marks
+          #                            the corresponding fields optional and
+          #                            the consuming routes return 503 until
+          #                            populated.
+          #   admin-api-job-images     OPTIONAL — Phase 4 K8s Job image URIs;
+          #                            consumed via volumeMount at startup.
+          # ---------------------------------------------------------------
           envFrom:
-            # admin-api runtime config (Cognito, region) — ESO syncs SSM into
-            # a single K8s Opaque Secret consumed via envFrom.
             - secretRef:
                 name: {{ .Values.secrets.name }}
-            # platform-rds-credentials — PG_HOST/PORT/DATABASE/USER/PASSWORD.
             - secretRef:
                 name: platform-rds-credentials
+            - secretRef:
+                name: admin-api-bedrock
                 optional: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

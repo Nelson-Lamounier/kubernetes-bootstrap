@@ -1,0 +1,37 @@
+# @format
+# ExternalSecret: public-api-bedrock
+#
+# Optional Bedrock chatbot wiring. When the Bedrock api-stack hasn't deployed
+# yet (its SSM keys don't exist), public-api still boots — the consuming
+# routes return HTTP 503 ("chatbot temporarily unavailable") per the
+# explicit `optional` semantics in
+# ai-applications/api/public-api/src/lib/config.ts.
+#
+# Split out from public-api-core so a missing api-stack doesn't block the
+# entire ESO sync (a single failed remoteRef would otherwise abort the
+# whole Secret).
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: public-api-bedrock
+  namespace: public-api
+  annotations:
+    kubernetes.io/description: "public-api Bedrock chatbot config — optional, lands when ai-applications/api-stack deploys"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: public-api-bedrock
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    # Published by bedrock/api-stack at /bedrock-dev/api-url.
+    - secretKey: BEDROCK_API_URL
+      remoteRef:
+        key: /bedrock-dev/api-url
+    # Published by bedrock/api-stack at /bedrock-dev/bedrock-api-key-secret-arn.
+    - secretKey: BEDROCK_API_KEY_SECRET_ARN
+      remoteRef:
+        key: /bedrock-dev/bedrock-api-key-secret-arn

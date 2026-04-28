@@ -1,0 +1,90 @@
+# @format
+# ArgoCD Application: Stakater Reloader
+#
+# Watches K8s Secrets and ConfigMaps. When the data of one changes, Reloader
+# triggers a rolling restart on every Deployment / StatefulSet / DaemonSet /
+# Argo Rollout that carries the matching annotation:
+#
+#   secret.reloader.stakater.com/reload: "<comma-separated secret names>"
+#   configmap.reloader.stakater.com/reload: "<comma-separated configmap names>"
+#
+# Why we need it: ESO refreshes K8s Secret content from SSM/Secrets Manager
+# every refreshInterval, but pod env vars are read once at process start.
+# Without Reloader, a new SSM key landing later (e.g. Bedrock pipeline ARNs
+# arriving after their CDK stack deploys) would never reach the running
+# pods until the next manual rollout.
+#
+# With Reloader: ESO syncs new content into the Secret → Reloader rolls the
+# Deployment → new pods boot with the freshly-populated env vars. Fully
+# event-driven inside the cluster, no Argo Events EventBus required.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reloader
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "Stakater Reloader — rolls Deployments when watched Secrets/ConfigMaps change"
+    argocd.argoproj.io/sync-wave: "4"  # Wave 4: Cluster Utilities (after CRDs/CSI/CNI/ESO)
+  labels:
+    app.kubernetes.io/part-of: argocd
+    app.kubernetes.io/component: reloader
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    chart: reloader
+    repoURL: https://stakater.github.io/stakater-charts
+    targetRevision: 1.4.7
+    helm:
+      values: |
+        reloader:
+          # Watch the whole cluster — single controller serves every namespace.
+          watchGlobally: true
+
+          # Reload strategy: env-vars (default) is correct for our use case —
+          # pod env is hydrated from envFrom secretRef at boot, so a rolling
+          # restart picks up the new values. annotations strategy mutates the
+          # PodSpec in place, which produces noisier diffs against ArgoCD.
+          reloadStrategy: env-vars
+
+          # Reloader is a small controller (one binary, in-memory cache).
+          # Pin replicas: 1 — two replicas would both react to the same Secret
+          # change and double-roll workloads.
+          deployment:
+            replicas: 1
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
+            nodeSelector:
+              node-pool: general
+
+          isOpenshift: false
+
+          # Metrics endpoint for Prometheus scrape.
+          serviceMonitor:
+            enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reloader
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,25 @@
+# @format
+# ExternalSecret: public-api-strategist
+#
+# Optional resume/strategist wiring. When bedrock/strategist-data-stack
+# hasn't deployed, /api/resumes/active returns HTTP 204.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: public-api-strategist
+  namespace: public-api
+  annotations:
+    kubernetes.io/description: "public-api strategist table — optional, lands when ai-applications/strategist-data-stack deploys"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: public-api-strategist
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: STRATEGIST_TABLE_NAME
+      remoteRef:
+        key: /bedrock-dev/strategist-table-name

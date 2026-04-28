@@ -66,16 +66,23 @@ spec:
     server: https://kubernetes.default.svc
     namespace: nextjs-app
 
-  # Don't reconcile drift on the IngressRoute's matchRule string — it is
-  # owned by the ingressroute-patcher PostSync hook (real CloudFront origin
-  # secret cannot live in git, and Helm `lookup` is a no-op under
-  # `helm template` in repo-server).
+  # Don't reconcile drift on:
+  #  - IngressRoute matchRule (owned by ingressroute-patcher PostSync hook;
+  #    the real CloudFront origin secret cannot live in git and Helm
+  #    `lookup` is a no-op under `helm template` in argocd-repo-server).
+  #  - Rollout pod template annotations (Stakater Reloader stamps
+  #    `last-reload-from-X` here when it rolls the pod after a Secret
+  #    content change; selfHeal would otherwise revert the stamp).
   ignoreDifferences:
     - group: traefik.io
       kind: IngressRoute
       name: nextjs
       jsonPointers:
         - /spec/routes/0/match
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/template/metadata/annotations
 
   syncPolicy:
     automated:
