@@ -1,85 +1,110 @@
 # @format
-# ArgoCD Application: admin-api
+# ArgoCD ApplicationSet: admin-api
 #
-# BFF (Backend for Frontend) for the start-admin TanStack application.
-# Provides write-heavy REST endpoints protected by Cognito JWT bearer auth.
+# Why ApplicationSet (not a plain Application):
+#   Image Updater's image-list annotation requires a literal ECR registry
+#   URI — it cannot read SSM, ConfigMaps, or any cluster state. Wrapping
+#   the manifest in an ApplicationSet with a list generator lets us
+#   parameterise the URI ONCE in `spec.generators[0].list.elements` and
+#   interpolate via {{ecrAccount}}.dkr.ecr.{{ecrRegion}}.amazonaws.com/...
+#   in every annotation that needs it. Adding staging or prod is then a
+#   5-line addition to the elements array, not a duplicate manifest.
 #
-# Credential Model:
-#   admin-api-secrets  (K8s Secret — managed by deploy.py)
-#     → COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID, COGNITO_ISSUER_URL
+# What this generates:
+#   For each element in `spec.generators[0].list.elements`, ArgoCD creates
+#   one Application named `admin-api` (single-env today: development).
 #
-#   admin-api-config   (K8s ConfigMap — managed by deploy.py)
-#     → DYNAMODB_TABLE_NAME, DYNAMODB_GSI{1,2}_NAME, ASSETS_BUCKET_NAME,
-#       PUBLISH_LAMBDA_ARN, ARTICLE_TRIGGER_ARN, STRATEGIST_*, AWS_DEFAULT_REGION
+# Image Updater config (single literal URI per ECR repo, per env):
+#   admin-api    — the pod's own container image; ECR push triggers a
+#                  Blue/Green Rollout via the active+preview Services.
 #
-#   IMDS     → AWS SDK credentials (DynamoDB, S3, Lambda) — ZERO K8s secrets
-#
-# IngressRoute:
-#   Managed by deploy.py Step 4. Routes /api/admin/* (priority 200) to
-#   admin-api:3002. Higher priority than public-api's /api/* (priority 100).
+# K8s Job images (ingestion / article-pipeline / job-strategist) are NOT
+# watched here — they flow SSM → ESO → file mount on the admin-api pod.
+# See charts/admin-api/external-secrets/admin-api-job-images.yaml. That
+# path keeps Job image updates fully decoupled from the admin-api Rollout.
 
 apiVersion: argoproj.io/v1alpha1
-kind: Application
+kind: ApplicationSet
 metadata:
   name: admin-api
-  annotations:
-    kubernetes.io/description: "ArgoCD application for the admin-api BFF service (start-admin TanStack)"
-    argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps — same wave as nextjs + start-admin
-    # -----------------------------------------------------------------------
-    # ArgoCD Image Updater — tracks ONLY admin-api's own container image.
-    #
-    # The 3 K8s Job image URIs (ingestion, article-pipeline, job-strategist)
-    # are NOT watched here. They flow CI → SSM → ESO → file mount on the
-    # admin-api pod (see charts/admin-api/external-secrets/
-    # admin-api-job-images.yaml). This decouples Job image updates from the
-    # admin-api Blue/Green Rollout: pushing a new ingestion image does NOT
-    # cause an admin-api restart.
-    #
-    # Strategy: 'newest-build' picks the most recently built image by timestamp.
-    # Filter:   Accepts SHA tags with optional run-attempt suffix (e.g. abc123-r1).
-    # Write-back: Commits .argocd-source-admin-api.yaml to Git so selfHeal
-    #             enforces the updated tag instead of reverting it.
-    # -----------------------------------------------------------------------
-    argocd-image-updater.argoproj.io/image-list: "admin-api=771826808455.dkr.ecr.eu-west-1.amazonaws.com/admin-api"
-    argocd-image-updater.argoproj.io/admin-api.update-strategy: newest-build
-    argocd-image-updater.argoproj.io/admin-api.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
-    argocd-image-updater.argoproj.io/admin-api.helm.image-name: image.repository
-    argocd-image-updater.argoproj.io/admin-api.helm.image-tag: image.tag
-    argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/repo-kubernetes-bootstrap"
-    argocd-image-updater.argoproj.io/git-branch: develop
   namespace: argocd
+  annotations:
+    kubernetes.io/description: "admin-api BFF (start-admin TanStack) — ApplicationSet for templated ECR URI"
   labels:
     app.kubernetes.io/part-of: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  generators:
+    # ---------------------------------------------------------------
+    # List Generator — ECR + Git parameters per environment
+    #
+    # The values below are the ONLY place ECR account/region appear for
+    # admin-api. Every annotation referencing them does so via {{}}
+    # interpolation. To add staging or production:
+    #
+    #   - env: staging
+    #     ecrAccount: "<staging-account-id>"
+    #     ecrRegion: eu-west-1
+    #     gitBranch: main
+    #     namespace: admin-api
+    # ---------------------------------------------------------------
+    - list:
+        elements:
+          - env: development
+            ecrAccount: "771826808455"
+            ecrRegion: eu-west-1
+            gitBranch: develop
+            namespace: admin-api
 
-  source:
-    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
-    targetRevision: develop
-    path: charts/admin-api/chart
-    helm:
-      valueFiles:
-        - ../admin-api-values.yaml
+  template:
+    metadata:
+      # Name stays static (single Application per env, env baked into the
+      # cluster). If you ever run multiple envs in the same cluster,
+      # change to "admin-api-{{env}}" so the Applications don't collide.
+      name: admin-api
+      namespace: argocd
+      annotations:
+        kubernetes.io/description: "ArgoCD application for the admin-api BFF service (start-admin TanStack)"
+        argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps — same wave as nextjs + start-admin
+        # ----- ArgoCD Image Updater — admin-api own image only ---------------
+        argocd-image-updater.argoproj.io/image-list: "admin-api={{ecrAccount}}.dkr.ecr.{{ecrRegion}}.amazonaws.com/admin-api"
+        argocd-image-updater.argoproj.io/admin-api.update-strategy: newest-build
+        argocd-image-updater.argoproj.io/admin-api.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+        argocd-image-updater.argoproj.io/admin-api.helm.image-name: image.repository
+        argocd-image-updater.argoproj.io/admin-api.helm.image-tag: image.tag
+        argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/repo-kubernetes-bootstrap"
+        argocd-image-updater.argoproj.io/git-branch: "{{gitBranch}}"
+      labels:
+        app.kubernetes.io/part-of: argocd
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
 
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: admin-api
+      source:
+        repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+        targetRevision: "{{gitBranch}}"
+        path: charts/admin-api/chart
+        helm:
+          valueFiles:
+            - "../admin-api-values.yaml"
 
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-      allowEmpty: false
-    syncOptions:
-      - CreateNamespace=true
-      - PruneLast=true
-      - ApplyOutOfSyncOnly=true
-      - ServerSideApply=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 10s
-        factor: 2
-        maxDuration: 5m
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - PruneLast=true
+          - ApplyOutOfSyncOnly=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 5m
