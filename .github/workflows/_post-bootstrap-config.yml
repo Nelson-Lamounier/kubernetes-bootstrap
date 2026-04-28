@@ -126,13 +126,59 @@ jobs:
             waited=$((waited + POLL))
           done
 
+      # ─── ARC pre-flight ─────────────────────────────────────────────────
+      # The verify job runs on the k8s-runner ARC scale set, which scales
+      # ephemeral runner pods on demand inside the cluster. If no worker
+      # node is InService, ARC can't schedule a runner and the verify job
+      # would otherwise sit Queued for the full job timeout. Fail this job
+      # here with a clear message — verify will be Skipped (its `if:`
+      # requires wait-workers.result == 'success'), surfacing the cluster
+      # problem instead of a generic timeout.
+      - name: Pre-flight — workers InService for ARC scale-up
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASG_NAMES_JSON=$(aws ssm get-parameter \
+            --name "/k8s/${CDK_ENV}/ami-refresh/workers/asg-names" \
+            --query Parameter.Value --output text 2>/dev/null || echo "[]")
+          mapfile -t ASGS < <(echo "$ASG_NAMES_JSON" | jq -r '.[]')
+
+          if [ ${#ASGS[@]} -eq 0 ]; then
+            echo "::error::worker ASG list missing in SSM — cluster never bootstrapped"
+            exit 1
+          fi
+
+          INSERVICE=0
+          for ASG in "${ASGS[@]}"; do
+            COUNT=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG" \
+              --query 'length(AutoScalingGroups[0].Instances[?LifecycleState==`InService`])' \
+              --output text 2>/dev/null || echo "0")
+            echo "  ${ASG}: InService=${COUNT}"
+            INSERVICE=$((INSERVICE + COUNT))
+          done
+
+          if [ "$INSERVICE" -eq 0 ]; then
+            echo "::error::No worker nodes InService across [${ASGS[*]}]. ARC k8s-runner cannot scale up — skipping verify."
+            exit 1
+          fi
+          echo "[OK] ${INSERVICE} worker node(s) InService — ARC scale-up viable"
+
   verify:
     name: Verify & Smoke Tests
     needs: [wait-workers]
     if: always() && needs.wait-workers.result == 'success'
     runs-on: k8s-runner
-    timeout-minutes: 20
+    # 10 min covers ARC scale-up (≤30s on a healthy cluster) plus the smoke
+    # tests themselves. If wait-workers' pre-flight passed we know at least
+    # one worker node is InService, so a longer timeout would only mask a
+    # genuine ARC-controller fault.
+    timeout-minutes: 10
     environment: ${{ inputs.environment }}
+
 
     steps:
       - name: Checkout
