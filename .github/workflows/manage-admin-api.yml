@@ -1,0 +1,293 @@
+# @format
+# @description Manage admin-api Rollout + Job Image Sync (Dev)
+#
+# Cluster-side operations for the admin-api Blue/Green Rollout and the
+# 3 K8s Job images (ingestion, article-pipeline, job-strategist) that
+# admin-api reads from the file-mounted admin-api-job-images Secret.
+#
+# Why this lives in kubernetes-bootstrap (not cdk-monitoring):
+#   The k8s-runner ARC pods are deployed in this cluster from the
+#   arc-runners chart in this repo, so they have ambient cluster
+#   network access. cdk-monitoring's role is now strictly build + ECR
+#   push (see cdk-monitoring/.github/workflows/deploy-api.yml).
+#
+# Reference: deploy-post-bootstrap.yml + _post-bootstrap-config.yml
+# (same OIDC + SSM kubeconfig pattern).
+#
+# Operations:
+#   rollout-status   kubectl argo rollouts get rollout admin-api
+#   rollout-promote  Blue/Green manual promotion gate
+#   rollout-abort    Abort an in-flight Blue/Green and keep active
+#   rollout-restart  Force a fresh rollout (e.g. after Secret rotation)
+#   jobimage-status  End-to-end verify for Job images:
+#                    SSM /k8s/{env}/job-images/{app}
+#                      -> K8s Secret admin-api-job-images key
+#                      -> mounted file /etc/admin-api/images/{app} in pod
+#                    Reports any drift between the three layers.
+#
+# Promotion gate semantics:
+#   The admin-api Rollout has autoPromotionEnabled: false. The Argo
+#   Rollouts controller runs pre-promotion analysis (Prometheus error
+#   rate + P95 latency) against the preview ReplicaSet; on success it
+#   pauses and waits for a human (this workflow) to promote. Use
+#   rollout-status first to see the AnalysisRun verdict before promoting.
+
+name: Manage admin-api Rollout + Job Images (Dev)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Operation"
+        required: true
+        type: choice
+        options:
+          - rollout-status
+          - rollout-promote
+          - rollout-abort
+          - rollout-restart
+          - jobimage-status
+        default: rollout-status
+      target:
+        description: "Job image (used only when action=jobimage-status)"
+        required: false
+        type: choice
+        options:
+          - ingestion
+          - article-pipeline
+          - job-strategist
+          - all
+        default: all
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - development
+        default: development
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: manage-admin-api-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+  ARGO_ROLLOUTS_PLUGIN_VERSION: "v1.7.2"
+  ADMIN_API_NS: admin-api
+  ADMIN_API_NAME: admin-api
+  JOB_IMAGES_SECRET: admin-api-job-images
+  JOB_IMAGE_MOUNT_DIR: /etc/admin-api/images
+
+jobs:
+  manage:
+    name: "${{ inputs.action }} (${{ inputs.target }})"
+    runs-on: k8s-runner
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up in-cluster kubeconfig
+        env:
+          CDK_ENV: ${{ inputs.environment }}
+        run: |
+          aws ssm get-parameter \
+            --name "/k8s/${CDK_ENV}/kubeconfig" \
+            --with-decryption \
+            --region "${AWS_REGION}" \
+            --query 'Parameter.Value' \
+            --output text \
+            | sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc:443|g' \
+            > /tmp/kubeconfig
+          chmod 600 /tmp/kubeconfig
+
+      - name: Install kubectl-argo-rollouts plugin
+        if: startsWith(inputs.action, 'rollout-')
+        run: |
+          set -euo pipefail
+          if ! command -v kubectl-argo-rollouts >/dev/null 2>&1; then
+            echo "Installing kubectl-argo-rollouts ${ARGO_ROLLOUTS_PLUGIN_VERSION}"
+            curl -fsSL -o /tmp/kubectl-argo-rollouts \
+              "https://github.com/argoproj/argo-rollouts/releases/download/${ARGO_ROLLOUTS_PLUGIN_VERSION}/kubectl-argo-rollouts-linux-amd64"
+            chmod +x /tmp/kubectl-argo-rollouts
+            sudo mv /tmp/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
+          fi
+          kubectl argo rollouts version --short
+
+      # ----- rollout-status ------------------------------------------------
+      - name: Rollout status
+        if: inputs.action == 'rollout-status'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          set -euo pipefail
+          echo "::group::Rollout summary"
+          kubectl argo rollouts get rollout "${ADMIN_API_NAME}" -n "${ADMIN_API_NS}"
+          echo "::endgroup::"
+
+          echo "::group::AnalysisRuns (pre-promotion analysis history, last 10)"
+          kubectl get analysisrun -n "${ADMIN_API_NS}" \
+            --sort-by=.metadata.creationTimestamp \
+            -o custom-columns='NAME:.metadata.name,STATUS:.status.phase,REVISION:.metadata.labels.rollout-revision,STARTED:.status.startedAt,FINISHED:.status.finishedAt' \
+            2>/dev/null | tail -11 || echo "(none yet)"
+          echo "::endgroup::"
+
+          {
+            echo "## Rollout status — admin-api"
+            echo "- **Action**: \`rollout-status\`"
+            echo "- **Namespace**: \`${ADMIN_API_NS}\`"
+            echo "- **Tip**: review the AnalysisRun phase before \`rollout-promote\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ----- rollout-promote -----------------------------------------------
+      - name: Rollout promote
+        if: inputs.action == 'rollout-promote'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          set -euo pipefail
+          REVISION=$(kubectl get rollout "${ADMIN_API_NAME}" -n "${ADMIN_API_NS}" \
+            -o jsonpath='{.status.currentPodHash}')
+          echo "Current preview revision hash: ${REVISION}"
+
+          PHASE=$(kubectl get analysisrun -n "${ADMIN_API_NS}" \
+            -o jsonpath='{range .items[?(@.metadata.labels.rollouts-pod-template-hash=="'"${REVISION}"'")]}{.status.phase}{"\n"}{end}' \
+            | tail -1 || true)
+          echo "Latest AnalysisRun phase for revision ${REVISION}: ${PHASE:-<none>}"
+
+          if [ "${PHASE}" = "Failed" ] || [ "${PHASE}" = "Error" ]; then
+            echo "::error::AnalysisRun for current preview is ${PHASE} — refusing to promote. Use rollout-abort or fix metrics first."
+            exit 1
+          fi
+
+          kubectl argo rollouts promote "${ADMIN_API_NAME}" -n "${ADMIN_API_NS}"
+
+          {
+            echo "## Promoted admin-api Rollout"
+            echo "- **Revision**: \`${REVISION}\`"
+            echo "- **Pre-promotion analysis**: \`${PHASE:-<no-run>}\`"
+            echo "- Active Service \`admin-api\` now points at the new ReplicaSet."
+            echo "- Old RS scales down after \`scaleDownDelaySeconds\` (30s)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ----- rollout-abort -------------------------------------------------
+      - name: Rollout abort
+        if: inputs.action == 'rollout-abort'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          set -euo pipefail
+          kubectl argo rollouts abort "${ADMIN_API_NAME}" -n "${ADMIN_API_NS}"
+          {
+            echo "## Aborted admin-api Rollout"
+            echo "- Active Service untouched; preview ReplicaSet scales down."
+            echo "- Next ECR push will start a fresh Blue/Green cycle."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ----- rollout-restart -----------------------------------------------
+      - name: Rollout restart
+        if: inputs.action == 'rollout-restart'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          set -euo pipefail
+          kubectl argo rollouts restart "${ADMIN_API_NAME}" -n "${ADMIN_API_NS}"
+          {
+            echo "## Restarted admin-api Rollout"
+            echo "- All admin-api pods are recreated with the SAME image tag."
+            echo "- Useful after rotating admin-api-secrets or platform-rds-credentials."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ----- jobimage-status -----------------------------------------------
+      - name: Verify Job image sync chain
+        if: inputs.action == 'jobimage-status'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+          CDK_ENV: ${{ inputs.environment }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+
+          IMAGES=()
+          case "${TARGET}" in
+            all) IMAGES=(ingestion article-pipeline job-strategist) ;;
+            ingestion|article-pipeline|job-strategist) IMAGES=("${TARGET}") ;;
+            *) echo "::error::unknown target ${TARGET}"; exit 1 ;;
+          esac
+
+          POD=$(kubectl get pod -n "${ADMIN_API_NS}" \
+            -l app.kubernetes.io/name=admin-api \
+            -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\n"}{end}' \
+            | head -1 || true)
+          if [ -z "${POD}" ]; then
+            echo "::warning::No Running admin-api pod found — file-mount column will be N/A"
+          else
+            echo "Using pod ${POD} for file-mount inspection"
+          fi
+
+          DRIFT=0
+          {
+            echo "## Job image sync verification — ${TARGET}"
+            echo ""
+            echo "| image | SSM | K8s Secret | Mounted file (\`${POD:-<no-pod>}\`) | Drift |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for IMG in "${IMAGES[@]}"; do
+            SSM_VAL=$(aws ssm get-parameter \
+              --name "/k8s/${CDK_ENV}/job-images/${IMG}" \
+              --query 'Parameter.Value' \
+              --output text 2>/dev/null || echo "<missing>")
+
+            B64=$(kubectl get secret "${JOB_IMAGES_SECRET}" -n "${ADMIN_API_NS}" \
+              -o jsonpath="{.data.${IMG}}" 2>/dev/null || true)
+            if [ -n "${B64}" ]; then
+              SECRET_VAL=$(printf '%s' "${B64}" | base64 -d)
+            else
+              SECRET_VAL="<missing>"
+            fi
+
+            if [ -n "${POD}" ]; then
+              FILE_VAL=$(kubectl exec -n "${ADMIN_API_NS}" "${POD}" -c admin-api -- \
+                cat "${JOB_IMAGE_MOUNT_DIR}/${IMG}" 2>/dev/null || echo "<missing>")
+            else
+              FILE_VAL="<no-pod>"
+            fi
+
+            STATUS="✅ in-sync"
+            if [ "${SSM_VAL}" != "${SECRET_VAL}" ] || [ "${SECRET_VAL}" != "${FILE_VAL}" ]; then
+              STATUS="❌ DRIFT"
+              DRIFT=1
+            fi
+
+            echo "${IMG}: SSM=${SSM_VAL} | SECRET=${SECRET_VAL} | FILE=${FILE_VAL} | ${STATUS}"
+            printf '| `%s` | `%s` | `%s` | `%s` | %s |\n' \
+              "${IMG}" "${SSM_VAL}" "${SECRET_VAL}" "${FILE_VAL}" "${STATUS}" \
+              >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          {
+            echo ""
+            if [ "${DRIFT}" -eq 1 ]; then
+              echo "**Drift detected.** ESO refresh interval is 5m; kubelet projects files within ~60s of Secret change."
+              echo "If drift persists past 6 minutes, investigate the ExternalSecret events:"
+              echo ""
+              echo "    kubectl describe externalsecret ${JOB_IMAGES_SECRET} -n ${ADMIN_API_NS}"
+            else
+              echo "**All layers in sync.** SSM is the authoritative source — written by ai-applications workflows on each ECR push."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${DRIFT}" -eq 1 ]; then exit 1; fi
