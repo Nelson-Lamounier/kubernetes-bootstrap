@@ -85,6 +85,14 @@ spec:
           value: {{ .Values.pgbouncer.maxClientConn | quote }}
         - name: PGBOUNCER_DEFAULT_POOL_SIZE
           value: {{ .Values.pgbouncer.defaultPoolSize | quote }}
+        # Force TLS on the egress hop to RDS. AWS RDS PostgreSQL is configured
+        # with rds.force_ssl=1, so plain TCP connections fail with
+        # "no pg_hba.conf entry … no encryption". `require` enables TLS without
+        # certificate verification, which matches the cluster trust model:
+        # admin-api→pgbouncer is intra-cluster plain TCP; pgbouncer→RDS leaves
+        # the cluster and must be encrypted.
+        - name: PGBOUNCER_SERVER_TLS_SSLMODE
+          value: require
         resources:
           requests:
             cpu: 10m
