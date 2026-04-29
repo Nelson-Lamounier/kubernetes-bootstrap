@@ -1,0 +1,12 @@
+# Empty Helm values overlay.
+#
+# An older revision of argocd-apps/job-strategist.yaml referenced
+#   spec.source.helm.valueFiles: ['../job-strategist-values.yaml']
+# That stanza was removed from the current Application file but the
+# argocd-application-controller has the previous spec persistently
+# cached, so each reconcile still expects this file to exist.
+#
+# Keeping an empty file here lets `helm template` succeed; chart defaults
+# from chart/values.yaml render the SA + RBAC as intended. Once Argo's
+# cache eventually catches up to the file-without-valueFiles, this can
+# be deleted.

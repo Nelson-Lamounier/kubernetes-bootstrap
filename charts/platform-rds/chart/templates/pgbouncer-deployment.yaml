@@ -51,6 +51,17 @@ spec:
               name: platform-rds-config
               key: PGDATABASE
               optional: false
+        # Bitnami pgbouncer uses POSTGRESQL_DATABASE as the upstream (RDS) name
+        # and PGBOUNCER_DATABASE as the frontend name clients connect with.
+        # Without PGBOUNCER_DATABASE the frontend defaults to "postgres", and
+        # any client requesting `tucaken` is rejected with "no such database".
+        # Pin both to the same value so client-side and upstream names match.
+        - name: PGBOUNCER_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: platform-rds-config
+              key: PGDATABASE
+              optional: false
         - name: POSTGRESQL_USERNAME
           valueFrom:
             secretKeyRef:
