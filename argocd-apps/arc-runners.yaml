@@ -1,0 +1,115 @@
+# @format
+# ArgoCD Application: ARC Runner Scale Set
+#
+# Defines the self-hosted runner pool used by GitHub Actions workflows.
+# Runners are ephemeral pods — created on job start, deleted on job end.
+# minRunners=0 means zero idle cost; maxRunners=3 caps concurrent jobs.
+#
+# Authentication: GitHub App (preferred — no token expiry).
+# The K8s secret `arc-github-secret` must be created manually before sync:
+#
+#   kubectl create secret generic arc-github-secret \
+#     --namespace arc-runners \
+#     --from-literal=github_app_id="<APP_ID>" \
+#     --from-literal=github_app_installation_id="<INSTALLATION_ID>" \
+#     --from-literal=github_app_private_key="$(cat private-key.pem)"
+#
+# GitHub App permissions required:
+#   - Actions: Read & Write
+#   - Administration: Read & Write (for self-hosted runner registration)
+#   - Metadata: Read (mandatory)
+#
+# Runners appear in GitHub as: runs-on: [self-hosted, k8s]
+#
+# NOTE: githubConfigUrl must be a repository URL, not the user/org root.
+# Nelson-Lamounier is a personal GitHub account — the org runner API returns
+# 404 for personal accounts. Repo-level runners work correctly.
+#
+# IAM: Runner pods inherit the worker node EC2 instance profile.
+# No additional IRSA configuration needed for ECR, SSM, S3 access.
+#
+# Chart: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc-runners
+  annotations:
+    kubernetes.io/description: "GitHub Actions self-hosted runner scale set (0-3 pods, webhook mode)"
+    argocd.argoproj.io/sync-wave: "3"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+    chart: gha-runner-scale-set
+    targetRevision: "0.10.*"
+    helm:
+      releaseName: arc-runners
+      values: |
+        # ── GitHub connection ─────────────────────────────────────────────────────
+        # Repo-level registration — Nelson-Lamounier is a personal user account,
+        # not a GitHub Organization. The org runner API (/orgs/{account}/runners)
+        # returns 404 for personal accounts. Must use a repository URL instead.
+        # ── Controller service account discovery ──────────────────────────────────
+        # Explicit reference required when controller uses fullnameOverride.
+        # Auto-discovery via label selector fails if the label doesn't match.
+        controllerServiceAccount:
+          namespace: arc-systems
+          name: arc-controller
+
+        githubConfigUrl: "https://github.com/Nelson-Lamounier/kubernetes-bootstrap"
+
+        # Created manually — see header comment for kubectl command.
+        githubConfigSecret: arc-github-secret
+
+        # ── Runner label ──────────────────────────────────────────────────────────
+        # Matches runs-on: [self-hosted, k8s] in workflow files.
+        runnerScaleSetName: k8s-runner
+
+        # ── Scaling ───────────────────────────────────────────────────────────────
+        minRunners: 0
+        maxRunners: 3
+
+        # ── Runner pod template ───────────────────────────────────────────────────
+        # No containerMode — steps run directly in the runner container (same
+        # behaviour as GitHub-hosted runners). containerMode: kubernetes requires
+        # every job to declare a container: image, which is unnecessary overhead
+        # for simple kubectl/aws/python deploy scripts.
+        template:
+          spec:
+            # ServiceAccount with RBAC to apply K8s resources and trigger ArgoCD
+            # syncs directly — defined in system/arc/runner-rbac.yaml.
+            serviceAccountName: arc-runner
+            containers:
+              - name: runner
+                # Custom runner image with AWS CLI v2, python3+pip+venv, kubectl
+                # pre-installed. Built by kubernetes-bootstrap/.github/workflows/build-ci-image.yml
+                # and pushed to GHCR under the kubernetes-bootstrap package namespace.
+                image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/arc-runner:latest
+                command: ["/home/runner/run.sh"]
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: arc-runners
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

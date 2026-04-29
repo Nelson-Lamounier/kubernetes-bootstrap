@@ -1,0 +1,80 @@
+# @format
+name: "Setup Node.js and Install Dependencies"
+description: >
+  Container-aware setup: installs Node.js + Corepack on bare runners, then
+  restores the root workspace cache and runs yarn install.
+  Jobs running inside the CI container skip tool installation entirely.
+
+inputs:
+  node-version:
+    description: "Node.js version to install (ignored in CI container)"
+    required: false
+    default: "22"
+  install-infra:
+    description: "Kept for backwards compatibility — root workspace install covers all workspaces"
+    required: false
+    default: "false"
+
+outputs:
+  cache-hit:
+    description: "Whether the dependency cache was hit"
+    value: ${{ steps.cache-deps.outputs.cache-hit }}
+
+runs:
+  using: "composite"
+  steps:
+    # ─── Detect CI container ──────────────────────────────────────────
+    - name: Detect Environment
+      id: detect-env
+      shell: bash
+      run: |
+        if command -v node &>/dev/null && command -v aws &>/dev/null && command -v yarn &>/dev/null; then
+          echo "in-container=true" >> $GITHUB_OUTPUT
+          echo "✓ CI container detected — skipping tool installation"
+        else
+          echo "in-container=false" >> $GITHUB_OUTPUT
+          echo "○ Bare runner — will install tools"
+        fi
+
+    # ─── Node.js + Corepack (bare runner only) ────────────────────────
+    - name: Setup Node.js
+      if: steps.detect-env.outputs.in-container != 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Enable Corepack (Yarn v4)
+      if: steps.detect-env.outputs.in-container != 'true'
+      shell: bash
+      run: corepack enable
+
+    # ─── Corepack in CI container (yarn v1 may be on PATH; activate v4) ─
+    - name: Activate Corepack shim (CI container)
+      if: steps.detect-env.outputs.in-container == 'true'
+      shell: bash
+      run: corepack enable
+
+    # ─── Dependency cache ─────────────────────────────────────────────
+    - name: Cache Dependencies
+      id: cache-deps
+      uses: actions/cache@v4
+      with:
+        path: |
+          node_modules
+          infra/node_modules
+          scripts/node_modules
+          .yarn/cache
+        key: deps-${{ runner.os }}-node${{ inputs.node-version }}-${{ hashFiles('yarn.lock') }}
+        restore-keys: |
+          deps-${{ runner.os }}-node${{ inputs.node-version }}-
+
+    # ─── Install (always — ensures binaries are linked even on cache hit) ─
+    - name: Install Dependencies
+      shell: bash
+      run: yarn install --immutable
+
+    - name: Verify Installation
+      shell: bash
+      run: |
+        echo "node:  $(node --version)"
+        echo "yarn:  $(yarn --version)"

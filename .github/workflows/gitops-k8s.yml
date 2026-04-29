@@ -1,0 +1,99 @@
+# @format
+# @description Pipeline B: GitOps Application Pipeline (Development)
+#
+# CI gate for platform-layer changes managed by ArgoCD.
+# ArgoCD watches this Git repo and auto-syncs chart/manifest changes (~3 min).
+# This pipeline adds validation BEFORE ArgoCD picks up changes and
+# post-merge verification to confirm sync succeeded.
+#
+# What ArgoCD syncs from this repo:
+#   - gitops/                 → infrastructure manifests (cert-manager, DR, ARC, Traefik config)
+#   NOTE: ArgoCD Application manifests and Helm charts live in kubernetes-platform
+
+name: "GitOps: K8s Platform (Dev)"
+
+on:
+  workflow_call:
+    secrets:
+      AWS_OIDC_ROLE:
+        description: "AWS OIDC role ARN"
+        required: false
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: gitops-k8s-development
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ===========================================================================
+  # 1. Validate — Catch errors BEFORE ArgoCD auto-syncs from Git
+  # ===========================================================================
+  validate:
+    name: Validate Charts & Manifests
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Validate YAML Syntax
+        run: |
+          ERRORS=0
+
+          for f in gitops/traefik/traefik-values.yaml $(find gitops -name 'values*.yaml' -type f 2>/dev/null); do
+            [ -f "$f" ] || continue
+            if python3 -c "import yaml; yaml.safe_load(open('$f'))" 2>/dev/null; then
+              echo "  ✓ $f"
+            else
+              echo "  ✗ $f — invalid YAML"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
+          [ "$ERRORS" -gt 0 ] && { echo "ERROR: $ERRORS YAML files failed"; exit 1; }
+          echo "✓ All YAML files passed"
+
+  # ===========================================================================
+  # 2. Verify ArgoCD Sync Status
+  # ===========================================================================
+  verify-argocd:
+    name: Verify ArgoCD Sync
+    needs: validate
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    timeout-minutes: 15
+    environment: development
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node & Yarn Cache
+        uses: ./.github/actions/setup-node-yarn
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify ArgoCD Sync
+        env:
+          TARGET_ENV: development
+          TARGET_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: just ci-verify-argocd --environment "$TARGET_ENV" --region "$TARGET_REGION"

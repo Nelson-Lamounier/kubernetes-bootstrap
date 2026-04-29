@@ -1,0 +1,875 @@
+# @format
+# @description Reusable SSM Bootstrap Workflow
+#
+# ─── Purpose ───────────────────────────────────────────────────────
+# Full bootstrap pipeline. Deploys the K8s-SsmAutomation CDK stack,
+# syncs scripts to S3, triggers SM-A (Bootstrap Orchestrator) on
+# existing EC2 nodes, then verifies cluster health.
+#
+# ─── Job Flow ───────────────────────────────────────────────────
+#   Phase 0: deploy-ssm-cdk
+#     → Phase 1–2: sync-and-verify (S3 sync + admin IPs, always)
+#     → Phase 3: trigger-bootstrap (SM-A, if input=true)
+#     → Phase 4: verify-bootstrap (ubuntu-latest, waits for SFN + public API)
+#
+# ─── Bootstrap Architecture ─────────────────────────────────────────
+#
+#   SM-A (Bootstrap Orchestrator) — cluster infrastructure
+#     Started by: this pipeline via scripts/cd/trigger-bootstrap.ts
+#     On SUCCEED: ESO + ArgoCD reconcile all app config from Git/SSM/SM
+#                 (no post-bootstrap orchestrator runs)
+
+name: Deploy SSM Automation (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (development, staging, production)"
+        required: true
+        type: string
+      cdk-environment:
+        description: "CDK environment name (used by secrets and verify steps)"
+        required: true
+        type: string
+      trigger-bootstrap:
+        description: "Trigger SSM Automation on nodes"
+        required: false
+        default: true
+        type: boolean
+      instance-refresh:
+        description: "Roll all ASG instances to the current Launch Template (use after a new AMI bake)"
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      AWS_OIDC_ROLE:
+        description: "AWS OIDC role ARN"
+        required: false
+      ALLOW_IPV4:
+        description: "IPv4 CIDR for Traefik admin-ip-allowlist"
+        required: false
+      ALLOW_IPV6:
+        description: "IPv6 CIDR for Traefik admin-ip-allowlist"
+        required: false
+
+permissions:
+  id-token: write # Required for OIDC → aws-actions/configure-aws-credentials
+  contents: read # Required for actions/checkout
+
+# One active run per environment. A new dispatch cancels any stuck/in-progress
+# run (including hung ARC runner jobs that ignore timeout-minutes).
+concurrency:
+  group: deploy-ssm-automation-${{ inputs.environment }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+
+jobs:
+  # ===========================================================================
+  # Phase 0: Deploy K8s-SsmAutomation CDK Stack
+  #
+  # Ensures the SSM Run Command document, Step Functions state machines, and
+  # SSM parameters are up-to-date before scripts are synced or bootstrap runs.
+  # Stack teardown (ROLLBACK_FAILED recovery) is a manual operation — use
+  # `just purge-ssm-automation-orphans` before re-triggering this pipeline.
+  # ===========================================================================
+  deploy-ssm-cdk:
+    name: "Phase 0 — Deploy SSM Automation CDK Stack"
+    uses: ./.github/workflows/_deploy-stack.yml
+    with:
+      stack-name: K8s-SsmAutomation-${{ inputs.environment }}
+      project: kubernetes
+      environment: ${{ inputs.environment }}
+      aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+      require-approval: never
+    secrets: inherit
+
+  # ===========================================================================
+  # Phase 1–2: Write Admin IPs to SSM + Sync Bootstrap Scripts to S3
+  # ===========================================================================
+  sync-and-verify:
+    name: "Phase 1–2 — S3 Sync & Admin IPs"
+    needs: [deploy-ssm-cdk]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Setup Node.js and Script Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # -----------------------------------------------------------------------
+      # Phase 1 — Write Admin IPs to SSM Parameter Store
+      # -----------------------------------------------------------------------
+      - name: "Phase 1 — Write Admin IPs to SSM"
+        env:
+          ALLOW_IPV4: ${{ secrets.ALLOW_IPV4 }}
+          ALLOW_IPV6: ${{ secrets.ALLOW_IPV6 }}
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          SSM_PREFIX="/k8s/${CDK_ENV}/monitoring"
+
+          if [ -n "$ALLOW_IPV4" ]; then
+            aws ssm put-parameter \
+              --name "${SSM_PREFIX}/allow-ipv4" \
+              --value "$ALLOW_IPV4" \
+              --type String \
+              --overwrite \
+              --region "$AWS_REGION"
+            echo "[OK] IPv4 allowlist written to SSM"
+          else
+            echo "[SKIP] ALLOW_IPV4 not set — skipping"
+          fi
+
+          if [ -n "$ALLOW_IPV6" ]; then
+            aws ssm put-parameter \
+              --name "${SSM_PREFIX}/allow-ipv6" \
+              --value "$ALLOW_IPV6" \
+              --type String \
+              --overwrite \
+              --region "$AWS_REGION"
+            echo "[OK] IPv6 allowlist written to SSM"
+          else
+            echo "[SKIP] ALLOW_IPV6 not set — skipping"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Phase 1b — Seed CloudFront Origin Secret (idempotent)
+      # -----------------------------------------------------------------------
+      - name: "Phase 1b — Seed CloudFront Origin Secret"
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          SSM_PARAM="/k8s/${CDK_ENV}/cloudfront-origin-secret"
+
+          EXISTING=$(aws ssm get-parameter \
+            --name "$SSM_PARAM" \
+            --with-decryption \
+            --region "$AWS_REGION" \
+            --query 'Parameter.Value' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -n "$EXISTING" ]; then
+            echo "[OK] CloudFront origin secret already exists — skipping"
+            exit 0
+          fi
+
+          echo "[INFO] Parameter not found — generating new 32-byte hex secret"
+          SECRET=$(openssl rand -hex 32)
+          echo "::add-mask::$SECRET"
+
+          aws ssm put-parameter \
+            --name "$SSM_PARAM" \
+            --value "$SECRET" \
+            --type SecureString \
+            --region "$AWS_REGION"
+
+          echo "[OK] CloudFront origin secret seeded at $SSM_PARAM"
+
+      # -----------------------------------------------------------------------
+      # Phase 2 — Sync Bootstrap Scripts to S3
+      #
+      # Syncs the FULL sm-a/ tree (sm-a/boot/ + sm-a/argocd/ + future) and
+      # gitops/ to the scripts bucket. The runtime SSM document re-syncs all
+      # of sm-a/ on each bootstrap so committed fixes take effect without an
+      # AMI re-bake. node_modules stay AMI-baked (excluded here).
+      #
+      # Phase 2b verifies every local source file landed in S3 — a missing
+      # file in S3 is a hard pipeline failure, not a silent drift.
+      # -----------------------------------------------------------------------
+      - name: "Phase 2 — Sync sm-a/ + gitops/ to S3"
+        id: s3-sync
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          SSM_KEY="/k8s/${CDK_ENV}/scripts-bucket"
+          BUCKET=$(aws ssm get-parameter \
+            --name "$SSM_KEY" \
+            --query 'Parameter.Value' \
+            --output text \
+            --region "$AWS_REGION" 2>/dev/null | sed 's|^s3://||;s|/$||')
+          if [ -z "$BUCKET" ]; then
+            echo "::error::SSM parameter $SSM_KEY not found"
+            exit 1
+          fi
+          echo "bucket=${BUCKET}" >> "$GITHUB_OUTPUT"
+
+          aws s3 sync sm-a "s3://${BUCKET}/k8s-bootstrap/sm-a/" \
+            --delete \
+            --exclude "**/node_modules/*" \
+            --exclude "**/__pycache__/*" \
+            --exclude "**/*.pyc" \
+            --exclude "**/.venv/*" \
+            --exclude "**/.yarn/*" \
+            --exclude "**/dist/*" \
+            --exclude "**/*.tsbuildinfo" \
+            --region "$AWS_REGION"
+          echo "[OK] sm-a/ synced (boot + argocd)"
+
+          aws s3 sync gitops "s3://${BUCKET}/k8s-bootstrap/gitops/" \
+            --delete \
+            --exclude "**/__pycache__/*" \
+            --region "$AWS_REGION"
+          echo "[OK] gitops/ synced"
+
+      # -----------------------------------------------------------------------
+      # Phase 2b — Verify every local source file landed in S3
+      #
+      # This is the regression guard. Build a manifest of files that must
+      # exist in S3 (TypeScript, YAML, shell, package.json, install manifests)
+      # under sm-a/ and gitops/, then diff against the actual S3 listing.
+      # Any local file that is missing from S3 fails the workflow.
+      #
+      # Excludes match the sync excludes above. Adding a new top-level dir
+      # under sm-a/ is automatically covered — find walks the local tree.
+      # -----------------------------------------------------------------------
+      - name: "Phase 2b — Verify S3 sync covered all source files"
+        env:
+          BUCKET: ${{ steps.s3-sync.outputs.bucket }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          set -euo pipefail
+
+          # Files that MUST exist in S3 (matches sync excludes)
+          # Patterns intentionally restrictive: only files the bootstrap reads.
+          INCLUDE_EXTS='\.ts$|\.yaml$|\.yml$|\.sh$|\.json$|\.py$'
+          EXCLUDE_PATHS='/node_modules/|/__pycache__/|/\.venv/|/\.yarn/|/dist/|\.tsbuildinfo$|/tests/'
+
+          local_manifest=$(mktemp)
+          remote_manifest=$(mktemp)
+          trap 'rm -f "$local_manifest" "$remote_manifest"' EXIT
+
+          # Build local manifest: paths relative to repo root, sorted.
+          for ROOT in sm-a gitops; do
+            find "$ROOT" -type f \
+              | grep -E "$INCLUDE_EXTS" \
+              | grep -Ev "$EXCLUDE_PATHS" || true
+          done | sort > "$local_manifest"
+
+          LOCAL_COUNT=$(wc -l < "$local_manifest" | tr -d ' ')
+          echo "Local manifest: ${LOCAL_COUNT} files"
+
+          # Build remote manifest by listing S3 keys under the prefixes.
+          for PREFIX in sm-a gitops; do
+            aws s3api list-objects-v2 \
+              --bucket "$BUCKET" \
+              --prefix "k8s-bootstrap/${PREFIX}/" \
+              --query 'Contents[].Key' \
+              --output text \
+              --region "$AWS_REGION" 2>/dev/null \
+              | tr '\t' '\n' \
+              | sed 's|^k8s-bootstrap/||' \
+              | grep -E "$INCLUDE_EXTS" \
+              | grep -Ev "$EXCLUDE_PATHS" || true
+          done | sort > "$remote_manifest"
+
+          REMOTE_COUNT=$(wc -l < "$remote_manifest" | tr -d ' ')
+          echo "Remote manifest: ${REMOTE_COUNT} files"
+
+          # Files present locally but missing from S3 → hard failure.
+          missing=$(comm -23 "$local_manifest" "$remote_manifest" || true)
+          if [ -n "$missing" ]; then
+            echo "::error::S3 sync incomplete — these local files are missing from s3://${BUCKET}/k8s-bootstrap/:"
+            echo "$missing" | sed 's/^/  - /'
+            exit 1
+          fi
+
+          # Files present in S3 but not locally → warning (likely stale, --delete should clear them).
+          extra=$(comm -13 "$local_manifest" "$remote_manifest" || true)
+          if [ -n "$extra" ]; then
+            echo "::warning::S3 has files not present locally (--delete should remove these on next sync):"
+            echo "$extra" | sed 's/^/  - /'
+          fi
+
+          echo "[OK] All ${LOCAL_COUNT} local source files verified in S3"
+
+  # ===========================================================================
+  # Phase 2c: Instance Refresh (optional)
+  #
+  # Rolls all ASG instances to the current Launch Template so that nodes
+  # bootstrapped by SM-A are already running the latest Golden AMI.
+  # Only runs when instance-refresh=true (set by deploy-full.yml after a bake).
+  # MinHealthyPercentage=0 allows replacing all nodes at once for dev clusters.
+  # ===========================================================================
+  instance-refresh:
+    name: "Phase 2c — ASG Instance Refresh (roll to new AMI)"
+    needs: [deploy-ssm-cdk, sync-and-verify]
+    if: inputs.instance-refresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+
+      - name: Start instance refresh on all ASGs
+        id: refresh
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          ASGS=$(aws autoscaling describe-auto-scaling-groups \
+            --region "$AWS_REGION" \
+            --query "AutoScalingGroups[?contains(AutoScalingGroupName, \`${CDK_ENV}\`)].AutoScalingGroupName" \
+            --output text)
+          if [ -z "$ASGS" ]; then
+            echo "::warning::No ASGs found for environment ${CDK_ENV} — skipping refresh"
+            exit 0
+          fi
+          REFRESH_IDS=""
+          for ASG in $ASGS; do
+            ID=$(aws autoscaling start-instance-refresh \
+              --auto-scaling-group-name "$ASG" \
+              --region "$AWS_REGION" \
+              --preferences '{"MinHealthyPercentage": 0, "InstanceWarmup": 60}' \
+              --query 'InstanceRefreshId' \
+              --output text 2>/dev/null || echo "")
+            if [ -n "$ID" ]; then
+              echo "Started refresh $ID on $ASG"
+              REFRESH_IDS="$REFRESH_IDS $ASG:$ID"
+            fi
+          done
+          echo "refresh_ids=${REFRESH_IDS}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for instance refresh to complete
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          MAX_WAIT=1500
+          INTERVAL=30
+          ELAPSED=0
+          echo "Waiting for all ASG instance refreshes to complete (max ${MAX_WAIT}s)..."
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            PENDING=$(aws autoscaling describe-instance-refreshes \
+              --region "$AWS_REGION" \
+              --query "InstanceRefreshes[?Status==\`InProgress\` || Status==\`Pending\` || Status==\`RollbackInProgress\`].AutoScalingGroupName" \
+              --output text 2>/dev/null | tr '\t' '\n' | grep "${CDK_ENV}" | wc -l | tr -d ' ')
+            if [ "$PENDING" -eq 0 ]; then
+              echo "All instance refreshes complete (${ELAPSED}s)"
+              break
+            fi
+            echo "  $PENDING refresh(es) still in progress... (${ELAPSED}/${MAX_WAIT}s)"
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+          FAILED=$(aws autoscaling describe-instance-refreshes \
+            --region "$AWS_REGION" \
+            --query "InstanceRefreshes[?Status==\`Failed\` || Status==\`Cancelled\`].AutoScalingGroupName" \
+            --output text 2>/dev/null | tr '\t' '\n' | grep "${CDK_ENV}" || true)
+          if [ -n "$FAILED" ]; then
+            echo "::error::Instance refresh failed for: $FAILED"
+            exit 1
+          fi
+          echo "All ASGs refreshed to new Launch Template"
+
+  # ===========================================================================
+  # Phase 3: Trigger Bootstrap — Start Step Functions Executions
+  # ===========================================================================
+  trigger-bootstrap:
+    name: "Phase 3 — Trigger Step Functions Bootstrap"
+    needs: [sync-and-verify, instance-refresh]
+    if: >-
+      always()
+      && needs.sync-and-verify.result == 'success'
+      && inputs.trigger-bootstrap
+      && (needs.instance-refresh.result == 'success' || needs.instance-refresh.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    outputs:
+      cp-execution-id: ${{ steps.trigger.outputs.cp_execution_id }}
+      general-pool-execution-id: ${{ steps.trigger.outputs.general_pool_execution_id }}
+      monitoring-pool-execution-id: ${{ steps.trigger.outputs.monitoring_pool_execution_id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Setup Node.js and Script Dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Start Step Functions Executions on Nodes
+        id: trigger
+        env:
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          npx --prefix scripts tsx scripts/cd/trigger-bootstrap.ts \
+            --environment "$DEPLOY_ENVIRONMENT" \
+            --region "$AWS_REGION"
+
+  # ===========================================================================
+  # Phase 4: Verify Bootstrap — Node Readiness & Cluster Health
+  #
+  # Runs on ubuntu-latest (not k8s-runner) so it works on Day 0 before the
+  # in-cluster ARC runner exists. Connects to the API server via the public
+  # DNS endpoint stored in SSM (/k8s/<env>/control-plane-endpoint).
+  #
+  # Hard failures (exit 1) = SM-A must deliver these:
+  #   nodes Ready, kube-system pods, Calico CNI, core namespaces, ArgoCD pods
+  #
+  # Warnings only = ESO/ArgoCD reconciliation territory (eventually consistent):
+  #   node labels/taints, Traefik, monitoring, Next.js, app sync status
+  # ===========================================================================
+  verify-bootstrap:
+    name: "Phase 4 — Verify Bootstrap"
+    needs: [deploy-ssm-cdk, sync-and-verify, trigger-bootstrap]
+    if: >-
+      always()
+      && needs.deploy-ssm-cdk.result == 'success'
+      && needs.sync-and-verify.result == 'success'
+      && (needs.trigger-bootstrap.result == 'success'
+       || needs.trigger-bootstrap.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+
+      # ── Wait for Step Functions executions to complete ─────────────────────
+      # Phase 3 only starts the executions. This step polls until SM-A
+      # finishes (SUCCEEDED/FAILED) so kubectl checks below see a stable
+      # cluster, not a partially-bootstrapped one.
+      - name: "Wait for Step Functions bootstrap to complete"
+        if: needs.trigger-bootstrap.result == 'success'
+        env:
+          CP_EXEC_ID:      ${{ needs.trigger-bootstrap.outputs.cp-execution-id }}
+          GENERAL_EXEC_ID: ${{ needs.trigger-bootstrap.outputs.general-pool-execution-id }}
+          MON_EXEC_ID:     ${{ needs.trigger-bootstrap.outputs.monitoring-pool-execution-id }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          MAX_WAIT=2400   # 40 min — bootstrap ~10 min, allow generous headroom
+          INTERVAL=30
+          ELAPSED=0
+          FAILED_EXECS=""
+
+          EXECUTIONS=""
+          for ID in "$CP_EXEC_ID" "$GENERAL_EXEC_ID" "$MON_EXEC_ID"; do
+            [ -n "$ID" ] && EXECUTIONS="$EXECUTIONS $ID"
+          done
+
+          if [ -z "$EXECUTIONS" ]; then
+            echo "[SKIP] No execution IDs available"
+            exit 0
+          fi
+
+          echo "Polling executions (max ${MAX_WAIT}s, every ${INTERVAL}s)..."
+          while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
+            PENDING=0
+            for EXEC_ARN in $EXECUTIONS; do
+              SHORT="${EXEC_ARN##*:}"
+              STATUS=$(aws stepfunctions describe-execution \
+                --execution-arn "$EXEC_ARN" \
+                --query 'status' \
+                --output text \
+                --region "$AWS_REGION" 2>/dev/null || echo "UNKNOWN")
+              case "$STATUS" in
+                SUCCEEDED) echo "  [OK] $SHORT SUCCEEDED" ;;
+                RUNNING)   PENDING=$((PENDING + 1)); echo "  [..] $SHORT RUNNING (${ELAPSED}s)" ;;
+                FAILED|TIMED_OUT|ABORTED)
+                  FAILED_EXECS="$FAILED_EXECS $EXEC_ARN"
+                  echo "  [!!] $SHORT $STATUS" ;;
+                *) echo "  [??] $SHORT $STATUS — retrying" ;;
+              esac
+            done
+
+            if [ -n "$FAILED_EXECS" ]; then
+              echo "::error::Bootstrap execution(s) failed:$FAILED_EXECS"
+              exit 1
+            fi
+
+            [ "$PENDING" -eq 0 ] && { echo "[OK] All executions SUCCEEDED"; break; }
+
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+            echo "::error::Bootstrap did not complete within ${MAX_WAIT}s"
+            exit 1
+          fi
+
+      - name: "Set up kubeconfig (public API endpoint)"
+        id: kubeconfig
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          PARAM="/k8s/${CDK_ENV}/kubeconfig"
+          VALUE=$(aws ssm get-parameter \
+            --name "$PARAM" \
+            --with-decryption \
+            --region "$AWS_REGION" \
+            --query 'Parameter.Value' \
+            --output text 2>/dev/null || echo "")
+
+          if [ -z "$VALUE" ]; then
+            echo "[SKIP] Kubeconfig not in SSM — bootstrap may not have completed"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The stored kubeconfig uses 127.0.0.1:6443 (SSH tunnel endpoint).
+          # Replace with the real public API DNS so ubuntu-latest can reach it.
+          ENDPOINT=$(aws ssm get-parameter \
+            --name "/k8s/${CDK_ENV}/control-plane-endpoint" \
+            --query 'Parameter.Value' \
+            --output text \
+            --region "$AWS_REGION" 2>/dev/null || echo "")
+
+          if [ -z "$ENDPOINT" ]; then
+            echo "[SKIP] control-plane-endpoint not in SSM"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "$VALUE" \
+            | sed "s|https://127.0.0.1:6443|https://${ENDPOINT}|g" \
+            > /tmp/kubeconfig
+          chmod 600 /tmp/kubeconfig
+
+          # Smoke-test reachability before marking available
+          if ! kubectl --kubeconfig /tmp/kubeconfig cluster-info --request-timeout=10s \
+               > /dev/null 2>&1; then
+            echo "::warning::API server at ${ENDPOINT} not reachable from this runner — kubectl checks skipped"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      # ── Check 1: Nodes ─────────────────────────────────────────────────────
+      - name: "Check 1 — Nodes Ready"
+        if: steps.kubeconfig.outputs.available == 'true'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          echo "=== Node state at verify time ==="
+          kubectl get nodes -o wide
+
+          echo ""
+          echo "=== Waiting up to 5 min for all nodes to be Ready ==="
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
+          TOTAL=$(kubectl get nodes --no-headers | wc -l)
+          READY=$(kubectl get nodes --no-headers | grep -c ' Ready' || true)
+          echo ""
+          echo "[OK] ${READY}/${TOTAL} nodes Ready"
+
+      # ── Check 2: Node labels & CP taint (warn-only — eventually consistent) ───────
+      - name: "Check 2 — Node Labels & CP Taint"
+        if: steps.kubeconfig.outputs.available == 'true'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          GENERAL_POOL=$(kubectl get nodes -l node-pool=general --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          LEGACY_FRONTEND=$(kubectl get nodes -l workload=frontend --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          MON_POOL=$(kubectl get nodes -l node-pool=monitoring --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          LEGACY_MON=$(kubectl get nodes -l workload=monitoring --no-headers 2>/dev/null | wc -l | tr -d ' ')
+
+          TOTAL_FRONTEND=$(( GENERAL_POOL + LEGACY_FRONTEND ))
+          TOTAL_MON=$(( MON_POOL + LEGACY_MON ))
+
+          if [ "$TOTAL_FRONTEND" -eq 0 ]; then
+            echo "::warning::No worker node labelled node-pool=general or workload=frontend — Next.js pods will stay Pending"
+          else
+            echo "[OK] Frontend/general-pool workers: ${TOTAL_FRONTEND} (general=${GENERAL_POOL}, legacy=${LEGACY_FRONTEND})"
+          fi
+
+          if [ "$TOTAL_MON" -eq 0 ]; then
+            echo "::warning::No worker node labelled node-pool=monitoring or workload=monitoring — monitoring pods will stay Pending"
+          else
+            echo "[OK] Monitoring workers: ${TOTAL_MON} (pool=${MON_POOL}, legacy=${LEGACY_MON})"
+          fi
+
+          CP_NODE=$(kubectl get nodes --selector='node-role.kubernetes.io/control-plane' \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+          if [ -n "$CP_NODE" ]; then
+            CP_TAINTS=$(kubectl get node "$CP_NODE" -o jsonpath='{.spec.taints[*].key}' 2>/dev/null || echo "")
+            if echo "$CP_TAINTS" | grep -q 'node-role.kubernetes.io/control-plane'; then
+              echo "[OK] Control plane taint present (NoSchedule) on ${CP_NODE}"
+            else
+              echo "::warning::Control plane taint missing on ${CP_NODE} — regular workloads may schedule on CP"
+            fi
+          fi
+
+      # ── Check 3: kube-system pods ──────────────────────────────────────────
+      - name: "Check 3 — kube-system Pods"
+        if: steps.kubeconfig.outputs.available == 'true'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          echo "=== kube-system pods ==="
+          kubectl get pods -n kube-system -o wide
+
+          NOT_OK=$(kubectl get pods -n kube-system --no-headers \
+            | grep -v -E 'Running|Completed' | wc -l | tr -d ' ')
+
+          if [ "$NOT_OK" -gt 0 ]; then
+            echo ""
+            echo "ERROR: ${NOT_OK} kube-system pod(s) not Running/Completed:"
+            kubectl get pods -n kube-system --no-headers | grep -v -E 'Running|Completed'
+            exit 1
+          fi
+
+          for COMPONENT in kube-apiserver kube-controller-manager kube-scheduler etcd coredns kube-proxy; do
+            if kubectl get pods -n kube-system --no-headers | grep -q "$COMPONENT"; then
+              echo "[OK] ${COMPONENT} present and Running"
+            else
+              echo "ERROR: essential component '${COMPONENT}' not found in kube-system"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "[OK] All kube-system pods Running or Completed"
+
+      # ── Check 4: Calico CNI ────────────────────────────────────────────────
+      - name: "Check 4 — Calico CNI"
+        if: steps.kubeconfig.outputs.available == 'true'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          echo "=== calico-system pods ==="
+          CALICO_PODS=$(kubectl get pods -n calico-system --no-headers 2>/dev/null || echo "")
+
+          if [ -z "$CALICO_PODS" ]; then
+            echo "ERROR: No pods in calico-system — CNI not installed, all pods will be stuck in ContainerCreating"
+            exit 1
+          fi
+
+          echo "$CALICO_PODS"
+          CALICO_RUNNING=$(echo "$CALICO_PODS" | grep -c 'Running' || true)
+          CALICO_TOTAL=$(echo "$CALICO_PODS" | wc -l | tr -d ' ')
+
+          if [ "$CALICO_RUNNING" -ne "$CALICO_TOTAL" ]; then
+            echo "ERROR: ${CALICO_RUNNING}/${CALICO_TOTAL} Calico pods Running — pod networking is degraded"
+            exit 1
+          fi
+          echo "[OK] All ${CALICO_TOTAL} Calico pods Running"
+
+          echo ""
+          echo "=== tigera-operator ==="
+          TIGERA_PODS=$(kubectl get pods -n tigera-operator --no-headers 2>/dev/null || echo "")
+          if echo "$TIGERA_PODS" | grep -q 'Running'; then
+            echo "[OK] Tigera operator Running"
+          else
+            echo "ERROR: Tigera operator not Running"
+            echo "$TIGERA_PODS"
+            exit 1
+          fi
+
+      # ── Check 5: Namespaces ────────────────────────────────────────────────
+      - name: "Check 5 — Namespaces"
+        if: steps.kubeconfig.outputs.available == 'true'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          NAMESPACES=$(kubectl get namespaces --no-headers | awk '{print $1}')
+          echo "=== Namespaces ==="
+          echo "$NAMESPACES"
+          echo ""
+
+          # SM-A must create these (hard fail)
+          for NS in argocd calico-system tigera-operator; do
+            if echo "$NAMESPACES" | grep -qw "$NS"; then
+              echo "[OK] Namespace '${NS}' exists"
+            else
+              echo "ERROR: Namespace '${NS}' missing — SM-A bootstrap did not complete"
+              exit 1
+            fi
+          done
+
+          # ArgoCD creates these (warn only — eventually consistent)
+          for NS in nextjs-app monitoring; do
+            if echo "$NAMESPACES" | grep -qw "$NS"; then
+              echo "[OK] Namespace '${NS}' exists"
+            else
+              echo "::warning::Namespace '${NS}' not yet created — ArgoCD reconciliation pending"
+            fi
+          done
+
+      # ── Check 6: ArgoCD ────────────────────────────────────────────────────
+      - name: "Check 6 — ArgoCD Pods & App-of-Apps"
+        if: steps.kubeconfig.outputs.available == 'true'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          echo "=== argocd pods ==="
+          ARGO_PODS=$(kubectl get pods -n argocd --no-headers 2>/dev/null || echo "")
+
+          if [ -z "$ARGO_PODS" ]; then
+            echo "ERROR: No pods in argocd namespace — bootstrap_argocd step did not complete"
+            exit 1
+          fi
+
+          echo "$ARGO_PODS"
+          echo ""
+
+          # Core ArgoCD pods must be Running (hard fail)
+          for COMPONENT in argocd-server argocd-repo-server argocd-application-controller argocd-redis; do
+            MATCH=$(echo "$ARGO_PODS" | grep "$COMPONENT" || true)
+            if [ -z "$MATCH" ]; then
+              echo "ERROR: ${COMPONENT} not found in argocd namespace"
+              exit 1
+            elif echo "$MATCH" | grep -q 'Running'; then
+              echo "[OK] ${COMPONENT} Running"
+            else
+              STATUS=$(echo "$MATCH" | awk '{print $3}' | head -1)
+              echo "ERROR: ${COMPONENT} is ${STATUS} (expected Running)"
+              exit 1
+            fi
+          done
+
+          echo ""
+          echo "=== App-of-Apps root Applications ==="
+          # App-of-Apps sync is warn-only: ArgoCD may still be doing initial reconciliation
+          for ROOT_APP in platform-root workloads-root; do
+            ROOT=$(kubectl get application "$ROOT_APP" -n argocd --no-headers 2>/dev/null || echo "")
+            if [ -z "$ROOT" ]; then
+              echo "::warning::App-of-Apps '${ROOT_APP}' not found — ArgoCD has not applied root apps yet"
+            else
+              STATUS=$(echo "$ROOT" | awk '{print $2}')
+              HEALTH=$(echo "$ROOT" | awk '{print $3}')
+              if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
+                echo "[OK] ${ROOT_APP}: Synced + Healthy"
+              else
+                echo "::warning::${ROOT_APP}: Status=${STATUS} Health=${HEALTH} — may still be reconciling"
+              fi
+            fi
+          done
+
+      # ── Check 7: Workloads (warn-only — ArgoCD reconciliation) ────────────
+      - name: "Check 7 — Workloads (Traefik / Monitoring / Next.js)"
+        if: steps.kubeconfig.outputs.available == 'true'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          # Traefik
+          TRAEFIK=$(kubectl get pods -A --no-headers 2>/dev/null | grep traefik || true)
+          if [ -z "$TRAEFIK" ]; then
+            echo "::warning::No Traefik pods found — ArgoCD reconciliation pending"
+          else
+            TRAEFIK_RUNNING=$(echo "$TRAEFIK" | grep -c 'Running' || true)
+            if [ "$TRAEFIK_RUNNING" -ge 1 ]; then
+              echo "[OK] Traefik Running (${TRAEFIK_RUNNING} pod(s))"
+            else
+              echo "::warning::Traefik pods exist but none are Running"
+            fi
+          fi
+
+          # Monitoring
+          MON_PODS=$(kubectl get pods -n monitoring --no-headers 2>/dev/null || echo "")
+          if [ -z "$MON_PODS" ]; then
+            echo "::warning::No pods in monitoring namespace — ArgoCD has not synced monitoring stack yet"
+          else
+            for COMP in prometheus grafana loki; do
+              if echo "$MON_PODS" | grep -q "$COMP"; then
+                echo "[OK] ${COMP} present in monitoring namespace"
+              else
+                echo "::warning::Monitoring component '${COMP}' not found — may not be deployed yet"
+              fi
+            done
+          fi
+
+          # Next.js
+          NEXTJS_PODS=$(kubectl get pods -n nextjs-app --no-headers 2>/dev/null || echo "")
+          if [ -z "$NEXTJS_PODS" ]; then
+            echo "::warning::No pods in nextjs-app namespace — ArgoCD has not synced application yet"
+          else
+            NEXTJS_RUNNING=$(echo "$NEXTJS_PODS" | grep -c 'Running' || true)
+            NEXTJS_TOTAL=$(echo "$NEXTJS_PODS" | wc -l | tr -d ' ')
+            if [ "$NEXTJS_RUNNING" -eq "$NEXTJS_TOTAL" ] && [ "$NEXTJS_TOTAL" -gt 0 ]; then
+              echo "[OK] All ${NEXTJS_TOTAL} Next.js pod(s) Running"
+            else
+              echo "::warning::${NEXTJS_RUNNING}/${NEXTJS_TOTAL} Next.js pods Running"
+              echo "$NEXTJS_PODS"
+            fi
+          fi
+
+      # ── Check 8: Problem pods & Warning events (informational) ────────────
+      - name: "Check 8 — Problem Pods & Warning Events"
+        if: steps.kubeconfig.outputs.available == 'true'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          echo "=== Problem pods (non-Running, non-Completed) ==="
+          PROBLEM=$(kubectl get pods -A --no-headers 2>/dev/null \
+            | grep -v -E 'Running|Completed' || true)
+
+          if [ -z "$PROBLEM" ]; then
+            echo "[OK] No problem pods"
+          else
+            PROBLEM_COUNT=$(echo "$PROBLEM" | wc -l | tr -d ' ')
+            echo "::warning::${PROBLEM_COUNT} pod(s) in non-healthy state:"
+            echo "$PROBLEM"
+          fi
+
+          echo ""
+          echo "=== Recent Warning events (last 15) ==="
+          kubectl get events -A --sort-by='.lastTimestamp' \
+            --field-selector type=Warning 2>/dev/null | tail -15 || true
+
+      # ── Diagnostics on failure ─────────────────────────────────────────────
+      - name: Diagnostics on failure
+        if: failure() && steps.kubeconfig.outputs.available == 'true'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          echo "=== Node describe ==="
+          kubectl describe nodes || true
+
+          echo ""
+          echo "=== Non-running pods (all namespaces) ==="
+          kubectl get pods -A --no-headers 2>/dev/null \
+            | grep -v -E 'Running|Completed' || true
+
+          echo ""
+          echo "=== Recent cluster events ==="
+          kubectl get events -A --sort-by='.lastTimestamp' 2>/dev/null | tail -40 || true
+
+  # ===========================================================================
+  # NOTE: After SM-A succeeds, ESO + ArgoCD reconcile all app config from
+  # Git/SSM/Secrets Manager. Use deploy-post-bootstrap.yml for verification only.
+  # ===========================================================================

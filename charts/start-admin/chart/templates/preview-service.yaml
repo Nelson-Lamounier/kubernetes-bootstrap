@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------
+# Preview Service — routes traffic to the preview (blue/green) ReplicaSet
+#
+# Argo Rollouts requires a separate "preview" Service for blue/green
+# deployments. The new version's pods receive traffic through this
+# Service during pre-promotion analysis.
+#
+# During rollout: preview pods ← start-admin-preview Service
+#                 active pods  ← start-admin Service (unchanged)
+# After promotion: all pods    ← start-admin Service
+# ---------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: start-admin-preview
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "start-admin.fullLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "start-admin.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP

@@ -1,0 +1,13 @@
+{{- if .Values.bootstrap.enabled }}
+# @format
+# ServiceAccount for the bootstrap Job.
+# The Job connects directly to RDS via ESO-synced secrets in envFrom.
+# No cluster permissions needed — secrets are mounted via envFrom, not kubectl.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.bootstrap.serviceAccountName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: platform-rds-bootstrap
+{{- end }}

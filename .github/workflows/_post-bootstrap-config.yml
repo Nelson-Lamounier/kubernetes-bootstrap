@@ -1,0 +1,353 @@
+# @format
+# @description Reusable Post-Bootstrap Configuration Workflow
+#
+# Verifies ArgoCD health and cluster smoke tests after bootstrap (SM-A)
+# or standalone. Secrets are managed declaratively by ESO ExternalSecrets.
+#
+# ─── Job Flow ──────────────────────────────────────────────────────
+#   wait-workers → verify
+
+name: Post-Bootstrap Config (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (development, staging, production)"
+        required: true
+        type: string
+      cdk-environment:
+        description: "CDK environment name (used by verify steps)"
+        required: true
+        type: string
+    secrets:
+      AWS_OIDC_ROLE:
+        description: "AWS OIDC role ARN"
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+
+jobs:
+  wait-workers:
+    name: Wait for Worker Automations
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-1' }}
+
+      - name: Wait for Worker SSM Automations
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        shell: bash
+        run: |
+          SSM_PREFIX="/k8s/${CDK_ENV}"
+          MAX_WAIT=900
+          POLL=20
+
+          EXEC_PARAMS=(
+            "${SSM_PREFIX}/bootstrap/general-pool-execution-id"
+            "${SSM_PREFIX}/bootstrap/monitoring-pool-execution-id"
+          )
+
+          declare -A EXEC_IDS
+          for PARAM in "${EXEC_PARAMS[@]}"; do
+            ID=$(aws ssm get-parameter --name "$PARAM" \
+              --query Parameter.Value --output text 2>/dev/null || echo "")
+            if [ -n "$ID" ] && [ "$ID" != "None" ]; then
+              EXEC_IDS["$PARAM"]="$ID"
+              echo "  Found: $(basename $PARAM) = $ID"
+            fi
+          done
+
+          if [ ${#EXEC_IDS[@]} -eq 0 ]; then
+            echo "[SKIP] No worker execution IDs found — Day-0 or bootstrap not yet run"
+            exit 0
+          fi
+
+          echo "Waiting for ${#EXEC_IDS[@]} worker automation(s)..."
+
+          get_status() {
+            local ID="$1"
+            if [[ "$ID" == arn:aws:states:* ]]; then
+              local SFN_STATUS
+              SFN_STATUS=$(aws stepfunctions describe-execution \
+                --execution-arn "$ID" \
+                --query 'status' --output text 2>/dev/null || echo "UNKNOWN")
+              case "$SFN_STATUS" in
+                SUCCEEDED)  echo "Success" ;;
+                FAILED)     echo "Failed" ;;
+                TIMED_OUT)  echo "TimedOut" ;;
+                ABORTED)    echo "Cancelled" ;;
+                *)          echo "Running" ;;
+              esac
+            else
+              aws ssm get-automation-execution \
+                --automation-execution-id "$ID" \
+                --query AutomationExecution.AutomationExecutionStatus \
+                --output text 2>/dev/null || echo "Unknown"
+            fi
+          }
+
+          waited=0
+          while [ $waited -lt $MAX_WAIT ]; do
+            all_done=true
+            for PARAM in "${!EXEC_IDS[@]}"; do
+              ID="${EXEC_IDS[$PARAM]}"
+              STATUS=$(get_status "$ID")
+              echo "  $(basename $PARAM): $STATUS (${waited}s elapsed)"
+              case $STATUS in
+                Success|Failed|TimedOut|Cancelled|CompletedWithFailure) ;;
+                *) all_done=false ;;
+              esac
+            done
+
+            if $all_done; then
+              echo "[OK] All worker automations reached a terminal state after ${waited}s"
+              break
+            fi
+
+            sleep $POLL
+            waited=$((waited + POLL))
+          done
+
+      # ─── ARC pre-flight ─────────────────────────────────────────────────
+      # The verify job runs on the k8s-runner ARC scale set, which scales
+      # ephemeral runner pods on demand inside the cluster. If no worker
+      # node is InService, ARC can't schedule a runner and the verify job
+      # would otherwise sit Queued for the full job timeout. Fail this job
+      # here with a clear message — verify will be Skipped (its `if:`
+      # requires wait-workers.result == 'success'), surfacing the cluster
+      # problem instead of a generic timeout.
+      - name: Pre-flight — workers InService for ARC scale-up
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASG_NAMES_JSON=$(aws ssm get-parameter \
+            --name "/k8s/${CDK_ENV}/ami-refresh/workers/asg-names" \
+            --query Parameter.Value --output text 2>/dev/null || echo "[]")
+          mapfile -t ASGS < <(echo "$ASG_NAMES_JSON" | jq -r '.[]')
+
+          if [ ${#ASGS[@]} -eq 0 ]; then
+            echo "::error::worker ASG list missing in SSM — cluster never bootstrapped"
+            exit 1
+          fi
+
+          INSERVICE=0
+          for ASG in "${ASGS[@]}"; do
+            COUNT=$(aws autoscaling describe-auto-scaling-groups \
+              --auto-scaling-group-names "$ASG" \
+              --query 'length(AutoScalingGroups[0].Instances[?LifecycleState==`InService`])' \
+              --output text 2>/dev/null || echo "0")
+            echo "  ${ASG}: InService=${COUNT}"
+            INSERVICE=$((INSERVICE + COUNT))
+          done
+
+          if [ "$INSERVICE" -eq 0 ]; then
+            echo "::error::No worker nodes InService across [${ASGS[*]}]. ARC k8s-runner cannot scale up — skipping verify."
+            exit 1
+          fi
+          echo "[OK] ${INSERVICE} worker node(s) InService — ARC scale-up viable"
+
+  verify:
+    name: Verify & Smoke Tests
+    needs: [wait-workers]
+    if: always() && needs.wait-workers.result == 'success'
+    runs-on: k8s-runner
+    # 10 min covers ARC scale-up (≤30s on a healthy cluster) plus the smoke
+    # tests themselves. If wait-workers' pre-flight passed we know at least
+    # one worker node is InService, so a longer timeout would only mask a
+    # genuine ARC-controller fault.
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up in-cluster kubeconfig
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          aws ssm get-parameter \
+            --name "/k8s/${CDK_ENV}/kubeconfig" \
+            --with-decryption \
+            --region "$AWS_REGION" \
+            --query 'Parameter.Value' \
+            --output text \
+            | sed 's|https://127.0.0.1:6443|https://kubernetes.default.svc:443|g' \
+            > /tmp/kubeconfig
+          chmod 600 /tmp/kubeconfig
+
+      - name: Wait for ArgoCD Token
+        id: argocd-token
+        continue-on-error: true
+        env:
+          CDK_ENV: ${{ inputs.cdk-environment }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+        run: |
+          SECRET_NAME="k8s/${CDK_ENV}/argocd-ci-token"
+          MAX_ATTEMPTS=20
+          INTERVAL=30
+
+          echo "::add-mask::$SECRET_NAME"
+
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            TOKEN=$(aws secretsmanager get-secret-value \
+              --secret-id "$SECRET_NAME" \
+              --query SecretString --output text 2>/dev/null || echo "")
+
+            if [ -n "$TOKEN" ]; then
+              echo "::add-mask::$TOKEN"
+              echo "token=$TOKEN" >> $GITHUB_OUTPUT
+              echo "[OK] ArgoCD token retrieved (attempt $i/${MAX_ATTEMPTS})"
+              exit 0
+            fi
+
+            echo "Attempt $i/${MAX_ATTEMPTS} — token not ready, waiting ${INTERVAL}s..."
+            sleep $INTERVAL
+          done
+
+          echo "::warning::ArgoCD token not found after ${MAX_ATTEMPTS} attempts — Day-0 bootstrap"
+
+      - name: ArgoCD Pod Readiness
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          for deploy in argocd-server argocd-repo-server argocd-dex-server argocd-redis; do
+            kubectl wait deployment/$deploy \
+              -n argocd \
+              --for=condition=Available \
+              --timeout=360s \
+              2>/dev/null \
+              && echo "  [OK] $deploy" \
+              || echo "  ::warning::$deploy not yet Available"
+          done
+
+          kubectl rollout status statefulset/argocd-application-controller \
+            -n argocd --timeout=360s 2>/dev/null \
+            && echo "  [OK] argocd-application-controller" \
+            || echo "  ::warning::argocd-application-controller not yet rolled out"
+
+      - name: Wait for App Pods Ready
+        continue-on-error: true
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          MIN_PODS=2
+          MAX_POLLS=40
+          POLL=15
+
+          for i in $(seq 1 $MAX_POLLS); do
+            COUNT=$(kubectl get pods -A --no-headers 2>/dev/null \
+              | awk '$1=="nextjs-app" || $1=="start-admin"' \
+              | grep -c Running || true)
+
+            echo "  [$i/$MAX_POLLS] Running app pods: ${COUNT:-0}"
+
+            if [ "${COUNT:-0}" -ge $MIN_PODS ] 2>/dev/null; then
+              echo "[OK] $COUNT app pods are Running"
+              exit 0
+            fi
+
+            sleep $POLL
+          done
+
+          echo "::warning::App pods did not reach $MIN_PODS Running within $((MAX_POLLS * POLL))s"
+
+      - name: Verify CloudFront Origin Secret Injected
+        if: steps.argocd-token.outputs.token != '' && steps.argocd-token.outcome == 'success'
+        continue-on-error: false
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          MATCH=$(kubectl get ingressroute nextjs \
+            -n nextjs-app \
+            -o jsonpath='{.spec.routes[0].match}' 2>/dev/null \
+            || echo "INGRESSROUTE_NOT_FOUND")
+
+          echo "IngressRoute match rule: $MATCH"
+
+          if echo "$MATCH" | grep -q "PLACEHOLDER_NEVER_MATCHES"; then
+            echo "::error::IngressRoute still contains the placeholder originSecret."
+            exit 1
+          fi
+
+          if echo "$MATCH" | grep -q "INGRESSROUTE_NOT_FOUND"; then
+            echo "::warning::IngressRoute 'nextjs' not found — ArgoCD may not have synced yet"
+            exit 0
+          fi
+
+          echo "[OK] IngressRoute has a real origin secret."
+
+      - name: Run K8s Smoke Tests
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          echo "=== Pods with non-Running/Completed status ==="
+          UNHEALTHY=$(kubectl get pods -A --no-headers 2>/dev/null \
+            | grep -vE '\s(Running|Completed|Succeeded)\s' || true)
+          [ -n "$UNHEALTHY" ] \
+            && echo "$UNHEALTHY" && echo "::warning::Some pods not Running/Completed" \
+            || echo "[OK] All pods Running or Completed"
+
+          echo ""
+          echo "=== ArgoCD Application Health ==="
+          DEGRADED=$(kubectl get applications -n argocd --no-headers 2>/dev/null \
+            | awk '$3!="Synced" && $3!="OutOfSync"' || true)
+          [ -n "$DEGRADED" ] \
+            && echo "$DEGRADED" && echo "::warning::Some ArgoCD applications unexpected state" \
+            || echo "[OK] All applications Synced or OutOfSync"
+
+          echo ""
+          echo "=== Managed Service Namespaces ==="
+          for ns in nextjs-app start-admin admin-api public-api argocd; do
+            kubectl get namespace "$ns" &>/dev/null \
+              && echo "  [OK] $ns" \
+              || echo "  [WARN] Namespace $ns not found"
+          done
+
+      - name: Capture Failure Diagnostics
+        if: failure()
+        continue-on-error: true
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+          INPUT_ENV: ${{ inputs.environment }}
+        run: |
+          {
+            echo "## Failure Diagnostics"
+            echo ""
+            echo "**Environment**: ${INPUT_ENV}"
+            echo ""
+            echo "### K8s Pod Status (non-Running)"
+            echo '```'
+            kubectl get pods -A --field-selector=status.phase!=Running \
+              -o wide 2>/dev/null || echo "kubectl unavailable"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

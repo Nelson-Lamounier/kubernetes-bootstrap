@@ -1,0 +1,7 @@
+# @format
+apiVersion: v2
+name: start-admin-app
+description: TanStack Start admin dashboard deployed via Helm
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

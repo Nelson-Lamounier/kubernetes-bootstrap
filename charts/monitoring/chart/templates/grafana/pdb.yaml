@@ -1,0 +1,22 @@
+{{- if .Values.grafana.pdb.enabled }}
+# ---------------------------------------------------------------
+# PodDisruptionBudget — Grafana
+#
+# Prevents the sole Grafana replica from being evicted during
+# CA scale-down or node drain events.
+# Without this PDB, the cluster can evict Grafana during maintenance
+# and leave the observability stack with no dashboards.
+# ---------------------------------------------------------------
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: grafana
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "grafana" | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.grafana.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "grafana" | nindent 6 }}
+{{- end }}

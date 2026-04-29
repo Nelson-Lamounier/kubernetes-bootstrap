@@ -1,0 +1,177 @@
+# @format
+# XRD: XMonitoredQueue — Golden-Path SQS Queue
+#
+# This Composite Resource Definition lets developers create
+# production-ready SQS queues with a single YAML claim.
+#
+# What developers specify:
+#   - queueName (string) — logical queue name
+#   - maxRetries (integer) — max receive count before DLQ
+#   - environment (string) — dev/stg/prd
+#
+# What they get automatically:
+#   - SSE-SQS encryption (server-side)
+#   - Dead-letter queue (auto-created)
+#   - Redrive policy (maxRetries → DLQ)
+#   - Standard 7-tag schema from TaggingAspect
+#
+# Usage example:
+#   apiVersion: platform.nelsonlamounier.com/v1alpha1
+#   kind: XMonitoredQueue
+#   metadata:
+#     name: order-processing
+#   spec:
+#     parameters:
+#       queueName: order-processing
+#       maxRetries: 3
+#       environment: development
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xmonitoredqueues.platform.nelsonlamounier.com
+  labels:
+    platform.engineering/component: golden-path
+    platform.engineering/resource-type: sqs
+spec:
+  group: platform.nelsonlamounier.com
+  names:
+    kind: XMonitoredQueue
+    plural: xmonitoredqueues
+
+  claimNames:
+    kind: MonitoredQueue
+    plural: monitoredqueues
+
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  description: "Developer-facing parameters for the SQS queue"
+                  properties:
+                    queueName:
+                      type: string
+                      description: "Logical queue name (will be prefixed with crossplane-{namePrefix}-)"
+                      minLength: 3
+                      maxLength: 60
+                    maxRetries:
+                      type: integer
+                      description: "Maximum receive count before message moves to DLQ"
+                      minimum: 1
+                      maximum: 100
+                      default: 3
+                    visibilityTimeoutSeconds:
+                      type: integer
+                      description: "Message visibility timeout in seconds"
+                      minimum: 0
+                      maximum: 43200
+                      default: 30
+                    environment:
+                      type: string
+                      description: "Target environment"
+                      enum:
+                        - development
+                        - staging
+                        - production
+                      default: development
+                  required:
+                    - queueName
+
+---
+# Composition: XMonitoredQueue → AWS SQS Queue + DLQ
+#
+# Maps the developer-friendly XMonitoredQueue CRD to actual
+# Crossplane AWS SQS managed resources with DLQ and encryption.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xmonitoredqueue-sqs
+  labels:
+    platform.engineering/component: golden-path
+    crossplane.io/xrd: xmonitoredqueues.platform.nelsonlamounier.com
+spec:
+  compositeTypeRef:
+    apiVersion: platform.nelsonlamounier.com/v1alpha1
+    kind: XMonitoredQueue
+
+  resources:
+    # -----------------------------------------------------------------
+    # Dead Letter Queue — receives messages after maxRetries exhausted
+    # -----------------------------------------------------------------
+    - name: dlq
+      base:
+        apiVersion: sqs.aws.upbound.io/v1beta2
+        kind: Queue
+        metadata:
+          labels:
+            queue-role: dlq
+        spec:
+          forProvider:
+            region: eu-west-1
+            sqsManagedSseEnabled: true
+            messageRetentionSeconds: 1209600  # 14 days — max retention for failed messages
+            tags:
+              managed-by: crossplane
+              project: cdk-monitoring
+              queue-role: dead-letter
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.queueName
+          toFieldPath: metadata.annotations[crossplane.io/external-name]
+          transforms:
+            - type: string
+              string:
+                type: Format
+                fmt: "crossplane-shared-%s-dlq"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.environment
+          toFieldPath: spec.forProvider.tags.environment
+
+    # -----------------------------------------------------------------
+    # Main Queue — with encryption and redrive to DLQ
+    # -----------------------------------------------------------------
+    - name: main-queue
+      base:
+        apiVersion: sqs.aws.upbound.io/v1beta2
+        kind: Queue
+        metadata:
+          labels:
+            queue-role: main
+        spec:
+          forProvider:
+            region: eu-west-1
+            sqsManagedSseEnabled: true
+            visibilityTimeoutSeconds: 30
+            tags:
+              managed-by: crossplane
+              project: cdk-monitoring
+              queue-role: main
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.queueName
+          toFieldPath: metadata.annotations[crossplane.io/external-name]
+          transforms:
+            - type: string
+              string:
+                type: Format
+                fmt: "crossplane-shared-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.visibilityTimeoutSeconds
+          toFieldPath: spec.forProvider.visibilityTimeoutSeconds
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.environment
+          toFieldPath: spec.forProvider.tags.environment

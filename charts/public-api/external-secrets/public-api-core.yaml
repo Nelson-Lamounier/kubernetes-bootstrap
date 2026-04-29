@@ -1,0 +1,35 @@
+# @format
+# ExternalSecret: public-api-core
+#
+# Hard-required runtime config for public-api. Every key MUST exist in SSM
+# for the pod to boot — these are the values whose absence trips the
+# `Missing required environment variables` fail-fast in
+# ai-applications/api/public-api/src/lib/config.ts.
+#
+# Static literals NOT in this Secret (injected via chart `env:` instead):
+#   DYNAMODB_GSI1_NAME, DYNAMODB_GSI2_NAME, AWS_DEFAULT_REGION, ALLOWED_ORIGINS
+#
+# Auto-rotation: Reloader annotation on the Deployment rolls the pod whenever
+# this Secret's content changes (e.g. SSM rotation).
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: public-api-core
+  namespace: public-api
+  annotations:
+    kubernetes.io/description: "public-api required runtime config — DDB content table"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: public-api-core
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    # The DynamoDB content table name — published by ai-applications
+    # ai-content-stack at /bedrock-dev/content-table-name.
+    - secretKey: DYNAMODB_TABLE_NAME
+      remoteRef:
+        key: /bedrock-dev/content-table-name

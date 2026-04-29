@@ -1,0 +1,21 @@
+{{- if .Values.pdb.enabled }}
+# ---------------------------------------------------------------
+# PodDisruptionBudget — protects admin-api availability during
+# voluntary disruptions (CA scale-down, spot reclamation, drain).
+#
+# minAvailable: 1 prevents the sole replica from being evicted
+# before a replacement is scheduled on another node.
+# ---------------------------------------------------------------
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: admin-api
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "admin-api.fullLabels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "admin-api.selectorLabels" . | nindent 6 }}
+{{- end }}

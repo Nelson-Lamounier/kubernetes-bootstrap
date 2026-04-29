@@ -1,0 +1,37 @@
+# @format
+# ExternalSecret: admin-api-bedrock
+#
+# Optional admin-api wiring that depends on the ai-applications/infra
+# bedrock/ai-content-stack. Until the SSM key lands, ESO leaves the Secret
+# absent and admin-api treats the missing value via the
+# UNSET_BUCKET_SENTINEL pattern (mirrors UNSET_IMAGE_SENTINEL):
+# routes that need S3 return HTTP 503 instead of crashing.
+#
+# When ai-content-stack deploys and publishes the SSM key:
+#   1. ESO refreshes admin-api-bedrock within refreshInterval (5m).
+#   2. Stakater Reloader detects the Secret content change.
+#   3. Reloader rolls the admin-api Rollout.
+#   4. New pods boot with the freshly-populated env var; assets routes go live.
+#
+# No manual ArgoCD sync, no CI step. Fully event-driven inside the cluster.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: admin-api-bedrock
+  namespace: admin-api
+  annotations:
+    kubernetes.io/description: "admin-api optional Bedrock-stack refs (S3 assets bucket) — populated when ai-content-stack deploys"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: admin-api-bedrock
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    # Published by bedrock/ai-content-stack at /bedrock-dev/assets-bucket-name.
+    - secretKey: ASSETS_BUCKET_NAME
+      remoteRef:
+        key: /bedrock-dev/assets-bucket-name

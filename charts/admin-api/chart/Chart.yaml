@@ -1,0 +1,15 @@
+apiVersion: v2
+name: admin-api
+description: >-
+  BFF (Backend for Frontend) for the start-admin TanStack application.
+  Provides write-heavy REST endpoints protected by Cognito JWT bearer
+  authentication via JWKS validation.
+
+  Credential model:
+    Secret   (admin-api-secrets)  — Cognito auth creds (managed by deploy.py)
+    ConfigMap (admin-api-config)  — DynamoDB tables, S3 bucket, Lambda ARNs
+    IMDS                         — AWS SDK credentials (Zero K8s IAM secrets)
+
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

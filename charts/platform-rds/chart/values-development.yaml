@@ -1,0 +1,10 @@
+# @format
+# Development environment value overrides for platform-rds chart.
+# ArgoCD application references this file in spec.source.helm.valueFiles.
+bootstrap:
+  image:
+    # ECR image for the DDL bootstrap Job.
+    # URI published to SSM by deploy-platform-rds-bootstrap.yml; tag kept in
+    # sync here manually until ArgoCD Image Updater is wired to this chart.
+    repository: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-rds-bootstrap"
+    tag: "9745944746af9302c2b412c04109bd5e49c54564-r1"

@@ -1,0 +1,44 @@
+# @format
+# @description Configure AWS Credentials with OIDC Identity Masking
+#
+# Wraps aws-actions/configure-aws-credentials to add automatic masking
+# of the IAM role unique ID (AROA...) in subsequent log output.
+#
+# NOTE: The initial log line from configure-aws-credentials cannot be
+# masked retroactively. To fully suppress the AROA ID, store it as
+# a GitHub Actions secret so the runner masks it everywhere.
+
+name: Configure AWS Credentials (Masked)
+description: >
+  OIDC credential setup with automatic masking of the IAM role unique ID.
+  Drop-in replacement for aws-actions/configure-aws-credentials.
+
+inputs:
+  role-to-assume:
+    description: "IAM role ARN to assume via OIDC"
+    required: true
+  aws-region:
+    description: "AWS region"
+    required: true
+    default: "eu-west-1"
+
+runs:
+  using: composite
+  steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+      with:
+        role-to-assume: ${{ inputs.role-to-assume }}
+        aws-region: ${{ inputs.aws-region }}
+        audience: sts.amazonaws.com
+
+    - name: Mask OIDC Identity
+      shell: bash
+      run: |
+        CALLER_ID=$(aws sts get-caller-identity --query 'UserId' --output text 2>/dev/null || echo "")
+        ROLE_ID="${CALLER_ID%%:*}"
+        ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null || echo "")
+
+        [[ -n "$ROLE_ID" ]] && echo "::add-mask::$ROLE_ID"
+        [[ -n "$ACCOUNT_ID" ]] && echo "::add-mask::$ACCOUNT_ID"
+        [[ -n "$CALLER_ID" ]] && echo "::add-mask::$CALLER_ID"

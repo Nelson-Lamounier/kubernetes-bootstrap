@@ -1,0 +1,11 @@
+helm:
+  parameters:
+  - name: image.tag
+    value: a777098cd34b87819f7956ebe9db8a1414a3cdf6-r1
+    forcestring: true
+  - name: image.repository
+    value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/nextjs-frontend
+    forcestring: true
+  - name: cloudfront.originSecret
+    value: 96e50b15262096811718e7d3a8f519053345da71329830403acbb175e9747bc0
+    forcestring: true

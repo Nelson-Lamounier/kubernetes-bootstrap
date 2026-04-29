@@ -1,3 +1,13 @@
+# @format
+# ============================================================================
+# ci.yml — Continuous Integration
+# ============================================================================
+#
+# Language split:
+#   TypeScript — infra CDK constructs, sm-a/ boot steps (control_plane/worker/
+#                orchestrator), scripts/cd, sm-a/argocd bootstrap, vitest tests
+#   Python     — gitops/cert-manager helper, tests/gitops
+
 name: CI — Kubernetes Bootstrap
 
 on:
@@ -7,43 +17,110 @@ on:
     branches: [develop, main]
 
 jobs:
-  python-lint:
-    name: Python Lint (Ruff)
+  # ---------------------------------------------------------------------------
+  # TypeScript: type-check (infra CDK constructs)
+  # ---------------------------------------------------------------------------
+  ts-typecheck:
+    name: TypeScript Typecheck (infra)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
+          node-version: "22"
 
-      - name: Install ruff
-        run: pip install ruff
+      - name: Enable Corepack (Yarn v4)
+        run: corepack enable
 
-      - name: Ruff check
-        run: ruff check boot/ deploy_helpers/ system/ tests/
-
-      - name: Ruff format check
-        run: ruff format --check boot/ deploy_helpers/ system/
-
-  pytest:
-    name: Pytest Suite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Cache Infra Dependencies
+        uses: actions/cache@v4
         with:
-          python-version: "3.12"
+          path: |
+            infra/node_modules
+            infra/.yarn/cache
+          key: infra-deps-${{ runner.os }}-node22-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: infra-deps-${{ runner.os }}-node22-
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: Typecheck
+        run: yarn typecheck
+        working-directory: infra
+
+  # ---------------------------------------------------------------------------
+  # TypeScript: ESLint (infra CDK constructs)
+  # ---------------------------------------------------------------------------
+  ts-lint:
+    name: TypeScript Lint (infra)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable Corepack (Yarn v4)
+        run: corepack enable
+
+      - name: Cache Infra Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            infra/node_modules
+            infra/.yarn/cache
+          key: infra-deps-${{ runner.os }}-node22-${{ hashFiles('infra/yarn.lock') }}
+          restore-keys: infra-deps-${{ runner.os }}-node22-
+
+      - name: Install dependencies
+        run: yarn install --immutable
+        working-directory: infra
+
+      - name: ESLint
+        run: yarn lint
+        working-directory: infra
+
+  # ---------------------------------------------------------------------------
+  # TypeScript: type-check (ArgoCD bootstrap)
+  # ---------------------------------------------------------------------------
+  ts-argocd-typecheck:
+    name: TypeScript Typecheck (argocd bootstrap)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: "22"
+
+      - name: Typecheck argocd bootstrap
+        run: yarn workspace k8s-argocd-bootstrap typecheck
+
+  # ---------------------------------------------------------------------------
+  # TypeScript: vitest unit tests
+  # ---------------------------------------------------------------------------
+  ts-test:
+    name: TypeScript Tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js and install dependencies
+        uses: ./.github/actions/setup-node-yarn
+        with:
+          node-version: "22"
+          install-infra: "true"
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: yarn test
 
+  # ---------------------------------------------------------------------------
+  # YAML lint (gitops/ infrastructure manifests + sm-a/ ArgoCD bootstrap)
+  # ---------------------------------------------------------------------------
   yaml-lint:
     name: YAML Lint
     runs-on: ubuntu-latest
@@ -54,16 +131,27 @@ jobs:
         run: pip install yamllint
 
       - name: Lint YAML
-        run: yamllint -c .yamllint.yml system/
+        run: yamllint -c .yamllint.yml gitops/ sm-a/
 
+  # ---------------------------------------------------------------------------
+  # Shell script syntax check (gitops/ + sm-a/ — boot/*.sh removed)
+  # ---------------------------------------------------------------------------
   shell-lint:
     name: Shell Script Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find and lint shell scripts
+      - name: Syntax check shell scripts
         run: |
-          find boot/ system/ -name "*.sh" -type f | head -20
+          SCRIPTS=$(find gitops/ sm-a/ -name "*.sh" -type f)
+          if [ -z "$SCRIPTS" ]; then
+            echo "No shell scripts found"
+            exit 0
+          fi
+          echo "$SCRIPTS"
           echo "---"
-          find boot/ system/ -name "*.sh" -type f -exec bash -n {} \; && echo "✅ All shell scripts pass syntax check"
+          while IFS= read -r script; do
+            bash -n "$script" && echo "  ✓ $script"
+          done <<< "$SCRIPTS"
+          echo "All shell scripts pass syntax check"

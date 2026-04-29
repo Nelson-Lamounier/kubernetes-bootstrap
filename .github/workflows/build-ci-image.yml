@@ -1,0 +1,154 @@
+# @format
+# ============================================================================
+# build-ci-image.yml — Build and Push Container Images
+# ============================================================================
+#
+# Builds two images and pushes to GHCR:
+#
+#   arc-runner — ARC self-hosted runner pod (run.sh entrypoint)
+#     Image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/arc-runner
+#     Referenced by ARC runner scale set ArgoCD Application.
+#
+#   ci — CI toolchain container used inside workflow jobs
+#     Image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/ci
+#     Used as container: image in deploy/validate/verify jobs.
+#     Includes: Node.js 22, Yarn 4, Just, Helm, AWS CLI v2, Python 3.
+#
+# Tags: :latest (main + develop), :develop (develop), :<short-sha> (immutable)
+
+name: Build CI Images
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - ".github/docker/arc-runner/Dockerfile"
+      - ".github/docker/ci/Dockerfile"
+      - ".github/workflows/build-ci-image.yml"
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Push image to GHCR (default: true)"
+        required: false
+        default: "true"
+
+jobs:
+  build-arc-runner:
+    name: Build and Push ARC Runner
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── QEMU + Buildx (layer caching support) ───────────────────────────────
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Authenticate to GHCR ────────────────────────────────────────────────
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Image metadata (tags + labels) ─────────────────────────────────────
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/kubernetes-bootstrap/arc-runner
+          tags: |
+            type=raw,value=latest
+            type=raw,value=develop,enable=${{ github.ref_name == 'develop' }}
+            type=sha,prefix=,format=short
+
+      # ── Build and push ──────────────────────────────────────────────────────
+      - name: Build and Push
+        id: build-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/docker/arc-runner
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Summary ─────────────────────────────────────────────────────────────
+      - name: Image Summary
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE_DIGEST: ${{ steps.build-push.outputs.digest }}
+        run: |
+          echo "## ARC Runner Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags pushed:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$IMAGE_TAGS" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
+
+  build-ci-toolchain:
+    name: Build and Push CI Toolchain
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/kubernetes-bootstrap/ci
+          tags: |
+            type=raw,value=latest
+            type=raw,value=develop,enable=${{ github.ref_name == 'develop' }}
+            type=sha,prefix=,format=short
+
+      - name: Build and Push
+        id: build-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/docker/ci
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image Summary
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE_DIGEST: ${{ steps.build-push.outputs.digest }}
+        run: |
+          echo "## CI Toolchain Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags pushed:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$IMAGE_TAGS" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Digest:** \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY

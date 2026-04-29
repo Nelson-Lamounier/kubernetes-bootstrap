@@ -1,0 +1,58 @@
+{{- if .Values.bootstrap.enabled }}
+# @format
+# Bootstrap Job — Platform RDS DDL
+#
+# Runs as ArgoCD PostSync hook after every sync.
+# Idempotent DDL (CREATE TABLE IF NOT EXISTS, CREATE EXTENSION IF NOT EXISTS).
+#
+# Connects DIRECTLY to RDS (not via PgBouncer).
+# Reason: PgBouncer may not be ready on first deploy. This Job uses PGHOST
+# from platform-rds-config which points to the RDS endpoint directly.
+# After bootstrap, all application pods connect via PgBouncer.
+#
+# ArgoCD hook lifecycle:
+#   PostSync → Job runs after all resources synced
+#   BeforeHookCreation → old completed Job deleted before new one is created
+#
+# Gated by .Values.bootstrap.enabled so the hook can be disabled until the
+# platform-rds-bootstrap ECR image exists. When disabled the chart still
+# renders pgbouncer + RBAC so admin-api can connect.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: platform-rds-bootstrap
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+  labels:
+    app: platform-rds-bootstrap
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app: platform-rds-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+      - name: bootstrap
+        image: {{ .Values.bootstrap.image.repository }}:{{ .Values.bootstrap.image.tag }}
+        envFrom:
+        - secretRef:
+            name: platform-rds-credentials
+            optional: false
+        - secretRef:
+            name: platform-rds-config
+            optional: false
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+{{- end }}

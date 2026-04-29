@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: promtail
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "promtail" | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    {{- include "monitoring.selectorLabels" "promtail" | nindent 4 }}
+  ports:
+    - name: http
+      port: 9080
+      targetPort: 9080
+      protocol: TCP

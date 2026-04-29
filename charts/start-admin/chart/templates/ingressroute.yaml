@@ -1,0 +1,18 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: start-admin
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "start-admin.fullLabels" . | nindent 4 }}
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: "{{ if .Values.ingress.host }}Host(`{{ .Values.ingress.host }}`) && {{ end }}{{ .Values.ingress.matchRule }} && HeaderRegexp(`X-CloudFront-Origin-Secret`, `{{ .Values.cloudfront.originSecret }}`)"
+      kind: Rule
+      services:
+        - name: start-admin
+          port: {{ .Values.service.port }}
+{{- end }}

@@ -1,0 +1,83 @@
+# @format
+# ArgoCD Application: public-api
+#
+# BFF read-only data API for the portfolio Next.js frontend.
+# Manages articles and tags served from DynamoDB.
+#
+# Credential Model:
+#   NO K8s Secrets — all AWS credentials resolved from EC2 Instance
+#   Profile (IMDS) by the AWS SDK v3 default credential chain.
+#
+# ConfigMap:
+#   public-api-config is managed exclusively by deploy.py.
+#   It contains: DYNAMODB_TABLE_NAME, DYNAMODB_GSI1_NAME,
+#                DYNAMODB_GSI2_NAME, AWS_DEFAULT_REGION.
+#
+# IngressRoute:
+#   Managed by deploy.py Step 5 (not ArgoCD). Routes /api/* to the
+#   service, excluding /api/admin (reserved for admin-api).
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: public-api
+  annotations:
+    kubernetes.io/description: "ArgoCD application for the public-api BFF service"
+    argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps — same wave as nextjs
+    # -----------------------------------------------------------------------
+    # ArgoCD Image Updater — automatically update container image tag
+    # when a new image is pushed to ECR by the CI pipeline.
+    # -----------------------------------------------------------------------
+    argocd-image-updater.argoproj.io/image-list: "public-api=771826808455.dkr.ecr.eu-west-1.amazonaws.com/public-api"
+    argocd-image-updater.argoproj.io/public-api.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/public-api.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+    argocd-image-updater.argoproj.io/public-api.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/public-api.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
+    argocd-image-updater.argoproj.io/git-branch: develop
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/public-api/chart
+    helm:
+      valueFiles:
+        - ../public-api-values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: public-api
+
+  # Don't reconcile drift on Deployment pod template annotations —
+  # Stakater Reloader stamps `last-reload-from-X` here when a watched
+  # Secret's content changes; selfHeal would otherwise revert it.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

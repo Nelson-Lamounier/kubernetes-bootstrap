@@ -1,0 +1,76 @@
+# @format
+# ArgoCD Application: Start-Admin (TanStack Start)
+#
+# Points ArgoCD at the workloads/charts/start-admin/chart/ directory in Git.
+# ArgoCD recognises this as a Helm-type source and renders the chart
+# with values from start-admin-values.yaml.
+#
+# Secrets (Cognito, DynamoDB, Lambda ARNs) are pre-seeded
+# by deploy.py via kubectl create secret.
+# ArgoCD manages all declarative Helm-rendered manifests.
+#
+# Credential: SSH Deploy Key (read+write) — stored in K8s secret
+# via bootstrap-argocd.sh from SSM parameter.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: start-admin
+  annotations:
+    kubernetes.io/description: "ArgoCD application for the TanStack Start admin dashboard"
+    argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps — deploys after Platform Observability (3) and Cluster Utilities (4)
+    # -----------------------------------------------------------------------
+    # ArgoCD Image Updater — automatically update container image tag
+    # when a new image is pushed to ECR by the CI pipeline.
+    #
+    # Strategy: 'newest-build' picks the most recently built image by timestamp.
+    # Filter:   Accepts SHA tags with optional run-attempt suffix (e.g. abc123-r1).
+    #           The -rN suffix prevents ECR tag overwrites on pipeline retries.
+    # Write-back: Commits .argocd-source-start-admin.yaml to Git so selfHeal
+    #             enforces the updated tag instead of reverting it.
+    # -----------------------------------------------------------------------
+    argocd-image-updater.argoproj.io/image-list: "start-admin=771826808455.dkr.ecr.eu-west-1.amazonaws.com/start-admin"
+    argocd-image-updater.argoproj.io/start-admin.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/start-admin.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+    argocd-image-updater.argoproj.io/start-admin.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/start-admin.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
+    argocd-image-updater.argoproj.io/git-branch: develop
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    # Points to this same repo — monorepo pattern
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    # PRODUCTION: Change to 'main' when deploying to production.
+    targetRevision: main
+    path: charts/start-admin/chart
+    helm:
+      valueFiles:
+        - ../start-admin-values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: start-admin
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

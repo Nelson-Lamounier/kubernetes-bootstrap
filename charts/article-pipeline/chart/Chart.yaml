@@ -1,0 +1,7 @@
+# @format
+apiVersion: v2
+name: article-pipeline
+description: Article pipeline namespace infra — ServiceAccount + RBAC. Jobs created programmatically by admin-api.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

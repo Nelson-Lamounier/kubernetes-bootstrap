@@ -1,0 +1,204 @@
+# ── admin-api Argo Rollout ────────────────────────────────────────────────────
+#
+# Blue/Green progressive delivery. Mirrors the nextjs Rollout pattern.
+# Two ReplicaSets run side by side during a roll-forward:
+#   activeService  → admin-api          (production traffic)
+#   previewService → admin-api-preview  (zero traffic until promoted)
+#
+# Pre-promotion analysis queries Prometheus for error rate (5xx/total) and
+# P95 latency on traefik_service_request_duration metrics. If either
+# metric breaches the configured threshold the AnalysisRun fails and the
+# Rollout pauses — the preview is NOT promoted.
+#
+# After manual promotion (autoPromotionEnabled: false) the preview becomes
+# active and the old ReplicaSet scales down after scaleDownDelaySeconds.
+#
+# K8s Job image URIs flow OUT-OF-BAND:
+#   admin-api-job-images ESO Secret → mounted as files at /etc/admin-api/images/
+#   admin-api re-reads the file on each Job-creation request — pushing a
+#   new ingestion / article-pipeline / job-strategist image does NOT
+#   trigger a Rollout.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: admin-api
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "admin-api.fullLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "admin-api.selectorLabels" . | nindent 6 }}
+  strategy:
+    blueGreen:
+      activeService: admin-api
+      previewService: admin-api-preview
+      autoPromotionEnabled: {{ .Values.rollout.blueGreen.autoPromotionEnabled }}
+      {{- if .Values.rollout.blueGreen.autoPromotionSeconds }}
+      autoPromotionSeconds: {{ .Values.rollout.blueGreen.autoPromotionSeconds }}
+      {{- end }}
+      scaleDownDelaySeconds: {{ .Values.rollout.blueGreen.scaleDownDelaySeconds | default 30 }}
+      prePromotionAnalysis:
+        templates:
+          - templateName: admin-api-bluegreen-analysis
+        args:
+          - name: service-name
+            value: "admin-api"
+  template:
+    metadata:
+      annotations:
+        # Reloader rolls the pod when any of these Secrets' content changes
+        # — Bedrock CDK stacks publishing new SSM keys, ESO refreshing
+        # platform-rds-credentials on RDS password rotation, or Cognito
+        # value rotation. selfHeal must NOT revert this annotation —
+        # argocd-apps/admin-api.yaml ignoreDifferences handles that.
+        secret.reloader.stakater.com/reload: "admin-api-secrets,admin-api-bedrock,admin-api-job-images,admin-api-github,platform-rds-credentials"
+      labels:
+        {{- include "admin-api.fullLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: admin-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - containerPort: {{ .Values.port }}
+              name: http
+              protocol: TCP
+          env:
+            # Static K8s wiring — namespaces and ServiceAccounts under which
+            # admin-api creates Jobs. These don't change between Image Updater
+            # rotations so they live in the chart, not the file mount.
+            - name: INGESTION_NAMESPACE
+              value: {{ .Values.jobImages.ingestion.namespace | quote }}
+            - name: INGESTION_SERVICE_ACCOUNT
+              value: {{ .Values.jobImages.ingestion.serviceAccount | quote }}
+            - name: ARTICLE_PIPELINE_NAMESPACE
+              value: {{ .Values.jobImages.articlePipeline.namespace | quote }}
+            - name: ARTICLE_PIPELINE_SERVICE_ACCOUNT
+              value: {{ .Values.jobImages.articlePipeline.serviceAccount | quote }}
+            - name: STRATEGIST_PIPELINE_NAMESPACE
+              value: {{ .Values.jobImages.strategistPipeline.namespace | quote }}
+            - name: STRATEGIST_PIPELINE_SERVICE_ACCOUNT
+              value: {{ .Values.jobImages.strategistPipeline.serviceAccount | quote }}
+            # Tells the admin-api process where the file-mounted image URIs
+            # live. Each filename inside is the secretKey from the ESO
+            # ExternalSecret admin-api-job-images.
+            - name: JOB_IMAGES_DIR
+              value: {{ .Values.jobImages.mountPath | quote }}
+            # Static literals — don't change between deploys, no SSM
+            # round-trip needed.
+            - name: DYNAMODB_GSI1_NAME
+              value: {{ .Values.dynamodb.gsi1Name | quote }}
+            - name: DYNAMODB_GSI2_NAME
+              value: {{ .Values.dynamodb.gsi2Name | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.awsRegion | quote }}
+          # ---------------------------------------------------------------
+          # ESO syncs SSM / Secrets Manager into K8s Secrets. Each
+          # ExternalSecret in charts/admin-api/external-secrets/ produces
+          # one Secret with a specific failure-blast-radius:
+          #
+          #   admin-api-secrets        REQUIRED — Cognito + DDB content table.
+          #   platform-rds-credentials REQUIRED — PG host/port/db/user/pass.
+          #   admin-api-bedrock        OPTIONAL — assets bucket + 4 Lambda
+          #                            ARNs + strategist table. Populated as
+          #                            Bedrock CDK stacks deploy. Code marks
+          #                            the corresponding fields optional and
+          #                            the consuming routes return 503 until
+          #                            populated.
+          #   admin-api-job-images     OPTIONAL — Phase 4 K8s Job image URIs;
+          #                            consumed via volumeMount at startup.
+          # ---------------------------------------------------------------
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secrets.name }}
+            - secretRef:
+                name: platform-rds-credentials
+            - secretRef:
+                name: admin-api-bedrock
+                optional: true
+            - secretRef:
+                name: admin-api-github
+                optional: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: job-images
+              mountPath: {{ .Values.jobImages.mountPath }}
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: {{ .Values.port }}
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: {{ .Values.port }}
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+      volumes:
+        - name: job-images
+          secret:
+            # Synced by ESO from /k8s/{env}/job-images/{ingestion,article-pipeline,job-strategist}.
+            # See charts/admin-api/external-secrets/admin-api-job-images.yaml.
+            secretName: admin-api-job-images
+            optional: true   # Allow pod start before first ESO sync completes
+        - name: tmp
+          emptyDir: {}
+---
+# ── Active Service — production traffic ──────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-api
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "admin-api.fullLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "admin-api.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP
+---
+# ── Preview Service — required by Argo Rollouts blueGreen ────────────────────
+# Receives traffic only while the new ReplicaSet is in pre-promotion analysis.
+# After promotion both Services point at the same (newly-active) ReplicaSet
+# until the next rollout, when this Service swings back to the new preview.
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-api-preview
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "admin-api.fullLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "admin-api.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP

@@ -1,0 +1,43 @@
+# @format
+# ExternalSecret: rds-config
+#
+# Non-sensitive RDS connection parameters pulled from SSM Parameter Store.
+# SSM paths are published by the CDK RdsPgVectorStack (aurora-pgvector-stack.ts).
+#
+# Consumed by the ingestion Job/CronJob via envFrom.secretRef: name: rds-config
+#
+# NOTE: The DB password is in a separate ExternalSecret (rds-credentials)
+# backed by Secrets Manager — it is not included here.
+#
+# SSM paths pattern: /{namePrefix}/rds/{key}
+# namePrefix for development = "bedrock-development"
+
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: rds-config
+  namespace: ingestion
+  annotations:
+    kubernetes.io/description: "RDS pgvector connection config from SSM — non-sensitive host/port/db/user"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: rds-config
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: RDS_HOST
+      remoteRef:
+        key: /bedrock-development/rds/host
+    - secretKey: RDS_PORT
+      remoteRef:
+        key: /bedrock-development/rds/port
+    - secretKey: RDS_DB_NAME
+      remoteRef:
+        key: /bedrock-development/rds/database
+    - secretKey: RDS_USER
+      remoteRef:
+        key: /bedrock-development/rds/user

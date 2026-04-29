@@ -1,0 +1,46 @@
+# @format
+# Development environment overrides — lower resources, single replica.
+#
+# NOTE: image.tag is intentionally absent here.
+# ArgoCD Image Updater owns image.tag via its git write-back to
+# .argocd-source-nextjs.yaml. Hardcoding a tag in this file creates
+# a competing source of truth that prevents Argo Rollouts from detecting
+# a genuine image change and spawning a green ReplicaSet.
+
+image:
+  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/nextjs-frontend
+  # tag: managed by ArgoCD Image Updater → .argocd-source-nextjs.yaml
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2
+  targetCPUUtilization: 80
+
+resourceQuota:
+  hard:
+    requests.cpu: "750m"
+    requests.memory: 768Mi
+    limits.cpu: "1500m"
+    limits.memory: 1536Mi
+    persistentvolumeclaims: "1"
+
+pdb:
+  enabled: true
+
+# Traefik IngressRoute — Host() match clause.
+# matchRule + originSecret defaults live in chart/values.yaml; the runtime
+# secret value is patched in by the ingressroute-patcher PostSync hook.
+ingress:
+  enabled: true
+  host: "nelsonlamounier.com"

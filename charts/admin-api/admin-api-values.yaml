@@ -1,0 +1,25 @@
+# @format
+# admin-api — Development environment overrides
+#
+# Applied by ArgoCD on top of chart/values.yaml.
+# This file is committed to Git (no sensitive values).
+#
+# All AWS credentials come from the EC2 Instance Profile (IMDS).
+# Secrets (Cognito) and Config (DynamoDB, S3, Lambda) are managed by deploy.py.
+
+image:
+  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/admin-api
+  # tag: intentionally omitted — ArgoCD Image Updater writes the tag to
+  #       chart/.argocd-source-admin-api.yaml on every successful CI push.
+  #       An empty string here produces "<repo>:" which Kubernetes rejects
+  #       with InvalidImageName before even attempting an ECR pull.
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 300m
+    memory: 256Mi

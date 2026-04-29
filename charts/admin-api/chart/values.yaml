@@ -1,0 +1,176 @@
+# @format
+# admin-api — Helm chart default values.
+#
+# BFF for the start-admin TanStack application.
+# Handles write operations: article publish, update, delete, asset upload.
+#
+# ─── Config Sources ───────────────────────────────────────────────────────────
+# admin-api consumes config from three K8s resources, all managed declaratively
+# (no deploy.py — that pattern was decommissioned post-Phase-2):
+#
+#   admin-api-secrets        (Opaque Secret, ESO-synced from SSM)
+#                            → Cognito auth + non-sensitive infrastructure refs
+#   platform-rds-credentials (Opaque Secret, ESO-synced from Secrets Manager)
+#                            → PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
+#   admin-api-job-images     (Opaque Secret, ESO-synced from SSM, mounted as files)
+#                            → /etc/admin-api/images/{ingestion,article-pipeline,
+#                              job-strategist} — full <repo>:<tag> URIs that
+#                              admin-api reads on each Job creation. Decoupled
+#                              from the Blue/Green Rollout: image updates do
+#                              NOT trigger admin-api restart.
+#
+# AWS SDK credentials come from the EC2 Instance Profile (IMDS) — never K8s.
+# ─────────────────────────────────────────────────────────────────────────────
+
+namespace: admin-api
+
+# ── admin-api container image ─────────────────────────────────────────────────
+# repository + tag tracked by ArgoCD Image Updater on the admin-api ArgoCD app
+# (image-list: admin-api=...). On each ECR push the Updater writes the new tag
+# into .argocd-source-admin-api.yaml; ArgoCD re-renders → new ReplicaSet enters
+# Blue/Green pre-promotion analysis (see rollout.* below).
+image:
+  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/admin-api
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# ── K8s Job image URIs (file-mounted, decoupled from admin-api Rollout) ───────
+# The Job-image bytes themselves come from the admin-api-job-images ESO Secret
+# (see external-secrets/admin-api-job-images.yaml). This values block only
+# carries the namespace + ServiceAccount each Job runs as — those are static
+# (the namespace charts in kubernetes-bootstrap declare them) and must match
+# the actual K8s objects.
+#
+# `mountPath` is the directory where each ESO secretKey becomes a file:
+#   /etc/admin-api/images/ingestion          — ESO secretKey 'ingestion'
+#   /etc/admin-api/images/article-pipeline   — ESO secretKey 'article-pipeline'
+#   /etc/admin-api/images/job-strategist     — ESO secretKey 'job-strategist'
+jobImages:
+  mountPath: /etc/admin-api/images
+  ingestion:
+    namespace: ingestion
+    serviceAccount: ingestion-sa
+  articlePipeline:
+    namespace: article-pipeline
+    serviceAccount: article-pipeline-sa
+  strategistPipeline:
+    namespace: job-strategist
+    serviceAccount: job-strategist-sa
+
+replicas: 1
+
+# Port 3002 — admin-api (public-api uses 3001)
+port: 3002
+
+# ── Node scheduling ───────────────────────────────────────────────────────────
+nodeSelector:
+  node-pool: general
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 10m      # Observed p50: ~2m. 10m provides safe headroom for burst/startup.
+    memory: 64Mi  # Observed p50: ~20Mi. 64Mi covers peak — kept at limit minimum.
+  limits:
+    cpu: 300m
+    memory: 256Mi
+
+# ── Security Context ──────────────────────────────────────────────────────────
+# Run as non-root uid 1001 (adminapi user created in Dockerfile).
+# readOnlyRootFilesystem prevents runtime writes outside /tmp.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1001
+  capabilities:
+    drop:
+      - ALL
+
+# ── ESO-managed Secrets ──────────────────────────────────────────────────────
+# admin-api-secrets    — required  (Cognito + DDB content table)
+# admin-api-bedrock    — optional  (assets bucket + Bedrock pipeline ARNs +
+#                                   strategist table; populated as the
+#                                   matching ai-applications/infra Bedrock
+#                                   CDK stacks deploy)
+# admin-api-job-images — optional  (file-mount of K8s Job image URIs)
+# platform-rds-credentials — required (PG_HOST/PORT/DATABASE/USER/PASSWORD)
+secrets:
+  name: admin-api-secrets
+
+# ── Static config literals (not in SSM — don't churn) ────────────────────────
+dynamodb:
+  # The application reads `gsi1pk` and `gsi2pk` attributes; these are the
+  # DynamoDB GSI names that hold those keys (status+date and tag+date).
+  gsi1Name: "gsi1-status-date"
+  gsi2Name: "gsi2-tag-date"
+
+awsRegion: "eu-west-1"
+
+# ── ServiceAccount ────────────────────────────────────────────────────────────
+# Named SA so the cross-namespace RoleBinding in the ingestion namespace
+# (admin-api-job-creator) can grant Job CRUD + pod log read.
+serviceAccount:
+  name: admin-api
+
+# ── Health probes ─────────────────────────────────────────────────────────────
+probes:
+  readiness:
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 15
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# ── Ingress (disabled — owned by deploy.py) ───────────────────────────────────
+ingress:
+  enabled: false
+
+# ── Service ───────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 3002
+
+# ── PodDisruptionBudget ───────────────────────────────────────────────────────
+# Prevents the sole admin-api replica from being evicted simultaneously
+# during CA scale-down or node drain events.
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# ── Topology Spread Constraints ───────────────────────────────────────────────
+# Empty by default (replicas: 1 — no spread needed).
+# Set when scaling to replicas > 1 to enforce maxSkew: 1 across nodes.
+topologySpreadConstraints: []
+
+# ── Argo Rollouts — Blue/Green Strategy ───────────────────────────────────────
+# Mirrors the nextjs configuration. Pre-promotion analysis runs Prometheus
+# queries against the preview ReplicaSet's Traefik metrics; if either error
+# rate or P95 latency breach the threshold the rollout pauses and does NOT
+# auto-promote. Manual promotion uses:
+#   kubectl argo rollouts promote admin-api -n admin-api
+rollout:
+  blueGreen:
+    autoPromotionEnabled: false   # require explicit promote step
+    autoPromotionSeconds: 0
+    scaleDownDelaySeconds: 30
+  analysis:
+    interval: 60s
+    count: 3
+    failureLimit: 1
+    consecutiveErrorLimit: 5
+    errorRateThreshold: 0.05      # < 5% 5xx
+    latencyThresholdMs: 1500      # admin-api routes are pure PG / K8s-API calls
+                                  # — tighter than nextjs (which renders pages)

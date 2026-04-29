@@ -1,0 +1,48 @@
+# @format
+# ExternalSecret: platform-rds-config
+#
+# Pulls non-sensitive RDS connection parameters from SSM Parameter Store.
+# SSM paths published by PlatformRdsStack under /k8s/{env}/platform-rds/{key}.
+#
+# ESO store: aws-ssm (ambient EC2 instance profile auth)
+# Namespace: platform
+#
+# Consumers: PgBouncer (POSTGRESQL_HOST, POSTGRESQL_DATABASE env vars)
+#            bootstrap Job (PGHOST, PGDATABASE env vars)
+# Note: Application pods use pgbouncer.platform.svc.cluster.local:5432, NOT PGHOST directly.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: platform-rds-config
+  namespace: platform
+  annotations:
+    kubernetes.io/description: "Platform RDS connection config from SSM — non-sensitive, 1h refresh"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: platform-rds-config
+    creationPolicy: Owner
+    deletionPolicy: Delete
+    template:
+      type: Opaque
+      data:
+        PGHOST: "{{ .host }}"
+        PGPORT: "{{ .port }}"
+        PGDATABASE: "{{ .database }}"
+        PGUSER: "{{ .user }}"
+  data:
+    - secretKey: host
+      remoteRef:
+        key: /k8s/development/platform-rds/host
+    - secretKey: port
+      remoteRef:
+        key: /k8s/development/platform-rds/port
+    - secretKey: database
+      remoteRef:
+        key: /k8s/development/platform-rds/database
+    - secretKey: user
+      remoteRef:
+        key: /k8s/development/platform-rds/user

@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Pre-Promotion Analysis Template — admin-api Blue/Green
+#
+# Same structure as nextjs-bluegreen-analysis. Runs during Argo Rollouts'
+# pre-promotion phase against the preview ReplicaSet. Fails the
+# AnalysisRun if either error rate or P95 latency breach the thresholds —
+# the Rollout pauses and does NOT promote automatically.
+#
+# Metrics source: Traefik request metrics (production-grade, always-on).
+# scalar() wrap converts vector results into scalars to satisfy Argo
+# Rollouts' single-value contract.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: admin-api-bluegreen-analysis
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "admin-api.fullLabels" . | nindent 4 }}
+spec:
+  args:
+    - name: service-name
+  metrics:
+    # ----- Error Rate: 5xx errors / total requests -----
+    - name: error-rate
+      interval: {{ .Values.rollout.analysis.interval }}
+      count: {{ .Values.rollout.analysis.count }}
+      failureLimit: {{ .Values.rollout.analysis.failureLimit }}
+      consecutiveErrorLimit: {{ .Values.rollout.analysis.consecutiveErrorLimit }}
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090/prometheus
+          query: |
+            scalar(
+              sum(rate(
+                traefik_service_requests_total{
+                  service=~"admin-api-admin-api-.*@kubernetes",
+                  code=~"5.."
+                }[5m]
+              )) /
+              sum(rate(
+                traefik_service_requests_total{
+                  service=~"admin-api-admin-api-.*@kubernetes"
+                }[5m]
+              ))
+            )
+      successCondition: "isNaN(result) || result < {{ .Values.rollout.analysis.errorRateThreshold }}"
+    # ----- P95 Latency -----
+    - name: p95-latency
+      interval: {{ .Values.rollout.analysis.interval }}
+      count: {{ .Values.rollout.analysis.count }}
+      failureLimit: {{ .Values.rollout.analysis.failureLimit }}
+      consecutiveErrorLimit: {{ .Values.rollout.analysis.consecutiveErrorLimit }}
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090/prometheus
+          query: |
+            scalar(
+              histogram_quantile(0.95,
+                sum(rate(
+                  traefik_service_request_duration_seconds_bucket{
+                    service=~"admin-api-admin-api-.*@kubernetes"
+                  }[5m]
+                )) by (le)
+              ) * 1000
+            )
+      successCondition: "isNaN(result) || result < {{ .Values.rollout.analysis.latencyThresholdMs }}"

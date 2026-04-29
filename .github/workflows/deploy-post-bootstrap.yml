@@ -1,0 +1,46 @@
+# @format
+# @description Deploy Post-Bootstrap Verify (Standalone)
+#
+# Standalone pipeline to verify ArgoCD health and cluster smoke tests
+# WITHOUT re-triggering SM-A (Bootstrap Orchestrator).
+# Secrets are managed declaratively by ESO; apps by ArgoCD reconciliation.
+#
+# ─── Use This When ─────────────────────────────────────────────────
+#   - Verifying ArgoCD health after manual cluster changes
+#   - Smoke testing after Helm chart updates
+#
+# ─── No Bootstrap ──────────────────────────────────────────────────
+# SM-A is NOT triggered. Use deploy-ssm-automation.yml for cluster re-bootstrap.
+
+name: Deploy Post-Bootstrap Verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - development
+        default: development
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-post-bootstrap-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  post-bootstrap:
+    name: "Cluster Health Verify"
+    uses: ./.github/workflows/_post-bootstrap-config.yml
+    with:
+      environment: ${{ inputs.environment }}
+      cdk-environment: ${{ inputs.environment }}
+    secrets: inherit

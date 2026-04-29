@@ -1,0 +1,145 @@
+# @format
+# Default values for the public-api Helm chart.
+# Override per-environment via public-api-values.yaml.
+
+namespace: public-api
+
+# ---------------------------------------------------------------------------
+# Application Image
+# ---------------------------------------------------------------------------
+image:
+  repository: "" # Overridden at deploy time via --set or ArgoCD Image Updater write-back
+  tag: "latest" # Overridden by ArgoCD Image Updater write-back
+  pullPolicy: Always
+
+# ---------------------------------------------------------------------------
+# Deployment
+# ---------------------------------------------------------------------------
+replicas: 1
+port: 3001
+
+resources:
+  requests:
+    cpu: 10m      # Observed p50: ~2m. 10m safe headroom for burst/startup cycles.
+    memory: 64Mi  # Observed p50: ~20Mi. 64Mi covers peak — kept at limit minimum.
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# Security context for the pod
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+# Security context for the container
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# ---------------------------------------------------------------------------
+# Node Placement
+# ---------------------------------------------------------------------------
+nodeSelector:
+  node-pool: general
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 3001
+
+# ---------------------------------------------------------------------------
+# Health Probes — three-probe model (golden-path standard)
+# ---------------------------------------------------------------------------
+probes:
+  startup:
+    path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 30   # 30 × 5s = 150s startup window
+  readiness:
+    path: /healthz
+    periodSeconds: 10
+    failureThreshold: 3
+  liveness:
+    path: /healthz
+    periodSeconds: 15
+    failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# Ingress (Traefik IngressRoute CRD)
+# ---------------------------------------------------------------------------
+# IMPORTANT: ingress.enabled is intentionally false.
+#
+# The IngressRoute is managed exclusively by deploy.py (Step 3).
+# ArgoCD must NOT own this resource — the CloudFront origin secret
+# in the Host() match rule is a runtime value from SSM.
+#
+# deploy.py creates/updates the IngressRoute on every deploy.
+# ArgoCD never touches it.
+ingress:
+  enabled: false
+  host: ""          # Populated by deploy.py from NEXTAUTH_URL SSM value
+  pathPrefix: "/api" # Routes /api/* to this service (excluding /api/admin)
+  entryPoint: web
+
+# ---------------------------------------------------------------------------
+# Config (injected via deploy.py → Kubernetes ConfigMap)
+#
+# public-api has NO K8s Secrets — zero sensitive values.
+# All AWS credentials come from the EC2 Instance Profile (IMDS).
+#
+# Runtime config layout:
+#   - K8s Secret public-api-core        → DYNAMODB_TABLE_NAME (REQUIRED)
+#   - K8s Secret public-api-bedrock     → BEDROCK_API_URL, BEDROCK_API_KEY_SECRET_ARN (optional)
+#   - K8s Secret public-api-strategist  → STRATEGIST_TABLE_NAME (optional)
+#   - Helm `env:` (below)               → DYNAMODB_GSI1_NAME, DYNAMODB_GSI2_NAME,
+#                                         AWS_DEFAULT_REGION, ALLOWED_ORIGINS
+# ---------------------------------------------------------------------------
+dynamodb:
+  # The application reads `gsi1pk` and `gsi2pk` attributes; these are the
+  # DynamoDB GSI names that hold those keys (status+date and tag+date).
+  gsi1Name: "gsi1-status-date"
+  gsi2Name: "gsi2-tag-date"
+
+awsRegion: "eu-west-1"
+allowedOrigins: "https://nelsonlamounier.com,http://localhost:3000"
+
+# ---------------------------------------------------------------------------
+# Network Policy — Default-deny; allow from Traefik + same namespace
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  podCidr: "192.168.0.0/16"
+
+# ---------------------------------------------------------------------------
+# Resource Quota (namespace-level limits)
+# ---------------------------------------------------------------------------
+resourceQuota:
+  hard:
+    requests.cpu: "40m"
+    requests.memory: 128Mi
+    limits.cpu: "400m"
+    limits.memory: 384Mi
+    persistentvolumeclaims: "0"
+
+# ---------------------------------------------------------------------------
+# PodDisruptionBudget
+# ---------------------------------------------------------------------------
+# Prevents the sole public-api replica from being evicted simultaneously
+# during CA scale-down or node drain events.
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# Topology Spread Constraints
+# ---------------------------------------------------------------------------
+# Empty by default (replicas: 1 — no spread needed).
+# Set when scaling to replicas > 1 to enforce maxSkew: 1 across nodes.
+topologySpreadConstraints: []

@@ -1,0 +1,82 @@
+# @format
+# ArgoCD Application: cert-manager
+#
+# Installs cert-manager from the Jetstack Helm chart into the
+# cert-manager namespace. cert-manager handles ACME certificate
+# issuance and stores TLS certs as Kubernetes Secrets, solving
+# the DaemonSet + hostPath persistence problem.
+#
+# This replaces Traefik's built-in ACME resolver so that TLS
+# certificates are accessible from all nodes via etcd-backed
+# Secrets, not a node-local file.
+#
+# Chart: https://artifacthub.io/packages/helm/cert-manager/cert-manager
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  annotations:
+    kubernetes.io/description: "cert-manager for Kubernetes-native TLS certificate management (Let's Encrypt)"
+    argocd.argoproj.io/sync-wave: "0"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: "v1.*"
+    helm:
+      values: |
+        # Install CRDs (Certificate, ClusterIssuer, etc.)
+        crds:
+          enabled: true
+
+        # Resource limits for solo-developer environment
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 64Mi
+
+        webhook:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+
+        cainjector:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

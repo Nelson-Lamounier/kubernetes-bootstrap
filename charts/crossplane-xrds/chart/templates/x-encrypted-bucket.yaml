@@ -1,0 +1,218 @@
+# @format
+# XRD: XEncryptedBucket — Golden-Path S3 Bucket
+#
+# This Composite Resource Definition lets developers create
+# production-ready S3 buckets with a single YAML claim.
+#
+# What developers specify:
+#   - bucketName (string) — logical bucket name
+#   - retentionDays (integer) — object lifecycle expiry
+#   - environment (string) — dev/stg/prd
+#
+# What they get automatically:
+#   - SSE-S3 encryption (default; KMS optional)
+#   - Versioning enabled
+#   - Public access block (all four settings)
+#   - Lifecycle rule (expiry based on retentionDays)
+#   - Standard 7-tag schema from TaggingAspect
+#
+# Usage example:
+#   apiVersion: platform.nelsonlamounier.com/v1alpha1
+#   kind: XEncryptedBucket
+#   metadata:
+#     name: my-app-assets
+#   spec:
+#     parameters:
+#       bucketName: my-app-assets
+#       retentionDays: 90
+#       environment: development
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xencryptedbuckets.platform.nelsonlamounier.com
+  labels:
+    platform.engineering/component: golden-path
+    platform.engineering/resource-type: s3
+spec:
+  group: platform.nelsonlamounier.com
+  names:
+    kind: XEncryptedBucket
+    plural: xencryptedbuckets
+
+  claimNames:
+    kind: EncryptedBucket
+    plural: encryptedbuckets
+
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  description: "Developer-facing parameters for the S3 bucket"
+                  properties:
+                    bucketName:
+                      type: string
+                      description: "Logical bucket name (will be prefixed with crossplane-{namePrefix}-)"
+                      minLength: 3
+                      maxLength: 40
+                    retentionDays:
+                      type: integer
+                      description: "Object lifecycle expiry in days"
+                      minimum: 1
+                      maximum: 3650
+                      default: 90
+                    environment:
+                      type: string
+                      description: "Target environment"
+                      enum:
+                        - development
+                        - staging
+                        - production
+                      default: development
+                  required:
+                    - bucketName
+
+---
+# Composition: XEncryptedBucket → AWS S3 Bucket
+#
+# Maps the developer-friendly XEncryptedBucket CRD to the actual
+# Crossplane AWS S3 managed resources with security defaults.
+
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xencryptedbucket-s3
+  labels:
+    platform.engineering/component: golden-path
+    crossplane.io/xrd: xencryptedbuckets.platform.nelsonlamounier.com
+spec:
+  compositeTypeRef:
+    apiVersion: platform.nelsonlamounier.com/v1alpha1
+    kind: XEncryptedBucket
+
+  resources:
+    # -----------------------------------------------------------------
+    # S3 Bucket — Core resource with encryption and public access block
+    # -----------------------------------------------------------------
+    - name: bucket
+      base:
+        apiVersion: s3.aws.upbound.io/v1beta2
+        kind: Bucket
+        spec:
+          forProvider:
+            region: eu-west-1
+            tags:
+              managed-by: crossplane
+              project: cdk-monitoring
+              component: platform-engineering
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.bucketName
+          toFieldPath: metadata.annotations[crossplane.io/external-name]
+          transforms:
+            - type: string
+              string:
+                type: Format
+                fmt: "crossplane-shared-%s"
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.environment
+          toFieldPath: spec.forProvider.tags.environment
+
+    # -----------------------------------------------------------------
+    # S3 Bucket Versioning — enabled by default
+    # -----------------------------------------------------------------
+    - name: versioning
+      base:
+        apiVersion: s3.aws.upbound.io/v1beta1
+        kind: BucketVersioning
+        spec:
+          forProvider:
+            region: eu-west-1
+            versioningConfiguration:
+              - status: Enabled
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.bucketName
+          toFieldPath: spec.forProvider.bucketSelector.matchLabels[crossplane.io/claim-name]
+
+    # -----------------------------------------------------------------
+    # S3 Bucket Server-Side Encryption — AES256 default
+    # -----------------------------------------------------------------
+    - name: encryption
+      base:
+        apiVersion: s3.aws.upbound.io/v1beta1
+        kind: BucketServerSideEncryptionConfiguration
+        spec:
+          forProvider:
+            region: eu-west-1
+            rule:
+              - applyServerSideEncryptionByDefault:
+                  - sseAlgorithm: AES256
+                bucketKeyEnabled: true
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.bucketName
+          toFieldPath: spec.forProvider.bucketSelector.matchLabels[crossplane.io/claim-name]
+
+    # -----------------------------------------------------------------
+    # S3 Bucket Public Access Block — all four settings enabled
+    # -----------------------------------------------------------------
+    - name: public-access-block
+      base:
+        apiVersion: s3.aws.upbound.io/v1beta1
+        kind: BucketPublicAccessBlock
+        spec:
+          forProvider:
+            region: eu-west-1
+            blockPublicAcls: true
+            blockPublicPolicy: true
+            ignorePublicAcls: true
+            restrictPublicBuckets: true
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.bucketName
+          toFieldPath: spec.forProvider.bucketSelector.matchLabels[crossplane.io/claim-name]
+
+    # -----------------------------------------------------------------
+    # S3 Bucket Lifecycle Configuration — expiry based on retentionDays
+    # -----------------------------------------------------------------
+    - name: lifecycle
+      base:
+        apiVersion: s3.aws.upbound.io/v1beta1
+        kind: BucketLifecycleConfiguration
+        spec:
+          forProvider:
+            region: eu-west-1
+            rule:
+              - id: auto-expire
+                status: Enabled
+                expiration:
+                  - days: 90
+                filter:
+                  - prefix: ""
+          providerConfigRef:
+            name: default
+      patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.bucketName
+          toFieldPath: spec.forProvider.bucketSelector.matchLabels[crossplane.io/claim-name]
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.retentionDays
+          toFieldPath: spec.forProvider.rule[0].expiration[0].days

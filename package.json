@@ -1,0 +1,25 @@
+{
+  "name": "kubernetes-bootstrap",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "yarn@4.14.0",
+  "workspaces": [
+    "infra",
+    "scripts",
+    "sm-a/argocd"
+  ],
+  "scripts": {
+    "build": "yarn workspaces foreach --all run build",
+    "typecheck": "yarn workspaces foreach --all run typecheck",
+    "synth": "yarn workspace kubernetes-bootstrap-infra run synth",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@nelsonlamounier/cdk-deploy-scripts": "^1.0.1"
+  }
+}

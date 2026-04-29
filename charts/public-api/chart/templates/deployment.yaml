@@ -1,0 +1,169 @@
+{{/*
+@format
+public-api — Kubernetes Deployment + Service
+
+Key differences from the golden-path template:
+  - No secretRef — public-api has zero secrets
+  - Mounts ConfigMap (public-api-config) via envFrom.configMapRef
+  - readOnlyRootFilesystem: true — the API has no filesystem writes
+  - Non-root user (uid 1001) matches Dockerfile USER directive
+*/}}
+
+---
+# ============================================================
+# NAMESPACE
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    kubernetes.io/metadata.name: {{ .Values.namespace }}
+
+---
+# ============================================================
+# DEPLOYMENT
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    platform.engineering/layer: bff
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        # Reloader rolls the pod when any of these Secrets' content changes
+        # (e.g. SSM rotation, or a Bedrock CDK stack publishing a new key
+        # that ESO then syncs in). selfHeal must NOT revert this annotation
+        # — argocd-apps/public-api.yaml ignoreDifferences handles that.
+        secret.reloader.stakater.com/reload: "public-api-core,public-api-bedrock,public-api-strategist"
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}
+        platform.engineering/layer: bff
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Release.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+
+          # ---------------------------------------------------------------
+          # Environment
+          #
+          # AWS credentials are NOT injected here — they are resolved
+          # automatically from the EC2 Instance Profile via IMDS.
+          #
+          # Static literals injected directly (no SSM round-trip needed —
+          # these don't change between deploys and don't belong in ESO).
+          # ---------------------------------------------------------------
+          env:
+            - name: DYNAMODB_GSI1_NAME
+              value: {{ .Values.dynamodb.gsi1Name | quote }}
+            - name: DYNAMODB_GSI2_NAME
+              value: {{ .Values.dynamodb.gsi2Name | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.awsRegion | quote }}
+            - name: ALLOWED_ORIGINS
+              value: {{ .Values.allowedOrigins | quote }}
+          # ---------------------------------------------------------------
+          # ESO syncs SSM into K8s Secrets (not ConfigMaps). Each
+          # ExternalSecret in charts/public-api/external-secrets/ produces
+          # one Secret with a specific failure-blast-radius:
+          #
+          #   public-api-core         REQUIRED — the only mandatory keys.
+          #                           If this fails to sync the pod won't
+          #                           pass the config.ts fail-fast check.
+          #   public-api-bedrock      OPTIONAL — Bedrock chatbot config.
+          #                           Routes return 503 until populated.
+          #   public-api-strategist   OPTIONAL — strategist table refs.
+          #                           /api/resumes/active returns 204.
+          #
+          # `optional: true` on the OPTIONAL refs lets the pod boot before
+          # the corresponding Bedrock CDK stack has deployed. Reloader picks
+          # up the eventual content change and rolls the pod automatically.
+          # ---------------------------------------------------------------
+          envFrom:
+            - secretRef:
+                name: public-api-core
+            - secretRef:
+                name: public-api-bedrock
+                optional: true
+            - secretRef:
+                name: public-api-strategist
+                optional: true
+
+          # ---------------------------------------------------------------
+          # Health Probes — three-probe model (golden-path standard)
+          # ---------------------------------------------------------------
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.startup.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+          # Graceful shutdown — drain in-flight requests before SIGTERM
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+
+---
+# ============================================================
+# SERVICE
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.port }}
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}

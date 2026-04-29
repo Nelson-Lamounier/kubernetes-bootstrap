@@ -1,0 +1,122 @@
+# @format
+# ArgoCD ApplicationSet: admin-api
+#
+# Why ApplicationSet (not a plain Application):
+#   Image Updater's image-list annotation requires a literal ECR registry
+#   URI — it cannot read SSM, ConfigMaps, or any cluster state. Wrapping
+#   the manifest in an ApplicationSet with a list generator lets us
+#   parameterise the URI ONCE in `spec.generators[0].list.elements` and
+#   interpolate via {{ecrAccount}}.dkr.ecr.{{ecrRegion}}.amazonaws.com/...
+#   in every annotation that needs it. Adding staging or prod is then a
+#   5-line addition to the elements array, not a duplicate manifest.
+#
+# What this generates:
+#   For each element in `spec.generators[0].list.elements`, ArgoCD creates
+#   one Application named `admin-api` (single-env today: development).
+#
+# Image Updater config (single literal URI per ECR repo, per env):
+#   admin-api    — the pod's own container image; ECR push triggers a
+#                  Blue/Green Rollout via the active+preview Services.
+#
+# K8s Job images (ingestion / article-pipeline / job-strategist) are NOT
+# watched here — they flow SSM → ESO → file mount on the admin-api pod.
+# See charts/admin-api/external-secrets/admin-api-job-images.yaml. That
+# path keeps Job image updates fully decoupled from the admin-api Rollout.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: admin-api
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "admin-api BFF (start-admin TanStack) — ApplicationSet for templated ECR URI"
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  generators:
+    # ---------------------------------------------------------------
+    # List Generator — ECR + Git parameters per environment
+    #
+    # The values below are the ONLY place ECR account/region appear for
+    # admin-api. Every annotation referencing them does so via {{}}
+    # interpolation. To add staging or production:
+    #
+    #   - env: staging
+    #     ecrAccount: "<staging-account-id>"
+    #     ecrRegion: eu-west-1
+    #     gitBranch: main
+    #     namespace: admin-api
+    # ---------------------------------------------------------------
+    - list:
+        elements:
+          - env: development
+            ecrAccount: "771826808455"
+            ecrRegion: eu-west-1
+            gitBranch: develop
+            namespace: admin-api
+
+  template:
+    metadata:
+      # Name stays static (single Application per env, env baked into the
+      # cluster). If you ever run multiple envs in the same cluster,
+      # change to "admin-api-{{env}}" so the Applications don't collide.
+      name: admin-api
+      namespace: argocd
+      annotations:
+        kubernetes.io/description: "ArgoCD application for the admin-api BFF service (start-admin TanStack)"
+        argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps — same wave as nextjs + start-admin
+        # ----- ArgoCD Image Updater — admin-api own image only ---------------
+        argocd-image-updater.argoproj.io/image-list: "admin-api={{ecrAccount}}.dkr.ecr.{{ecrRegion}}.amazonaws.com/admin-api"
+        argocd-image-updater.argoproj.io/admin-api.update-strategy: newest-build
+        argocd-image-updater.argoproj.io/admin-api.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+        argocd-image-updater.argoproj.io/admin-api.helm.image-name: image.repository
+        argocd-image-updater.argoproj.io/admin-api.helm.image-tag: image.tag
+        argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
+        argocd-image-updater.argoproj.io/git-branch: "{{gitBranch}}"
+      labels:
+        app.kubernetes.io/part-of: argocd
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+
+      source:
+        repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+        targetRevision: "{{gitBranch}}"
+        path: charts/admin-api/chart
+        helm:
+          valueFiles:
+            - "../admin-api-values.yaml"
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{namespace}}"
+
+      # Don't reconcile drift on Rollout pod template annotations —
+      # Stakater Reloader stamps `last-reload-from-X` here when a watched
+      # Secret's content changes (Bedrock SSM keys landing, RDS password
+      # rotation, Cognito rotation). selfHeal would otherwise revert it.
+      ignoreDifferences:
+        - group: argoproj.io
+          kind: Rollout
+          jsonPointers:
+            - /spec/template/metadata/annotations
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - PruneLast=true
+          - ApplyOutOfSyncOnly=true
+          - ServerSideApply=true
+          # Required so ignoreDifferences applies to sync, not just diff.
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 5m

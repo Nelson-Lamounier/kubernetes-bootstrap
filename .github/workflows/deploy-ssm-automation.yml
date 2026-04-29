@@ -1,0 +1,53 @@
+# @format
+# @description Deploy SSM Bootstrap to Development
+#
+# Dedicated pipeline for K8s bootstrap trigger (scripts sync + Step Functions).
+# The SSM Automation CDK stack is deployed by deploy-cdk.yml.
+#
+# Triggers:
+#   - Manual dispatch only (workflow_dispatch)
+#
+# ─── Modes ──────────────────────────────────────────────────────────
+#
+#   trigger_bootstrap=true  (default): S3 sync + Step Functions trigger.
+#     After SM-A succeeds, ESO + ArgoCD reconcile all app config.
+#
+#   trigger_bootstrap=false: S3 sync only — no bootstrap triggered.
+#     For verification-only runs, use deploy-post-bootstrap.yml.
+#
+#   instance_refresh=true: Roll all ASG instances to the current Launch
+#     Template before triggering bootstrap (use after a new AMI bake).
+#     Default false — safe to omit on script-only deploys.
+
+name: Deploy SSM Bootstrap to Development
+
+on:
+  workflow_dispatch:
+    inputs:
+      trigger_bootstrap:
+        description: "Trigger SM-A Step Functions bootstrap on nodes (full re-bootstrap)"
+        type: boolean
+        default: true
+      instance_refresh:
+        description: "Roll ASG instances to current Launch Template before bootstrap (use after new AMI bake)"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write      # OIDC for aws-actions/configure-aws-credentials
+  contents: read       # actions/checkout
+
+concurrency:
+  group: deploy-ssm-bootstrap-development
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Bootstrap Development
+    uses: ./.github/workflows/_deploy-ssm-automation.yml
+    with:
+      environment: development
+      cdk-environment: development
+      trigger-bootstrap: ${{ github.event.inputs.trigger_bootstrap == 'true' }}
+      instance-refresh: ${{ github.event.inputs.instance_refresh == 'true' }}
+    secrets: inherit

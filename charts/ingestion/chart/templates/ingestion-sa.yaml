@@ -1,0 +1,12 @@
+# @format
+# ServiceAccount mounted by ingestion Job pods.
+# AWS perms (bedrock:InvokeModel, ssm:GetParameter for embedding endpoint, etc.)
+# are granted via the EC2 Instance Profile of the worker node — IMDS pattern,
+# consistent with admin-api and other platform pods.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.ingestionServiceAccount.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: ingestion

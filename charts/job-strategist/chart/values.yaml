@@ -1,0 +1,9 @@
+# @format
+namespace: job-strategist
+
+pipelineServiceAccount:
+  name: job-strategist-sa
+
+adminApi:
+  serviceAccountName: admin-api
+  namespace: admin-api

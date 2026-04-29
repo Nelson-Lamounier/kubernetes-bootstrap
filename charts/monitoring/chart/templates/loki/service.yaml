@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "loki" | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "monitoring.selectorLabels" "loki" | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.loki.service.port }}
+      targetPort: {{ .Values.loki.service.port }}
+      protocol: TCP

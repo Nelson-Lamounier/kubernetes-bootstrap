@@ -35,3 +35,21 @@ Thumbs.db
 # Logs (keep checked-in logs, ignore runtime)
 *.log
 !logs/
+
+# CDK / Infra
+infra/node_modules/
+infra/cdk.out/
+infra/dist/
+infra/install-state.gz
+infra/.yarn/cache/
+infra/.yarn/unplugged/
+infra/.yarn/build-state.yml
+
+# TypeScript build output
+*.js.map
+*.d.ts
+# Prevent tsc run-without-tsconfig from polluting source tree
+infra/lib/**/*.js
+infra/bin/**/*.js
+.claude/
+arc-private-key.pem
