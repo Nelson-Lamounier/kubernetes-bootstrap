@@ -1,3 +1,4 @@
+{{- if .Values.bootstrap.enabled }}
 # @format
 # Bootstrap Job — Platform RDS DDL
 #
@@ -12,6 +13,10 @@
 # ArgoCD hook lifecycle:
 #   PostSync → Job runs after all resources synced
 #   BeforeHookCreation → old completed Job deleted before new one is created
+#
+# Gated by .Values.bootstrap.enabled so the hook can be disabled until the
+# platform-rds-bootstrap ECR image exists. When disabled the chart still
+# renders pgbouncer + RBAC so admin-api can connect.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -50,3 +55,4 @@ spec:
           limits:
             cpu: 200m
             memory: 256Mi
+{{- end }}

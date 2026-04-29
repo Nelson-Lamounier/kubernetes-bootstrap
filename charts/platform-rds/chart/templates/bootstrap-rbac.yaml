@@ -1,3 +1,4 @@
+{{- if .Values.bootstrap.enabled }}
 # @format
 # ServiceAccount for the bootstrap Job.
 # The Job connects directly to RDS via ESO-synced secrets in envFrom.
@@ -9,3 +10,4 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     app: platform-rds-bootstrap
+{{- end }}

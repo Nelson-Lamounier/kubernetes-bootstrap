@@ -16,6 +16,9 @@ pgbouncer:
   replicas: 1
 
 bootstrap:
+  # Disabled until the platform-rds-bootstrap ECR image exists.
+  # When enabled, the chart renders a PostSync Job that runs idempotent DDL.
+  enabled: false
   image:
     repository: ""
     tag: latest
