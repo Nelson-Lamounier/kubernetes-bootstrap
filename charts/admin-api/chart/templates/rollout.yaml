@@ -55,7 +55,7 @@ spec:
         # platform-rds-credentials on RDS password rotation, or Cognito
         # value rotation. selfHeal must NOT revert this annotation —
         # argocd-apps/admin-api.yaml ignoreDifferences handles that.
-        secret.reloader.stakater.com/reload: "admin-api-secrets,admin-api-bedrock,admin-api-job-images,platform-rds-credentials"
+        secret.reloader.stakater.com/reload: "admin-api-secrets,admin-api-bedrock,admin-api-job-images,admin-api-github,platform-rds-credentials"
       labels:
         {{- include "admin-api.fullLabels" . | nindent 8 }}
     spec:
@@ -126,6 +126,9 @@ spec:
                 name: platform-rds-credentials
             - secretRef:
                 name: admin-api-bedrock
+                optional: true
+            - secretRef:
+                name: admin-api-github
                 optional: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
