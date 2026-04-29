@@ -2,6 +2,7 @@
 # Development environment value overrides for platform-rds chart.
 # ArgoCD application references this file in spec.source.helm.valueFiles.
 bootstrap:
+  enabled: true
   image:
     # ECR image for the DDL bootstrap Job.
     # URI published to SSM by deploy-platform-rds-bootstrap.yml; tag kept in
