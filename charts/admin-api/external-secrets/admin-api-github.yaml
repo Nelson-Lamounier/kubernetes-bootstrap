@@ -5,9 +5,11 @@
 # until both keys are present — pod boots without them.
 #
 # Source: AWS Secrets Manager secret k8s/development/tucaken-github-app
+#         SSM parameter /k8s/development/tucaken-webhook-secret
 # Keys consumed:
-#   github_app_id         — GitHub App numeric ID (3440764)
+#   github_app_id          — GitHub App numeric ID (3440764)
 #   github_app_private_key — RSA PEM private key
+#   github_webhook_secret  — HMAC secret for verifying webhook payloads
 #
 # ESO refreshes every hour; Stakater Reloader rolls admin-api automatically
 # when the Secret content changes.
@@ -17,7 +19,7 @@ metadata:
   name: admin-api-github
   namespace: admin-api
   annotations:
-    kubernetes.io/description: "admin-api optional GitHub App credentials — sourced from Secrets Manager k8s/development/tucaken-github-app"
+    kubernetes.io/description: "admin-api optional GitHub App credentials — Secrets Manager + SSM"
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -36,3 +38,10 @@ spec:
       remoteRef:
         key: k8s/development/tucaken-github-app
         property: github_app_private_key
+    - secretKey: GITHUB_WEBHOOK_SECRET
+      sourceRef:
+        storeRef:
+          name: aws-ssm
+          kind: ClusterSecretStore
+      remoteRef:
+        key: /k8s/development/tucaken-webhook-secret
