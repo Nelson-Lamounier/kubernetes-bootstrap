@@ -45,7 +45,7 @@ spec:
 
   source:
     repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
-    targetRevision: develop
+    targetRevision: main
     path: charts/public-api/chart
     helm:
       valueFiles:

@@ -15,7 +15,7 @@ spec:
   project: default
   source:
     repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
-    targetRevision: develop
+    targetRevision: main
     path: charts/job-strategist/chart
   destination:
     server: https://kubernetes.default.svc

@@ -31,7 +31,7 @@ spec:
     # Source 1: Traefik values from the kubernetes-platform repo
     - repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
       # PRODUCTION: Change to 'main' when deploying to production.
-      targetRevision: develop
+      targetRevision: main
       ref: values
 
     # Source 2: Traefik Helm chart from official repo
