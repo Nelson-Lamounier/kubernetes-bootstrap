@@ -4,34 +4,24 @@
 # Optional GitHub App credentials for admin-api. Routes return HTTP 503
 # until both keys are present — pod boots without them.
 #
-# SSM parameters are published manually once (they don't change between
-# deploys). ESO refreshes every hour; Stakater Reloader rolls admin-api
-# automatically when the Secret content changes.
+# Source: AWS Secrets Manager secret k8s/development/arc-github-app
+# Keys consumed:
+#   github_app_id         — GitHub App numeric ID
+#   github_app_private_key — RSA PEM private key
 #
-# SSM parameter paths:
-#   /admin-api/github/app-id        — GitHub App numeric ID (plain string)
-#   /admin-api/github/private-key   — PKCS#8 RSA PEM (SecureString)
-#
-# To publish:
-#   AWS_PROFILE=dev-account aws ssm put-parameter \
-#     --name /admin-api/github/app-id \
-#     --value "<app-id>" --type String --region eu-west-1
-#
-#   AWS_PROFILE=dev-account aws ssm put-parameter \
-#     --name /admin-api/github/private-key \
-#     --value "$(cat github-app.private-key.pem)" \
-#     --type SecureString --region eu-west-1
+# ESO refreshes every hour; Stakater Reloader rolls admin-api automatically
+# when the Secret content changes.
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
 metadata:
   name: admin-api-github
   namespace: admin-api
   annotations:
-    kubernetes.io/description: "admin-api optional GitHub App credentials — populated once after GitHub App creation"
+    kubernetes.io/description: "admin-api optional GitHub App credentials — sourced from Secrets Manager k8s/development/arc-github-app"
 spec:
   refreshInterval: 1h
   secretStoreRef:
-    name: aws-ssm
+    name: aws-secretsmanager
     kind: ClusterSecretStore
   target:
     name: admin-api-github
@@ -40,7 +30,9 @@ spec:
   data:
     - secretKey: GITHUB_APP_ID
       remoteRef:
-        key: /admin-api/github/app-id
+        key: k8s/development/arc-github-app
+        property: github_app_id
     - secretKey: GITHUB_PRIVATE_KEY
       remoteRef:
-        key: /admin-api/github/private-key
+        key: k8s/development/arc-github-app
+        property: github_app_private_key
