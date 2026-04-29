@@ -4,9 +4,9 @@
 # Optional GitHub App credentials for admin-api. Routes return HTTP 503
 # until both keys are present — pod boots without them.
 #
-# Source: AWS Secrets Manager secret k8s/development/arc-github-app
+# Source: AWS Secrets Manager secret k8s/development/tucaken-github-app
 # Keys consumed:
-#   github_app_id         — GitHub App numeric ID
+#   github_app_id         — GitHub App numeric ID (3440764)
 #   github_app_private_key — RSA PEM private key
 #
 # ESO refreshes every hour; Stakater Reloader rolls admin-api automatically
@@ -17,7 +17,7 @@ metadata:
   name: admin-api-github
   namespace: admin-api
   annotations:
-    kubernetes.io/description: "admin-api optional GitHub App credentials — sourced from Secrets Manager k8s/development/arc-github-app"
+    kubernetes.io/description: "admin-api optional GitHub App credentials — sourced from Secrets Manager k8s/development/tucaken-github-app"
 spec:
   refreshInterval: 1h
   secretStoreRef:
@@ -30,9 +30,9 @@ spec:
   data:
     - secretKey: GITHUB_APP_ID
       remoteRef:
-        key: k8s/development/arc-github-app
+        key: k8s/development/tucaken-github-app
         property: github_app_id
     - secretKey: GITHUB_PRIVATE_KEY
       remoteRef:
-        key: k8s/development/arc-github-app
+        key: k8s/development/tucaken-github-app
         property: github_app_private_key
