@@ -48,7 +48,7 @@ spec:
     # Points to this same repo — monorepo pattern
     repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
     # PRODUCTION: Change to 'main' when deploying to production.
-    targetRevision: develop
+    targetRevision: main
     path: charts/start-admin/chart
     helm:
       valueFiles:
