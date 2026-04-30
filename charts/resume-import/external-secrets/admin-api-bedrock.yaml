@@ -1,0 +1,33 @@
+# @format
+# ExternalSecret: admin-api-bedrock
+# Namespace: resume-import
+#
+# Provides ASSETS_BUCKET_NAME to resume-import-processor Job pods so they
+# can fetch the uploaded file from S3. Mirrors the admin-api namespace copy;
+# K8s Secrets are namespace-scoped so a separate ExternalSecret is required.
+#
+# Populated when ai-applications/infra bedrock/ai-content-stack publishes
+# /bedrock-dev/assets-bucket-name to SSM. Until then ESO leaves the Secret
+# absent; the Job pod envFrom.secretRef does NOT have optional:true for this
+# Secret, so the pod will fail to start — ensuring mis-configuration is visible
+# rather than silently producing empty filenames.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: admin-api-bedrock
+  namespace: resume-import
+  annotations:
+    kubernetes.io/description: "S3 assets bucket name for resume-import Job pods — mirrors admin-api namespace copy"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: admin-api-bedrock
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: ASSETS_BUCKET_NAME
+      remoteRef:
+        key: /bedrock-dev/assets-bucket-name
