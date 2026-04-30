@@ -1,0 +1,9 @@
+# @format
+namespace: resume-import
+
+pipelineServiceAccount:
+  name: resume-import-sa
+
+adminApi:
+  serviceAccountName: admin-api
+  namespace: admin-api
