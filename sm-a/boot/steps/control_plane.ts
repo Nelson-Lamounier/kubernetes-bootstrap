@@ -43,6 +43,7 @@ import { fileURLToPath } from 'node:url';
 
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { ChangeResourceRecordSetsCommand, Route53Client } from '@aws-sdk/client-route-53';
+import { SSMClient, StartAutomationExecutionCommand } from '@aws-sdk/client-ssm';
 
 import {
     ECR_PROVIDER_CONFIG,
@@ -1521,6 +1522,61 @@ const installTokenRotator = async (cfg: BootConfig): Promise<void> => {
 };
 
 // =============================================================================
+// =============================================================================
+// Worker rejoin trigger
+// =============================================================================
+
+/**
+ * Sends SSM Run Command to all worker instances so they re-run their bootstrap.
+ *
+ * Workers detect CP replacement via stored `joined-cp-instance-id` vs the
+ * current SSM `/instance-id`. When the CP changes, workers reset and rejoin.
+ *
+ * Uses ASG-name tag targeting so no AutoScaling SDK dependency is needed.
+ * Fire-and-forget — the orchestrator tracks worker bootstrap status separately.
+ */
+const triggerWorkerRejoin = async (cfg: BootConfig): Promise<void> => {
+    const workerAsgNamesRaw = await ssmGet(`${cfg.ssmPrefix}/ami-refresh/workers/asg-names`, cfg.awsRegion)
+        .catch(() => null);
+    if (!workerAsgNamesRaw) {
+        throw new StepDegraded('Worker ASG names not found in SSM — worker rejoin skipped');
+    }
+
+    const workerAsgNames: string[] = JSON.parse(workerAsgNamesRaw);
+    if (!workerAsgNames.length) {
+        throw new StepDegraded('Worker ASG names array is empty — worker rejoin skipped');
+    }
+
+    const [docName, scriptsBucket] = await Promise.all([
+        ssmGet(`${cfg.ssmPrefix}/bootstrap/worker-doc-name`, cfg.awsRegion).catch(() => null),
+        ssmGet(`${cfg.ssmPrefix}/scripts-bucket`, cfg.awsRegion).catch(() => null),
+    ]);
+    if (!docName)       { throw new StepDegraded('Worker bootstrap doc name not in SSM — worker rejoin skipped'); }
+    if (!scriptsBucket) { throw new StepDegraded('scripts-bucket not in SSM — worker rejoin skipped'); }
+
+    const ssm = new SSMClient({ region: cfg.awsRegion });
+    try {
+        const result = await ssm.send(new StartAutomationExecutionCommand({
+            DocumentName:        docName,
+            TargetParameterName: 'InstanceId',
+            Targets:             [{ Key: 'tag:aws:autoscaling:groupName', Values: workerAsgNames }],
+            Parameters:          {
+                SsmPrefix: [cfg.ssmPrefix],
+                S3Bucket:  [scriptsBucket],
+                Region:    [cfg.awsRegion],
+            },
+            MaxConcurrency: '100%',
+            MaxErrors:      '100%',
+        }));
+        info(`Worker rejoin automation started: ExecutionId=${result.AutomationExecutionId}, targets=${workerAsgNames.join(',')}`);
+    } catch (e) {
+        // Non-fatal — CP bootstrap must not fail due to worker notification errors.
+        // Requires ssm:StartAutomationExecution on the CP IAM role.
+        throw new StepDegraded(`StartAutomationExecution failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+};
+
+// =============================================================================
 // main
 // =============================================================================
 
@@ -1557,9 +1613,10 @@ export const main = async (): Promise<void> => {
     await runStep('install-ccm',           () => installCcm(cfg),           cfg, CCM_MARKER);
     await runStep('configure-kubectl',     () => configureKubectl(cfg),    cfg);
     await runStep('bootstrap-argocd',      () => bootstrapArgocd(cfg),     cfg);
-    await runStep('verify-cluster',        () => verifyCluster(cfg),       cfg);
-    await runStep('install-etcd-backup',   () => installEtcdBackup(cfg),   cfg, '/etc/systemd/system/etcd-backup.timer');
-    await runStep('install-token-rotator', () => installTokenRotator(cfg), cfg, TOKEN_ROTATOR_MARKER);
+    await runStep('verify-cluster',        () => verifyCluster(cfg),           cfg);
+    await runStep('rejoin-workers',        () => triggerWorkerRejoin(cfg),     cfg);
+    await runStep('install-etcd-backup',   () => installEtcdBackup(cfg),       cfg, '/etc/systemd/system/etcd-backup.timer');
+    await runStep('install-token-rotator', () => installTokenRotator(cfg),     cfg, TOKEN_ROTATOR_MARKER);
 
     info('Control plane bootstrap complete');
 };
