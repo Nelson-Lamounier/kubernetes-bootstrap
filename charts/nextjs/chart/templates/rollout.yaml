@@ -88,20 +88,30 @@ spec:
             - name: tmp
               mountPath: /tmp
           readinessProbe:
-            httpGet:
-              path: {{ .Values.probes.readiness.path }}
-              port: {{ .Values.port }}
+            exec:
+              command:
+                - node
+                - -e
+                - |
+                  const h=require('http');
+                  const r=h.get('http://localhost:{{ .Values.port }}{{ .Values.probes.readiness.path }}',{timeout:{{ mul .Values.probes.readiness.timeoutSeconds 1000 }}},res=>{process.exit(res.statusCode===200?0:1)});
+                  r.on('error',()=>process.exit(1));r.on('timeout',()=>{r.destroy();process.exit(1)});
             initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
-            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            timeoutSeconds: {{ add .Values.probes.readiness.timeoutSeconds 2 }}
             failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
           livenessProbe:
-            httpGet:
-              path: {{ .Values.probes.liveness.path }}
-              port: {{ .Values.port }}
+            exec:
+              command:
+                - node
+                - -e
+                - |
+                  const h=require('http');
+                  const r=h.get('http://localhost:{{ .Values.port }}{{ .Values.probes.liveness.path }}',{timeout:{{ mul .Values.probes.liveness.timeoutSeconds 1000 }}},res=>{process.exit(res.statusCode===200?0:1)});
+                  r.on('error',()=>process.exit(1));r.on('timeout',()=>{r.destroy();process.exit(1)});
             initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
-            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            timeoutSeconds: {{ add .Values.probes.liveness.timeoutSeconds 2 }}
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
       volumes:
         - name: nextjs-cache
