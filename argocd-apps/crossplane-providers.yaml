@@ -48,6 +48,7 @@ spec:
       selfHeal: true
       allowEmpty: false
     syncOptions:
+      - CreateNamespace=true
       - CreateNamespace=false  # Namespace created by crossplane.yaml
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
