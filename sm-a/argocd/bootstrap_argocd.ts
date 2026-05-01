@@ -13,7 +13,7 @@ import { BootstrapLogger } from './helpers/logger.js';
 import { log } from './helpers/runner.js';
 
 import { createNamespace, resolveDeployKey, createRepoSecret, preserveArgocdSecret, provisionImageUpdaterWriteback } from './steps/namespace.js';
-import { restoreArgocdSecret, installArgocd, createDefaultProject, configureArgocdServer, configureHealthChecks } from './steps/install.js';
+import { restoreArgocdSecret, installArgocd, patchArgocdFsGroup, createDefaultProject, configureArgocdServer, configureHealthChecks } from './steps/install.js';
 import {
     applyRootApp,
     injectMonitoringHelmParams,
@@ -65,6 +65,7 @@ const main = async (): Promise<void> => {
     await logger.step('provision_image_updater_writeback', () => provisionImageUpdaterWriteback(cfg));
     const signingKey  = await logger.step('preserve_argocd_secret', () => preserveArgocdSecret(cfg));
     await logger.step('install_argocd',            () => installArgocd(cfg));
+    await logger.step('patch_argocd_fsgroup',      () => patchArgocdFsGroup(cfg));
     await logger.step('restore_argocd_secret',     () => restoreArgocdSecret(cfg, signingKey));
     await logger.step('create_default_project',    () => createDefaultProject(cfg));
     await logger.step('configure_argocd_server',   () => configureArgocdServer(cfg));
