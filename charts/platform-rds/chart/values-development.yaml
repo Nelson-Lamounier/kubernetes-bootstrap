@@ -8,4 +8,4 @@ bootstrap:
     # URI published to SSM by deploy-platform-rds-bootstrap.yml; tag kept in
     # sync here manually until ArgoCD Image Updater is wired to this chart.
     repository: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-rds-bootstrap"
-    tag: "08647dd057482f6b35352604104da9f43e1973e9-r1"
+    tag: "e822e8b62640d720dc2ecfeeb0d97ec98c2841a6-r1"
