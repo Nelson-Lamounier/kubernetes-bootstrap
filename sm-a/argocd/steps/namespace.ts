@@ -90,7 +90,7 @@ ${indentedKey}
 // SSM source: ${cfg.ssmPrefix}/argocd/image-updater-deploy-key (SecureString).
 // Result: K8s Secret argocd/argocd-image-updater-writeback-key with a single
 // `sshPrivateKey` field. The 4 ArgoCD Application/ApplicationSet manifests
-// (admin-api, public-api, nextjs, start-admin) reference it via the
+// (admin-api, public-api, nextjs, tucaken-app) reference it via the
 // argocd-image-updater.argoproj.io/write-back-method annotation:
 //   git:secret:argocd/argocd-image-updater-writeback-key
 //

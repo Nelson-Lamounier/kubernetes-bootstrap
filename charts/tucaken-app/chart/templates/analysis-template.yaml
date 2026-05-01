@@ -9,16 +9,16 @@
 # and the Rollout pauses — the preview is NOT promoted to active.
 #
 # Metrics source: Traefik request metrics (always available).
-# Wrapped PromQL with scalar() to convert vector results into
-# scalars, preventing []float64 type errors.
+# Service label pattern: tucaken-app-tucaken-app-<rs-hash>@kubernetes
+# (Argo Rollouts adds the ReplicaSet hash suffix for blue/green services.)
 # ---------------------------------------------------------------
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
-  name: start-admin-bluegreen-analysis
+  name: tucaken-app-bluegreen-analysis
   namespace: {{ .Values.namespace }}
   labels:
-    {{- include "start-admin.fullLabels" . | nindent 4 }}
+    {{- include "tucaken-app.fullLabels" . | nindent 4 }}
 spec:
   args:
     - name: service-name
@@ -36,13 +36,13 @@ spec:
             scalar(
               sum(rate(
                 traefik_service_requests_total{
-                  service=~"start-admin-start-admin-.*@kubernetes",
+                  service=~"tucaken-app-tucaken-app-.*@kubernetes",
                   code=~"5.."
                 }[5m]
               )) /
               sum(rate(
                 traefik_service_requests_total{
-                  service=~"start-admin-start-admin-.*@kubernetes"
+                  service=~"tucaken-app-tucaken-app-.*@kubernetes"
                 }[5m]
               ))
             )
@@ -61,7 +61,7 @@ spec:
               histogram_quantile(0.95,
                 sum(rate(
                   traefik_service_request_duration_seconds_bucket{
-                    service=~"start-admin-start-admin-.*@kubernetes"
+                    service=~"tucaken-app-tucaken-app-.*@kubernetes"
                   }[5m]
                 )) by (le)
               ) * 1000

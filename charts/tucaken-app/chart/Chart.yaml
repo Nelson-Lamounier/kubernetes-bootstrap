@@ -1,0 +1,7 @@
+# @format
+apiVersion: v2
+name: tucaken-app
+description: Tucaken SaaS application deployed via Helm (TanStack Start)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

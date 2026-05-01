@@ -2,14 +2,14 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: start-admin-allow-traefik
+  name: tucaken-app-allow-traefik
   namespace: {{ .Values.namespace }}
   labels:
-    {{- include "start-admin.labels" . | nindent 4 }}
+    {{- include "tucaken-app.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:
-      {{- include "start-admin.selectorLabels" . | nindent 6 }}
+      {{- include "tucaken-app.selectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
   ingress:
@@ -31,8 +31,6 @@ spec:
         - port: {{ .Values.port }}
           protocol: TCP
     # Allow VXLAN-tunnelled traffic from other nodes.
-    # Cross-node traffic uses VXLAN tunnel addresses (pod CIDR) as source,
-    # e.g., 192.168.28.2 for the control plane's tunnel endpoint.
     - from:
         - ipBlock:
             cidr: {{ .Values.networkPolicy.podCidr | default "192.168.0.0/16" }}

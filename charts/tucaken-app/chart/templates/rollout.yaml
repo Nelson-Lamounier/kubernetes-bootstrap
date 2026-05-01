@@ -2,8 +2,8 @@
 # Blue/Green Rollout — Argo Rollouts progressive delivery
 #
 # Two full ReplicaSets run side by side:
-#   activeService  → receives production traffic (start-admin)
-#   previewService → receives zero traffic until promoted (start-admin-preview)
+#   activeService  → receives production traffic (tucaken-app)
+#   previewService → receives zero traffic until promoted (tucaken-app-preview)
 #
 # Pre-promotion analysis queries Prometheus for error rate and
 # P95 latency. If metrics breach thresholds, the rollout pauses
@@ -15,20 +15,20 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
-  name: start-admin
+  name: tucaken-app
   namespace: {{ .Values.namespace }}
   labels:
-    {{- include "start-admin.fullLabels" . | nindent 4 }}
+    {{- include "tucaken-app.fullLabels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   revisionHistoryLimit: 3
   selector:
     matchLabels:
-      {{- include "start-admin.selectorLabels" . | nindent 6 }}
+      {{- include "tucaken-app.selectorLabels" . | nindent 6 }}
   strategy:
     blueGreen:
-      activeService: start-admin
-      previewService: start-admin-preview
+      activeService: tucaken-app
+      previewService: tucaken-app-preview
       autoPromotionEnabled: {{ .Values.rollout.blueGreen.autoPromotionEnabled }}
       {{- if .Values.rollout.blueGreen.autoPromotionSeconds }}
       autoPromotionSeconds: {{ .Values.rollout.blueGreen.autoPromotionSeconds }}
@@ -36,21 +36,21 @@ spec:
       scaleDownDelaySeconds: {{ .Values.rollout.blueGreen.scaleDownDelaySeconds | default 30 }}
       prePromotionAnalysis:
         templates:
-          - templateName: start-admin-bluegreen-analysis
+          - templateName: tucaken-app-bluegreen-analysis
         args:
           - name: service-name
-            value: "start-admin"
+            value: "tucaken-app"
   template:
     metadata:
       labels:
-        {{- include "start-admin.fullLabels" . | nindent 8 }}
+        {{- include "tucaken-app.fullLabels" . | nindent 8 }}
     spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       nodeSelector:
         {{- toYaml .Values.nodeSelector | nindent 8 }}
       containers:
-        - name: start-admin
+        - name: tucaken-app
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
@@ -63,10 +63,10 @@ spec:
             - secretRef:
                 name: {{ .Values.secrets.name }}
             # ESO syncs SSM into a K8s Secret (not a ConfigMap). optional: true
-            # so the pod can start before the start-admin-config ExternalSecret
+            # so the pod can start before the tucaken-app-config ExternalSecret
             # is provisioned.
             - secretRef:
-                name: start-admin-config
+                name: {{ .Values.config.name }}
                 optional: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

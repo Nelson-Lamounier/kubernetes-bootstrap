@@ -289,7 +289,7 @@ else
 DURING MIGRATION: Both labels are valid. After migration is complete, only
 'node-pool=general' is required.
 
-COMPONENT: Node labels direct pod scheduling. Next.js and start-admin pods
+COMPONENT: Node labels direct pod scheduling. Next.js and tucaken-app pods
 use 'nodeSelector: { node-pool: general }' once migrated. Without this label,
 pods stay in Pending.
 

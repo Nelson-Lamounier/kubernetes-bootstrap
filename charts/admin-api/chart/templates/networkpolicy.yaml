@@ -41,11 +41,11 @@ spec:
         - protocol: TCP
           port: {{ .Values.port }}
 
-    # Allow in-cluster BFF calls from start-admin (server-to-server, no public exposure)
+    # Allow in-cluster BFF calls from tucaken-app (server-to-server, no public exposure)
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: start-admin
+              kubernetes.io/metadata.name: tucaken-app
       ports:
         - protocol: TCP
           port: {{ .Values.port }}

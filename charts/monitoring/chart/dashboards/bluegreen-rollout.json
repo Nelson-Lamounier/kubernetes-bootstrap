@@ -97,7 +97,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total request rate for start-admin active vs preview Services via Traefik.",
+      "description": "Total request rate for tucaken-app active vs preview Services via Traefik.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -148,13 +148,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(traefik_service_requests_total{service=~\"start-admin-start-admin-.*@kubernetes\", service!~\".*preview.*\"}[5m]))",
+          "expr": "sum(rate(traefik_service_requests_total{service=~\"tucaken-app-tucaken-app-.*@kubernetes\", service!~\".*preview.*\"}[5m]))",
           "legendFormat": "Active",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(traefik_service_requests_total{service=~\"start-admin-start-admin-preview-.*@kubernetes\"}[5m]))",
+          "expr": "sum(rate(traefik_service_requests_total{service=~\"tucaken-app-tucaken-app-preview-.*@kubernetes\"}[5m]))",
           "legendFormat": "Preview",
           "refId": "B"
         }
@@ -246,7 +246,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "5xx error rate for start-admin active vs preview.",
+      "description": "5xx error rate for tucaken-app active vs preview.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -305,13 +305,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(traefik_service_requests_total{service=~\"start-admin-start-admin-.*@kubernetes\", service!~\".*preview.*\", code=~\"5..\"}[5m])) / sum(rate(traefik_service_requests_total{service=~\"start-admin-start-admin-.*@kubernetes\", service!~\".*preview.*\"}[5m])) * 100",
+          "expr": "sum(rate(traefik_service_requests_total{service=~\"tucaken-app-tucaken-app-.*@kubernetes\", service!~\".*preview.*\", code=~\"5..\"}[5m])) / sum(rate(traefik_service_requests_total{service=~\"tucaken-app-tucaken-app-.*@kubernetes\", service!~\".*preview.*\"}[5m])) * 100",
           "legendFormat": "Active 5xx %",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(rate(traefik_service_requests_total{service=~\"start-admin-start-admin-preview-.*@kubernetes\", code=~\"5..\"}[5m])) / sum(rate(traefik_service_requests_total{service=~\"start-admin-start-admin-preview-.*@kubernetes\"}[5m])) * 100",
+          "expr": "sum(rate(traefik_service_requests_total{service=~\"tucaken-app-tucaken-app-preview-.*@kubernetes\", code=~\"5..\"}[5m])) / sum(rate(traefik_service_requests_total{service=~\"tucaken-app-tucaken-app-preview-.*@kubernetes\"}[5m])) * 100",
           "legendFormat": "Preview 5xx %",
           "refId": "B"
         }
@@ -403,7 +403,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "P95 latency for start-admin active vs preview.",
+      "description": "P95 latency for tucaken-app active vs preview.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -462,13 +462,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum(rate(traefik_service_request_duration_seconds_bucket{service=~\"start-admin-start-admin-.*@kubernetes\", service!~\".*preview.*\"}[5m])) by (le)) * 1000",
+          "expr": "histogram_quantile(0.95, sum(rate(traefik_service_request_duration_seconds_bucket{service=~\"tucaken-app-tucaken-app-.*@kubernetes\", service!~\".*preview.*\"}[5m])) by (le)) * 1000",
           "legendFormat": "Active P95",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum(rate(traefik_service_request_duration_seconds_bucket{service=~\"start-admin-start-admin-preview-.*@kubernetes\"}[5m])) by (le)) * 1000",
+          "expr": "histogram_quantile(0.95, sum(rate(traefik_service_request_duration_seconds_bucket{service=~\"tucaken-app-tucaken-app-preview-.*@kubernetes\"}[5m])) by (le)) * 1000",
           "legendFormat": "Preview P95",
           "refId": "B"
         }
@@ -712,7 +712,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "CPU usage per pod for start-admin (active + preview).",
+      "description": "CPU usage per pod for tucaken-app (active + preview).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -749,7 +749,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rate(container_cpu_usage_seconds_total{namespace=\"start-admin\", container=\"start-admin\"}[5m]) * 100",
+          "expr": "rate(container_cpu_usage_seconds_total{namespace=\"tucaken-app\", container=\"tucaken-app\"}[5m]) * 100",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -759,7 +759,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Memory working set per pod for start-admin (active + preview).",
+      "description": "Memory working set per pod for tucaken-app (active + preview).",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -795,7 +795,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "container_memory_working_set_bytes{namespace=\"start-admin\", container=\"start-admin\"}",
+          "expr": "container_memory_working_set_bytes{namespace=\"tucaken-app\", container=\"tucaken-app\"}",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -805,7 +805,7 @@
     }
   ],
   "schemaVersion": 39,
-  "tags": ["blue-green", "rollout", "argo", "nextjs", "start-admin"],
+  "tags": ["blue-green", "rollout", "argo", "nextjs", "tucaken-app"],
   "templating": { "list": [] },
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},

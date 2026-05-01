@@ -1,7 +1,7 @@
 apiVersion: v2
 name: admin-api
 description: >-
-  BFF (Backend for Frontend) for the start-admin TanStack application.
+  BFF (Backend for Frontend) for the tucaken-app TanStack application.
   Provides write-heavy REST endpoints protected by Cognito JWT bearer
   authentication via JWKS validation.
 

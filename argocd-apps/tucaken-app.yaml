@@ -1,0 +1,99 @@
+# @format
+# ArgoCD Application: tucaken-app
+#
+# Customer-facing SaaS application (TanStack Start) hosted on the shared
+# kubeadm cluster. Independent edge: own CloudFront distributions
+# (.io primary + .com redirect), own WAF, own ACM certificate, own
+# CloudFront origin secret rotated independently from the portfolio.
+#
+# Routing: tucaken.io → CloudFront → EIP → Traefik → IngressRoute → tucaken-app pod.
+#
+# IngressRoute matchRule: the chart renders a placeholder; a PostSync hook
+# Job (charts/tucaken-app/chart/templates/ingressroute-patcher.yaml) reads
+# the ESO-managed tucaken-cloudfront-origin-secret and patches the live
+# rule. The ignoreDifferences block below stops selfHeal from reverting
+# that patch — RespectIgnoreDifferences=true is required for the ignore
+# rule to apply to sync (not just diff) operations.
+#
+# Credential: SSH Deploy Key (read+write) — stored in K8s secret
+# via bootstrap-argocd.sh from SSM parameter.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tucaken-app
+  annotations:
+    kubernetes.io/description: "ArgoCD application for the Tucaken customer-facing SaaS (TanStack Start)"
+    argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps
+    # -----------------------------------------------------------------------
+    # ArgoCD Image Updater — automatically update container image tag
+    # when a new image is pushed to ECR by the CI pipeline.
+    #
+    # Strategy: 'newest-build' picks the most recently built image by timestamp.
+    # Filter:   Accepts SHA tags with optional run-attempt suffix (e.g. abc123-r1).
+    # Write-back: Commits .argocd-source-tucaken-app.yaml to Git so selfHeal
+    #             enforces the updated tag instead of reverting it.
+    # -----------------------------------------------------------------------
+    argocd-image-updater.argoproj.io/image-list: "tucaken-app=771826808455.dkr.ecr.eu-west-1.amazonaws.com/tucaken-app"
+    argocd-image-updater.argoproj.io/tucaken-app.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/tucaken-app.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+    argocd-image-updater.argoproj.io/tucaken-app.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/tucaken-app.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
+    argocd-image-updater.argoproj.io/git-branch: develop
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/tucaken-app/chart
+    helm:
+      valueFiles:
+        - ../tucaken-app-values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tucaken-app
+
+  # Don't reconcile drift on:
+  #  - IngressRoute matchRule (owned by ingressroute-patcher PostSync hook;
+  #    the real CloudFront origin secret cannot live in git and Helm
+  #    `lookup` is a no-op under `helm template` in argocd-repo-server).
+  #  - Rollout pod template annotations (Stakater Reloader stamps
+  #    `last-reload-from-X` here when it rolls the pod after a Secret
+  #    content change; selfHeal would otherwise revert the stamp).
+  ignoreDifferences:
+    - group: traefik.io
+      kind: IngressRoute
+      name: tucaken-app
+      jsonPointers:
+        - /spec/routes/0/match
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/template/metadata/annotations
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      # Required so ignoreDifferences applies to sync, not just diff.
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
