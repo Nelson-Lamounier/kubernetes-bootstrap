@@ -25,6 +25,7 @@ import {
     restoreTlsCert,
     applyCertManagerIssuer,
     provisionArgocdNotificationsSecret,
+    triggerAppRefreshAll,
 } from './steps/apps.js';
 import { waitForArgocd, applyIngress, createArgocdIpAllowlist, configureWebhookSecret } from './steps/networking.js';
 import {
@@ -89,7 +90,8 @@ const main = async (): Promise<void> => {
         log(`  ⚠ apply_cert_manager_issuer failed (non-fatal) — ArgoCD will reconcile: ${e}\n`);
     }
 
-    await logger.step('wait_for_argocd', () => waitForArgocd(cfg));
+    await logger.step('wait_for_argocd',          () => waitForArgocd(cfg));
+    await logger.step('trigger_app_refresh_all',  () => triggerAppRefreshAll(cfg));
 
     // Non-fatal: Traefik CRDs may not be ready — ArgoCD will reconcile
     try {
