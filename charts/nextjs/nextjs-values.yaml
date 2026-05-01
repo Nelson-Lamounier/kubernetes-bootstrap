@@ -44,3 +44,13 @@ pdb:
 ingress:
   enabled: true
   host: "nelsonlamounier.com"
+
+# Calico does not enforce K8s NetworkPolicy ipBlock rules for traffic
+# originating from the host network namespace (kubelet probes, Traefik
+# hostNetwork). The ipBlock: 10.0.0.0/16 rule in the chart default never
+# applied to host→pod traffic — it silently blocked both liveness probes
+# and Traefik upstream connections. The IngressRoute X-CloudFront-Origin-Secret
+# header requirement is the actual bypass-prevention layer, so disabling
+# the NetworkPolicy here does not reduce the effective security posture.
+networkPolicy:
+  enabled: false
