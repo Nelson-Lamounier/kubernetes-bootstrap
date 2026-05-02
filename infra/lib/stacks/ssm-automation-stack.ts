@@ -442,18 +442,6 @@ export class K8sSsmAutomationStack extends cdk.Stack {
             resources: ['*'],
         }));
 
-        // Required for the EventBridgePutEvents state in the CP path of SM-A
-        // (emits ControlPlaneBootstrapCompleted). Workers never reach this state
-        // so the grant is safe (least-privilege: default bus only).
-        smRole.addToPrincipalPolicy(new iam.PolicyStatement({
-            sid: 'SfnPutBootstrapEvent',
-            effect: iam.Effect.ALLOW,
-            actions: ['events:PutEvents'],
-            resources: [
-                `arn:aws:events:${this.region}:${this.account}:event-bus/default`,
-            ],
-        }));
-
         NagSuppressions.addResourceSuppressions(orchestrator.stateMachine, [{
             id: 'AwsSolutions-IAM5',
             reason: 'Step Functions CallAwsService tasks require ssm:SendCommand and ssm:GetCommandInvocation on \'*\' (instance IDs are resolved dynamically at runtime). CloudWatch log delivery actions also require \'*\'.',
@@ -474,6 +462,7 @@ export class K8sSsmAutomationStack extends cdk.Stack {
 
         const alarm = new BootstrapAlarmConstruct(this, 'BootstrapAlarm', {
             prefix,
+            ssmPrefix: props.ssmPrefix,
             stateMachine: orchestrator.stateMachine,
             notificationEmail: props.notificationEmail,
         });
@@ -486,6 +475,11 @@ export class K8sSsmAutomationStack extends cdk.Stack {
         }));
 
         cleanup.addSnsTopic(`${prefix}-bootstrap-alarm`, alarm.topic);
+
+        NagSuppressions.addResourceSuppressions(alarm, [{
+            id: 'AwsSolutions-SNS2',
+            reason: 'Bootstrap alarm topic is an ops notification channel — KMS encryption adds cost and complexity with no meaningful security benefit for email alert payloads.',
+        }], true);
 
         // =====================================================================
         // Node Drift Enforcement — SSM State Manager Association
@@ -507,14 +501,11 @@ export class K8sSsmAutomationStack extends cdk.Stack {
         }], true);
 
         NagSuppressions.addResourceSuppressions(orchestrator.routerFunction, [{
-            id: 'AwsSolutions-L1',
-            reason: 'Python 3.13 is the latest GA Lambda runtime. PYTHON_3_14 is a CDK placeholder for an unreleased version.',
-        }, {
             id: 'AwsSolutions-IAM4',
             reason: 'AWSLambdaBasicExecutionRole is the minimal managed policy for Lambda CloudWatch Logs access — standard CDK pattern.',
         }, {
             id: 'AwsSolutions-IAM5',
-            reason: 'autoscaling:DescribeAutoScalingGroups requires wildcard resources (ASG names are resolved dynamically from EventBridge events). SSM parameter prefix uses wildcard suffix as required by the API.',
+            reason: 'autoscaling:DescribeAutoScalingGroups and states:StartExecution require wildcard resources (ASG names and execution IDs are resolved dynamically at runtime). SSM parameter prefix uses wildcard suffix as required by the API.',
         }], true);
 
         NagSuppressions.addResourceSuppressions(cleanup, [{
