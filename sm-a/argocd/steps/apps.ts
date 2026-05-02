@@ -442,20 +442,20 @@ export const applyCertManagerIssuer = async (cfg: Config): Promise<void> => {
         return;
     }
 
-    // Read SSM params in parallel
+    // Read SSM params in parallel (stored under edge/ prefix by CDK networking stack)
     const [publicHzId, dnsRoleArn] = await Promise.all([
-        ssmGet(cfg, `${cfg.ssmPrefix}/public-hosted-zone-id`),
-        ssmGet(cfg, `${cfg.ssmPrefix}/cross-account-dns-role-arn`),
+        ssmGet(cfg, `${cfg.ssmPrefix}/edge/hosted-zone-id`),
+        ssmGet(cfg, `${cfg.ssmPrefix}/edge/cross-account-role-arn`),
     ]);
 
     if (!publicHzId) {
-        log(`  ⚠ Missing SSM param: ${cfg.ssmPrefix}/public-hosted-zone-id`);
+        log(`  ⚠ Missing SSM param: ${cfg.ssmPrefix}/edge/hosted-zone-id`);
     }
     if (!dnsRoleArn) {
-        log(`  ⚠ Missing SSM param: ${cfg.ssmPrefix}/cross-account-dns-role-arn`);
+        log(`  ⚠ Missing SSM param: ${cfg.ssmPrefix}/edge/cross-account-role-arn`);
     }
     if (!publicHzId || !dnsRoleArn) {
-        throw new Error('Missing DNS-01 SSM params: public-hosted-zone-id or cross-account-dns-role-arn');
+        throw new Error('Missing DNS-01 SSM params: edge/hosted-zone-id or edge/cross-account-role-arn');
     }
 
     // Check ArgoCD pods are running
