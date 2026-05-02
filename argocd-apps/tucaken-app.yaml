@@ -31,8 +31,9 @@ metadata:
     #
     # Strategy: 'newest-build' picks the most recently built image by timestamp.
     # Filter:   Accepts SHA tags with optional run-attempt suffix (e.g. abc123-r1).
-    # Write-back: Commits .argocd-source-tucaken-app.yaml to Git so selfHeal
-    #             enforces the updated tag instead of reverting it.
+    # Write-back: Commits .argocd-source-tucaken-app.yaml directly to main
+    #             (matches targetRevision) so selfHeal enforces the updated
+    #             tag without requiring a develop→main merge.
     # -----------------------------------------------------------------------
     argocd-image-updater.argoproj.io/image-list: "tucaken-app=771826808455.dkr.ecr.eu-west-1.amazonaws.com/tucaken-app"
     argocd-image-updater.argoproj.io/tucaken-app.update-strategy: newest-build
@@ -40,7 +41,7 @@ metadata:
     argocd-image-updater.argoproj.io/tucaken-app.helm.image-name: image.repository
     argocd-image-updater.argoproj.io/tucaken-app.helm.image-tag: image.tag
     argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
-    argocd-image-updater.argoproj.io/git-branch: develop
+    argocd-image-updater.argoproj.io/git-branch: main
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: argocd

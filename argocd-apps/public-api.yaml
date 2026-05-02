@@ -34,7 +34,7 @@ metadata:
     argocd-image-updater.argoproj.io/public-api.helm.image-name: image.repository
     argocd-image-updater.argoproj.io/public-api.helm.image-tag: image.tag
     argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
-    argocd-image-updater.argoproj.io/git-branch: develop
+    argocd-image-updater.argoproj.io/git-branch: main
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: argocd
