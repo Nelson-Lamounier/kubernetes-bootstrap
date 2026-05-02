@@ -1,0 +1,72 @@
+# @format
+# ArgoCD Application: argocd-ingress
+#
+# Manages Traefik IngressRoutes and IP allowlist middleware for ArgoCD.
+# These resources previously relied on bootstrap_argocd.ts step 7 and
+# were lost on cluster rebuild. Moving them here ensures self-healing.
+#
+# Resources managed:
+#   - IngressRoute: argocd-ingress  (ops.nelsonlamounier.com/argocd)
+#   - IngressRoute: argocd-webhook-ingress  (ops.nelsonlamounier.com/argocd-webhook)
+#   - Middleware:   admin-ip-allowlist  (sourceRange patched by PostSync hook)
+#   - Middleware:   rate-limit
+#   - ExternalSecret: admin-ip-allowlist  (reads from SSM monitoring/allow-ipv{4,6})
+#   - Job (PostSync): argocd-allowlist-patcher
+#
+# admin-ip-allowlist sourceRange: starts empty in Helm; the PostSync hook
+# reads the ESO-managed Secret and patches /spec/ipAllowList/sourceRange.
+# ignoreDifferences + RespectIgnoreDifferences prevent selfHeal from
+# reverting the patched value on subsequent reconciles.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-ingress
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "Traefik IngressRoutes and IP allowlist middleware for ArgoCD"
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  sources:
+    - repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+      targetRevision: main
+      path: charts/argocd-ingress/chart
+
+    - repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+      targetRevision: main
+      path: charts/argocd-ingress/external-secrets
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  # Don't revert the admin-ip-allowlist sourceRange — owned by the
+  # allowlist-patcher PostSync hook. Real CIDRs cannot live in git.
+  ignoreDifferences:
+    - group: traefik.io
+      kind: Middleware
+      name: admin-ip-allowlist
+      jsonPointers:
+        - /spec/ipAllowList/sourceRange
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - PruneLast=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

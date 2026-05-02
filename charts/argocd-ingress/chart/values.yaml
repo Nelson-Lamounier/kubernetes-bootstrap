@@ -1,0 +1,14 @@
+# @format
+# Default values for argocd-ingress chart.
+
+namespace: argocd
+hostname: "ops.nelsonlamounier.com"
+
+# SSM paths for operator IP allowlist (same source as monitoring namespace)
+ssmPrefix: "/k8s/development"
+
+adminAccess:
+  enabled: true
+  # sourceRange is populated by the allowlist-patcher PostSync hook from ESO.
+  # Do NOT put real IPs here — they live in SSM.
+  allowedIps: []

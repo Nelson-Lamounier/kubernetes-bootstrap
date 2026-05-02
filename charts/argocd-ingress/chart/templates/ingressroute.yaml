@@ -1,0 +1,50 @@
+# @format
+# ArgoCD Traefik IngressRoutes
+#
+# Exposes ArgoCD UI/API at /argocd and GitHub webhook at /argocd-webhook.
+# Managed by ArgoCD so resources survive cluster rebuilds.
+#
+# admin-ip-allowlist sourceRange is populated by the allowlist-patcher
+# PostSync hook — ignoreDifferences on the Application prevents selfHeal
+# from reverting the patched sourceRange on subsequent reconciles.
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "argocd-ingress.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.hostname }}`) && PathPrefix(`/argocd`)
+      kind: Rule
+      priority: 100
+      middlewares:
+        - name: admin-ip-allowlist
+        - name: rate-limit
+      services:
+        - name: argocd-server
+          port: 80
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-webhook-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "argocd-ingress.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.hostname }}`) && PathPrefix(`/argocd-webhook`)
+      kind: Rule
+      priority: 110
+      services:
+        - name: argocd-server
+          port: 80
+  tls: {}
