@@ -857,11 +857,22 @@ const joinCluster = async (cfg: WorkerConfig): Promise<void> => {
         const currentCpId = await ssmGet(`${cfg.ssmPrefix}/instance-id`, cfg.awsRegion)
             .catch(() => null);
 
-        if (storedCpId && currentCpId && storedCpId !== currentCpId) {
+        const cpReplaced = storedCpId && currentCpId && storedCpId !== currentCpId;
+        // No stored ID means we cannot verify whether this worker joined the
+        // current CP.  Treat as ambiguous and force a fresh join rather than
+        // risk leaving the worker pointing at a dead API server.
+        const cpUnknown  = !storedCpId && currentCpId != null;
+
+        if (cpReplaced || cpUnknown) {
             warn('='.repeat(60));
-            warn('CONTROL PLANE REPLACED — re-joining cluster');
-            warn(`  Joined against: ${storedCpId}`);
-            warn(`  Current CP:     ${currentCpId}`);
+            if (cpReplaced) {
+                warn('CONTROL PLANE REPLACED — re-joining cluster');
+                warn(`  Joined against: ${storedCpId}`);
+                warn(`  Current CP:     ${currentCpId}`);
+            } else {
+                warn('NO STORED CP INSTANCE ID — cannot verify join state, re-joining');
+                warn(`  Current CP: ${currentCpId}`);
+            }
             warn('='.repeat(60));
             run(['kubeadm', 'reset', '-f'], { check: false });
             if (existsSync(KUBELET_CONF))    unlinkSync(KUBELET_CONF);

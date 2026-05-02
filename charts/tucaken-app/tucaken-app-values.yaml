@@ -39,3 +39,6 @@ rollout:
     autoPromotionEnabled: false
     autoPromotionSeconds: 120
     scaleDownDelaySeconds: 30
+
+networkPolicy:
+  enabled: false

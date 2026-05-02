@@ -894,7 +894,14 @@ const handleSecondRun = async (cfg: BootConfig): Promise<void> => {
         await ensureApiserverCertCurrent(cfg, privateIp);
     }
 
-    await ssmPut(`${cfg.ssmPrefix}/control-plane-endpoint`, `${cfg.apiDnsName}:6443`, cfg.awsRegion);
+    // Always refresh both SSM params so workers can detect CP replacement.
+    // instance-id changes every time a new EC2 is provisioned for the CP role;
+    // workers compare their stored joined-cp-instance-id against this value.
+    const instanceId = imds('instance-id');
+    await Promise.all([
+        ssmPut(`${cfg.ssmPrefix}/control-plane-endpoint`, `${cfg.apiDnsName}:6443`, cfg.awsRegion),
+        ...(instanceId ? [ssmPut(`${cfg.ssmPrefix}/instance-id`, instanceId, cfg.awsRegion)] : []),
+    ]);
 
     const ssmUserCheck = run(['id', 'ssm-user'], { check: false, quiet: true });
     if (ssmUserCheck.ok) setupKubeconfigForUser('ssm-user', '/home/ssm-user');
