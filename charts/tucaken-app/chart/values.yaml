@@ -53,20 +53,23 @@ service:
 # ---------------------------------------------------------------------------
 # Health Probes
 #
-# Tucaken serves at root path — no /admin prefix. Probes hit `/`.
+# Router basepath is /admin — GET / returns 307 → /admin/ (kubelet follows).
+# Probe targets /admin/auth directly: public route, no redirect, 200 always.
+# timeoutSeconds: 10 to cover getUserSessionFn() Cognito cold-start on first
+# request after pod start; subsequent calls are fast (~7ms observed).
 # ---------------------------------------------------------------------------
 probes:
   readiness:
-    path: /
+    path: /admin/auth
     initialDelaySeconds: 10
     periodSeconds: 10
-    timeoutSeconds: 5
+    timeoutSeconds: 10
     failureThreshold: 3
   liveness:
-    path: /
+    path: /admin/auth
     initialDelaySeconds: 30
     periodSeconds: 15
-    timeoutSeconds: 5
+    timeoutSeconds: 10
     failureThreshold: 3
 
 # ---------------------------------------------------------------------------
