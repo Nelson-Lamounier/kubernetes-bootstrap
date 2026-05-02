@@ -505,7 +505,10 @@ export class K8sSsmAutomationStack extends cdk.Stack {
             reason: 'AWSLambdaBasicExecutionRole is the minimal managed policy for Lambda CloudWatch Logs access — standard CDK pattern.',
         }, {
             id: 'AwsSolutions-IAM5',
-            reason: 'autoscaling:DescribeAutoScalingGroups and states:StartExecution require wildcard resources (ASG names and execution IDs are resolved dynamically at runtime). SSM parameter prefix uses wildcard suffix as required by the API.',
+            reason: 'autoscaling:DescribeAutoScalingInstances, autoscaling:DescribeAutoScalingGroups, and states:StartExecution require wildcard resources (ASG names and execution IDs are resolved dynamically at runtime). SSM parameter prefix uses wildcard suffix as required by the API.',
+        }, {
+            id: 'AwsSolutions-L1',
+            reason: 'NodejsFunction defaults to NODEJS_LATEST which tracks the latest Node.js LTS runtime — always up to date.',
         }], true);
 
         NagSuppressions.addResourceSuppressions(cleanup, [{
