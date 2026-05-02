@@ -22,7 +22,7 @@
  */
 
 import * as events from 'aws-cdk-lib/aws-events';
-import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
@@ -113,6 +113,15 @@ export class BootstrapAlarmConstruct extends Construct {
         // Covers CP replacement, worker replacement (AMI refresh, health check).
         // These succeed in SM-A (SkipNonK8s or normal bootstrap) so they never
         // trigger the failure alarm — a separate notification is needed.
+        //
+        // Implementation note: rules use the L1 CfnRule.targets setter with
+        // inputTransformer directly — avoiding events.RuleTargetInput.fromText()
+        // which double-escapes \n via JSON.stringify() and produces literal \n
+        // characters in the email body instead of real newlines.
+
+        // Grant EventBridge service principal permission to publish to the topic.
+        // Must be done manually when bypassing the L2 targets.SnsTopic construct.
+        this.topic.grantPublish(new iam.ServicePrincipal('events.amazonaws.com'));
 
         const asgFilter = {
             source: ['aws.autoscaling'],
@@ -121,63 +130,107 @@ export class BootstrapAlarmConstruct extends Construct {
             },
         };
 
-        new events.Rule(this, 'NodeLaunchRule', {
+        // ── Rule: instance launched ──────────────────────────────────────────
+
+        const launchRule = new events.Rule(this, 'NodeLaunchRule', {
             ruleName: `${props.prefix}-node-launched`,
             description: 'Notify when a K8s ASG launches a new instance (replacement or scale-out)',
             eventPattern: {
                 ...asgFilter,
                 detailType: ['EC2 Instance Launch Successful'],
             },
-            targets: [
-                new targets.SnsTopic(this.topic, {
-                    message: events.RuleTargetInput.fromText(
-                        `[${props.prefix}] K8s node LAUNCHED\n` +
-                        `Instance: <detail.EC2InstanceId>\n` +
-                        `ASG:      <detail.AutoScalingGroupName>\n` +
-                        `Cause:    <detail.Cause>\n` +
-                        `Time:     <time>`,
-                    ),
-                }),
-            ],
         });
 
-        new events.Rule(this, 'NodeTerminateRule', {
+        (launchRule.node.defaultChild as events.CfnRule).targets = [{
+            id: 'SnsNotification',
+            arn: this.topic.topicArn,
+            inputTransformer: {
+                inputPathsMap: {
+                    instanceId: '$.detail.EC2InstanceId',
+                    asgName: '$.detail.AutoScalingGroupName',
+                    cause: '$.detail.Cause',
+                    time: '$.time',
+                },
+                inputTemplate: [
+                    `[${props.prefix}] NODE LAUNCHED`,
+                    `----------------------------------`,
+                    ``,
+                    `  Instance  : <instanceId>`,
+                    `  ASG       : <asgName>`,
+                    `  Cause     : <cause>`,
+                    `  Timestamp : <time>`,
+                    ``,
+                    `----------------------------------`,
+                ].join('\n'),
+            },
+        }];
+
+        // ── Rule: instance terminated ────────────────────────────────────────
+
+        const terminateRule = new events.Rule(this, 'NodeTerminateRule', {
             ruleName: `${props.prefix}-node-terminated`,
             description: 'Notify when a K8s ASG terminates an instance (replacement or scale-in)',
             eventPattern: {
                 ...asgFilter,
                 detailType: ['EC2 Instance Terminate Successful'],
             },
-            targets: [
-                new targets.SnsTopic(this.topic, {
-                    message: events.RuleTargetInput.fromText(
-                        `[${props.prefix}] K8s node TERMINATED\n` +
-                        `Instance: <detail.EC2InstanceId>\n` +
-                        `ASG:      <detail.AutoScalingGroupName>\n` +
-                        `Cause:    <detail.Cause>\n` +
-                        `Time:     <time>`,
-                    ),
-                }),
-            ],
         });
 
-        new events.Rule(this, 'NodeLaunchFailRule', {
+        (terminateRule.node.defaultChild as events.CfnRule).targets = [{
+            id: 'SnsNotification',
+            arn: this.topic.topicArn,
+            inputTransformer: {
+                inputPathsMap: {
+                    instanceId: '$.detail.EC2InstanceId',
+                    asgName: '$.detail.AutoScalingGroupName',
+                    cause: '$.detail.Cause',
+                    time: '$.time',
+                },
+                inputTemplate: [
+                    `[${props.prefix}] NODE TERMINATED`,
+                    `----------------------------------`,
+                    ``,
+                    `  Instance  : <instanceId>`,
+                    `  ASG       : <asgName>`,
+                    `  Cause     : <cause>`,
+                    `  Timestamp : <time>`,
+                    ``,
+                    `----------------------------------`,
+                ].join('\n'),
+            },
+        }];
+
+        // ── Rule: instance launch failed ─────────────────────────────────────
+
+        const launchFailRule = new events.Rule(this, 'NodeLaunchFailRule', {
             ruleName: `${props.prefix}-node-launch-failed`,
             description: 'Notify when a K8s ASG fails to launch an instance',
             eventPattern: {
                 ...asgFilter,
                 detailType: ['EC2 Instance Launch Unsuccessful'],
             },
-            targets: [
-                new targets.SnsTopic(this.topic, {
-                    message: events.RuleTargetInput.fromText(
-                        `[${props.prefix}] K8s node LAUNCH FAILED\n` +
-                        `ASG:    <detail.AutoScalingGroupName>\n` +
-                        `Reason: <detail.StatusMessage>\n` +
-                        `Time:   <time>`,
-                    ),
-                }),
-            ],
         });
+
+        (launchFailRule.node.defaultChild as events.CfnRule).targets = [{
+            id: 'SnsNotification',
+            arn: this.topic.topicArn,
+            inputTransformer: {
+                inputPathsMap: {
+                    asgName: '$.detail.AutoScalingGroupName',
+                    reason: '$.detail.StatusMessage',
+                    time: '$.time',
+                },
+                inputTemplate: [
+                    `[${props.prefix}] NODE LAUNCH FAILED`,
+                    `----------------------------------`,
+                    ``,
+                    `  ASG       : <asgName>`,
+                    `  Reason    : <reason>`,
+                    `  Timestamp : <time>`,
+                    ``,
+                    `----------------------------------`,
+                ].join('\n'),
+            },
+        }];
     }
 }
