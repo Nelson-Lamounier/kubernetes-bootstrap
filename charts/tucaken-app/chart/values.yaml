@@ -53,20 +53,19 @@ service:
 # ---------------------------------------------------------------------------
 # Health Probes
 #
-# Router basepath is /admin — GET / returns 307 → /admin/ (kubelet follows).
-# Probe targets /admin/auth directly: public route, no redirect, 200 always.
-# timeoutSeconds: 10 to cover getUserSessionFn() Cognito cold-start on first
-# request after pod start; subsequent calls are fast (~7ms observed).
+# / redirects (307) to /sign-in when unauthenticated — probe targets /sign-in
+# directly: public route, no redirect, 200 always. timeoutSeconds: 10 covers
+# getUserSessionFn() Cognito cold-start on pod startup.
 # ---------------------------------------------------------------------------
 probes:
   readiness:
-    path: /admin/auth
+    path: /sign-in
     initialDelaySeconds: 10
     periodSeconds: 10
     timeoutSeconds: 10
     failureThreshold: 3
   liveness:
-    path: /admin/auth
+    path: /sign-in
     initialDelaySeconds: 30
     periodSeconds: 15
     timeoutSeconds: 10
