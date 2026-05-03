@@ -60,3 +60,6 @@ spec:
     - secretKey: job-strategist
       remoteRef:
         key: /k8s/development/job-images/job-strategist
+    - secretKey: resume-import-processor
+      remoteRef:
+        key: /k8s/development/job-images/resume-import-processor
