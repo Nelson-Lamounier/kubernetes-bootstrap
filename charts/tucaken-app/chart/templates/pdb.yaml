@@ -1,0 +1,17 @@
+{{- if .Values.pdb.enabled }}
+# ---------------------------------------------------------------
+# PodDisruptionBudget — protects availability during node drains
+# ---------------------------------------------------------------
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tucaken-app
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "tucaken-app.fullLabels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "tucaken-app.selectorLabels" . | nindent 6 }}
+{{- end }}

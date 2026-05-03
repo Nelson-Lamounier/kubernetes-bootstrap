@@ -90,16 +90,6 @@ export const applyIngress = async (cfg: Config): Promise<void> => {
         return;
     }
 
-    // Check ArgoCD pods running before waiting for Traefik
-    const argoRunningResult = run(
-        ['kubectl', 'get', 'pods', '-n', 'argocd', '--field-selector=status.phase=Running', '-o', 'name'],
-        cfg,
-        { check: false, capture: true },
-    );
-    if (!argoRunningResult.ok || argoRunningResult.stdout.split('\n').filter(l => l.trim() !== '').length === 0) {
-        throw new Error('No ArgoCD pods are Running — cannot apply ingress yet (ArgoCD will reconcile)');
-    }
-
     const candidates = [
         ['rate-limit-middleware.yaml', 'ArgoCD rate-limit middleware'],
         ['ingress.yaml', 'Main ArgoCD ingress'],

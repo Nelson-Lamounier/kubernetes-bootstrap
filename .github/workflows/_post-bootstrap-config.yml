@@ -266,7 +266,7 @@ jobs:
 
           for i in $(seq 1 $MAX_POLLS); do
             COUNT=$(kubectl get pods -A --no-headers 2>/dev/null \
-              | awk '$1=="nextjs-app" || $1=="start-admin"' \
+              | awk '$1=="nextjs-app" || $1=="tucaken-app"' \
               | grep -c Running || true)
 
             echo "  [$i/$MAX_POLLS] Running app pods: ${COUNT:-0}"
@@ -327,7 +327,7 @@ jobs:
 
           echo ""
           echo "=== Managed Service Namespaces ==="
-          for ns in nextjs-app start-admin admin-api public-api argocd; do
+          for ns in nextjs-app tucaken-app admin-api public-api argocd; do
             kubectl get namespace "$ns" &>/dev/null \
               && echo "  [OK] $ns" \
               || echo "  [WARN] Namespace $ns not found"

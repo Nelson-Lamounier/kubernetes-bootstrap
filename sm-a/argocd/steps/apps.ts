@@ -442,20 +442,20 @@ export const applyCertManagerIssuer = async (cfg: Config): Promise<void> => {
         return;
     }
 
-    // Read SSM params in parallel
+    // Read SSM params in parallel (stored under edge/ prefix by CDK networking stack)
     const [publicHzId, dnsRoleArn] = await Promise.all([
-        ssmGet(cfg, `${cfg.ssmPrefix}/public-hosted-zone-id`),
-        ssmGet(cfg, `${cfg.ssmPrefix}/cross-account-dns-role-arn`),
+        ssmGet(cfg, `${cfg.ssmPrefix}/edge/hosted-zone-id`),
+        ssmGet(cfg, `${cfg.ssmPrefix}/edge/cross-account-role-arn`),
     ]);
 
     if (!publicHzId) {
-        log(`  ⚠ Missing SSM param: ${cfg.ssmPrefix}/public-hosted-zone-id`);
+        log(`  ⚠ Missing SSM param: ${cfg.ssmPrefix}/edge/hosted-zone-id`);
     }
     if (!dnsRoleArn) {
-        log(`  ⚠ Missing SSM param: ${cfg.ssmPrefix}/cross-account-dns-role-arn`);
+        log(`  ⚠ Missing SSM param: ${cfg.ssmPrefix}/edge/cross-account-role-arn`);
     }
     if (!publicHzId || !dnsRoleArn) {
-        throw new Error('Missing DNS-01 SSM params: public-hosted-zone-id or cross-account-dns-role-arn');
+        throw new Error('Missing DNS-01 SSM params: edge/hosted-zone-id or edge/cross-account-role-arn');
     }
 
     // Check ArgoCD pods are running
@@ -574,6 +574,49 @@ spec:
         }
         log(`  ✓ Cleaned up stale ${kind} resources in kube-system`);
     }
+};
+
+// ─── Step 5f ─────────────────────────────────────────────────────────────────
+// After ArgoCD is ready, force a hard refresh on every Application so the
+// automated sync cycle fires immediately rather than waiting for the next
+// git webhook or the 3-minute repo cache TTL. This is especially important
+// after a full cluster replacement where ArgoCD's repo-server was offline —
+// the cache is cold and apps sit OutOfSync until ArgoCD re-fetches git state.
+
+export const triggerAppRefreshAll = (cfg: Config): void => {
+    log('=== Step 5f: Triggering hard refresh on all ArgoCD Applications ===');
+    if (cfg.dryRun) {
+        log('  [DRY-RUN] triggerAppRefreshAll');
+        return;
+    }
+
+    const listResult = run(
+        ['kubectl', 'get', 'applications', '-n', 'argocd', '-o', 'jsonpath={.items[*].metadata.name}'],
+        cfg,
+        { check: false, capture: true },
+    );
+    if (!listResult.ok || !listResult.stdout.trim()) {
+        log('  ⚠ No Applications found — skipping refresh');
+        return;
+    }
+
+    const apps = listResult.stdout.trim().split(/\s+/);
+    log(`  → Refreshing ${apps.length} Application(s)`);
+
+    // Batch to stay well within ARG_MAX on any platform.
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < apps.length; i += BATCH_SIZE) {
+        const batch = apps.slice(i, i + BATCH_SIZE);
+        run(
+            ['kubectl', 'annotate', 'application', '-n', 'argocd', ...batch,
+                'argocd.argoproj.io/refresh=hard', '--overwrite'],
+            cfg,
+            { check: false },
+        );
+    }
+
+    log(`  ✓ Hard refresh queued for ${apps.length} Application(s) — automated sync will follow`);
+    log('');
 };
 
 // ─── Step 5e ─────────────────────────────────────────────────────────────────

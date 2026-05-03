@@ -23,3 +23,6 @@ resources:
   limits:
     cpu: 300m
     memory: 256Mi
+
+networkPolicy:
+  enabled: false

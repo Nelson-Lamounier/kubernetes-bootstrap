@@ -1,0 +1,23 @@
+# @format
+image:
+  repository: ""   # Written by ArgoCD Image Updater
+  tag: ""          # Written by ArgoCD Image Updater
+
+namespace: platform
+
+serviceAccount:
+  name: platform-job-watcher
+
+config:
+  watchers:
+    - namespace: resume-import
+      dbTable: resume_imports
+      staleAfterMinutes: 15
+
+resources:
+  requests:
+    memory: 128Mi
+    cpu: 50m
+  limits:
+    memory: 256Mi
+    cpu: 200m

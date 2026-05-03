@@ -1,0 +1,183 @@
+# @format
+# Default values for the tucaken-app Helm chart.
+# Override per-environment via tucaken-app-values.yaml.
+
+namespace: tucaken-app
+
+# ---------------------------------------------------------------------------
+# Application Image
+# ---------------------------------------------------------------------------
+image:
+  repository: "" # Overridden at deploy time via --set image.repository=<ECR_URI>
+  tag: "" # Overridden by tucaken-app-values.yaml or ArgoCD Image Updater write-back
+  pullPolicy: Always
+
+# ---------------------------------------------------------------------------
+# Deployment
+# ---------------------------------------------------------------------------
+replicas: 1
+port: 5001
+
+resources:
+  requests:
+    cpu: 10m      # Observed p50: ~1m. 10m provides headroom for startup/burst cycles.
+    memory: 96Mi  # Observed p50: ~62Mi. 96Mi covers peak without over-reservation.
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Security context for the pod
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+
+# Security context for the container
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false # TanStack Start may write to temp directories at runtime
+
+# ---------------------------------------------------------------------------
+# Node Placement
+# ---------------------------------------------------------------------------
+nodeSelector:
+  node-pool: general
+
+# ---------------------------------------------------------------------------
+# Service
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 5001
+
+# ---------------------------------------------------------------------------
+# Health Probes
+#
+# / redirects (307) to /sign-in when unauthenticated — probe targets /sign-in
+# directly: public route, no redirect, 200 always. timeoutSeconds: 10 covers
+# getUserSessionFn() Cognito cold-start on pod startup.
+# ---------------------------------------------------------------------------
+probes:
+  readiness:
+    path: /sign-in
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 3
+  liveness:
+    path: /sign-in
+    initialDelaySeconds: 30
+    periodSeconds: 15
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# Ingress (Traefik IngressRoute CRD)
+# ---------------------------------------------------------------------------
+# Chart-managed IngressRoute with a placeholder origin secret.
+#
+# The real CloudFront origin secret is patched in at sync time by the
+# PostSync hook Job in templates/ingressroute-patcher.yaml. Flow:
+#   1. ArgoCD applies the IngressRoute with the never-matching placeholder.
+#   2. PostSync hook Job runs.
+#   3. Job reads `value` from the ESO-managed Secret
+#      `tucaken-cloudfront-origin-secret` and PATCHes /spec/routes/0/match
+#      on the live IngressRoute with the assembled rule.
+#   4. argocd-apps/tucaken-app.yaml ignoreDifferences +
+#      RespectIgnoreDifferences=true stops selfHeal from reverting the patch.
+#
+# Rotation: update SSM /k8s/{env}/tucaken-cloudfront-origin-secret, trigger
+# an ArgoCD sync — ESO refreshes the Secret within 5m, the Job re-patches
+# with the new value, no IngressRoute recreation required.
+ingress:
+  enabled: true
+  host: tucaken.io               # Canonical domain (.com → .io redirect at CloudFront)
+  matchRule: "PathPrefix(`/`)"   # Tucaken serves at root — no path prefix
+  entryPoint: web
+
+# ---------------------------------------------------------------------------
+# Secrets (synced via ExternalSecret from SSM/Secrets Manager)
+#
+# Contains ONLY sensitive auth values — not AWS resource references.
+# Expected keys:
+#   AUTH_COGNITO_DOMAIN     — Cognito hosted UI domain
+#   AUTH_COGNITO_ID         — Cognito app client ID
+#   ... (extend as needed for tucaken-specific auth)
+# ---------------------------------------------------------------------------
+secrets:
+  name: tucaken-app-secrets
+
+# ---------------------------------------------------------------------------
+# Config (synced from SSM via ExternalSecret → K8s Secret)
+#
+# Non-sensitive infrastructure references. AWS credentials are NOT here;
+# they come from the EC2 Instance Profile (IMDS). The Rollout consumes
+# this via envFrom.secretRef with optional: true, so the pod can start
+# before the config secret is provisioned.
+# ---------------------------------------------------------------------------
+config:
+  name: tucaken-app-config
+
+# ---------------------------------------------------------------------------
+# CloudFront Security
+# ---------------------------------------------------------------------------
+# Placeholder regex — never matches, so until the PostSync hook patches
+# /spec/routes/0/match with the real value from the
+# tucaken-cloudfront-origin-secret K8s Secret, the IngressRoute rejects
+# every request. This is the safe default: a misconfigured chart can't
+# accidentally expose tucaken-app to direct origin traffic.
+#
+# Rotation: update SSM /k8s/{env}/tucaken-cloudfront-origin-secret, then
+# trigger an ArgoCD sync of the tucaken-app Application. ESO refreshes
+# the Secret within 5m and the PostSync Job patches the new value in.
+cloudfront:
+  originSecret: "^PLACEHOLDER_NEVER_MATCHES$"
+
+# ---------------------------------------------------------------------------
+# PodDisruptionBudget
+# ---------------------------------------------------------------------------
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# Resource Quota (namespace-level limits)
+# ---------------------------------------------------------------------------
+# Sized for blue/green: 2x replicas running simultaneously + headroom.
+# Formula: (replicas × 2 × per-pod limit) × 1.5 safety margin
+resourceQuota:
+  hard:
+    requests.cpu: "100m"
+    requests.memory: 384Mi
+    limits.cpu: "1500m"
+    limits.memory: 1536Mi
+    persistentvolumeclaims: "1"
+
+# ---------------------------------------------------------------------------
+# Network Policy
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  nodesCidr: "10.0.0.0/16"
+  podCidr: "192.168.0.0/16"
+
+# ---------------------------------------------------------------------------
+# Argo Rollouts — Blue/Green Strategy Configuration
+# ---------------------------------------------------------------------------
+rollout:
+  blueGreen:
+    autoPromotionEnabled: false   # Require manual promotion (CI promote step)
+    autoPromotionSeconds: 0
+    scaleDownDelaySeconds: 30
+  analysis:
+    interval: 60s
+    count: 3
+    failureLimit: 1
+    consecutiveErrorLimit: 5
+    errorRateThreshold: 0.05
+    latencyThresholdMs: 2000
+
+# ---------------------------------------------------------------------------
+# Topology Spread Constraints
+# ---------------------------------------------------------------------------
+topologySpreadConstraints: []

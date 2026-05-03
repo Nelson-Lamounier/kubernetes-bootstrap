@@ -7,7 +7,8 @@
  *   2. Updates instance-id SSM parameter
  *   3. Triggers targeted SSM RunCommand scripts natively
  *   4. Polls for completion (wait → check → loop)
- *   5. For control-plane: waits for CA hash publication, then re-joins all worker pools in parallel
+ *   5. For control-plane: waits for CA hash publication, then triggers worker
+ *      SM-A executions so running workers detect the new CP and re-join
  *
  * ## Scope
  * SM-A is responsible for cluster infrastructure only:
@@ -22,10 +23,13 @@
  * Non-K8s ASGs are silently ignored (no `k8s:bootstrap-role` tag).
  */
 
+import * as path from "path";
+
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { JsonPath } from "aws-cdk-lib/aws-stepfunctions";
 import * as sfn from "aws-cdk-lib/aws-stepfunctions";
@@ -87,7 +91,7 @@ export class BootstrapOrchestratorConstruct extends Construct {
   public readonly stateMachine: sfn.StateMachine;
 
   /** Thin router Lambda that reads ASG tags and resolves role/instanceId/s3Bucket */
-  public readonly routerFunction: lambda.Function;
+  public readonly routerFunction: lambdaNodejs.NodejsFunction;
 
   constructor(scope: Construct, id: string, props: BootstrapOrchestratorProps) {
     super(scope, id);
@@ -104,73 +108,20 @@ export class BootstrapOrchestratorConstruct extends Construct {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
-    this.routerFunction = new lambda.Function(this, "RouterFn", {
+    this.routerFunction = new lambdaNodejs.NodejsFunction(this, "RouterFn", {
       functionName: `${props.prefix}-bootstrap-router`,
-      runtime: lambda.Runtime.PYTHON_3_13,
-      handler: "index.handler",
+      entry: path.join(__dirname, "lambdas/router.ts"),
+      handler: "handler",
       logGroup: routerLogGroup,
-      code: lambda.Code.fromInline(`
-import logging, boto3
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-asg_client = boto3.client("autoscaling")
-ssm_client = boto3.client("ssm")
-
-def _skip(reason):
-    logger.info("Skipping: %s", reason)
-    return {
-        "role": None,
-        "instanceId": "",
-        "asgName": "",
-        "ssmPrefix": "",
-        "s3Bucket": "",
-        "region": "",
-        "reason": reason,
-    }
-
-def handler(event, context):
-    detail = event.get("detail", {})
-    instance_id = detail.get("EC2InstanceId", "")
-    asg_name = detail.get("AutoScalingGroupName", "")
-
-    if not instance_id or not asg_name:
-        return _skip("Missing instance or ASG info")
-
-    logger.info("Instance launched: %s in ASG %s", instance_id, asg_name)
-
-    resp = asg_client.describe_auto_scaling_groups(AutoScalingGroupNames=[asg_name])
-    groups = resp.get("AutoScalingGroups", [])
-    if not groups:
-        return _skip(f"ASG {asg_name} not found")
-
-    tags = {t["Key"]: t["Value"] for t in groups[0].get("Tags", [])}
-    role = tags.get("k8s:bootstrap-role")
-    ssm_prefix = tags.get("k8s:ssm-prefix")
-
-    if not role or not ssm_prefix:
-        return _skip(f"No k8s tags on ASG {asg_name}")
-
-    s3_bucket = ssm_client.get_parameter(Name=f"{ssm_prefix}/scripts-bucket")["Parameter"]["Value"]
-
-    result = {
-        "role": role,
-        "instanceId": instance_id,
-        "asgName": asg_name,
-        "ssmPrefix": ssm_prefix,
-        "s3Bucket": s3_bucket,
-        "region": context.invoked_function_arn.split(":")[3],
-        "reason": "ok",
-    }
-    logger.info("Router result: %s", result)
-    return result
-`),
-      timeout: cdk.Duration.seconds(30),
+      timeout: cdk.Duration.seconds(60),
       memorySize: 128,
       tracing: lambda.Tracing.ACTIVE,
       description:
-        "Thin router: reads ASG tags and resolves details for Step Functions",
+        "Router: reads ASG tags for bootstrap routing; triggers worker rejoins after CP bootstrap",
+      bundling: {
+        // AWS SDK v3 is provided by the Lambda Node.js 20.x runtime — no need to bundle.
+        externalModules: ["@aws-sdk/*"],
+      },
     });
 
     this.routerFunction.addToRolePolicy(
@@ -189,6 +140,19 @@ def handler(event, context):
         actions: ["ssm:GetParameter"],
         resources: [
           `arn:aws:ssm:${stack.region}:${stack.account}:parameter${props.ssmPrefix}/*`,
+        ],
+      }),
+    );
+
+    // Required for trigger_workers mode: starts SM-A executions for worker instances
+    // after CP bootstrap completes. The SM ARN is resolved from SSM at runtime.
+    this.routerFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        sid: "RouterStartWorkerRejoins",
+        effect: iam.Effect.ALLOW,
+        actions: ["states:StartExecution"],
+        resources: [
+          `arn:aws:states:${stack.region}:${stack.account}:stateMachine:${props.prefix}-bootstrap-orchestrator`,
         ],
       }),
     );
@@ -347,11 +311,33 @@ def handler(event, context):
     incrCaPollCount.next(checkCaPollMax);
     waitForCaPoll.next(checkCaParam);
 
+    // After join-token is confirmed in SSM, trigger SM-A executions for all
+    // running worker instances. Workers that were already up when the CP was
+    // replaced have no pending SM-A execution — this step fires new ones so
+    // joinCluster() can detect the new CP instance ID and re-join.
+    // Non-fatal: the Lambda catches all errors internally; CP execution still
+    // succeeds even if worker dispatch fails.
+    const triggerWorkerRejoins = new sfnTasks.LambdaInvoke(
+      this,
+      "TriggerWorkerRejoins",
+      {
+        lambdaFunction: this.routerFunction,
+        payload: sfn.TaskInput.fromObject({
+          mode: "trigger_workers",
+          "ssmPrefix.$": "$.router.ssmPrefix",
+        }),
+        resultPath: JsonPath.DISCARD,
+        comment:
+          "Dispatch SM-A executions to all running worker instances so they detect the new CP and re-join",
+      },
+    );
+
     const cpSucceed = new sfn.Succeed(this, "ControlPlaneBootstrapped", {
-      comment: "CP bootstrap complete — workers start via their own SM-A executions",
+      comment: "CP bootstrap complete — worker rejoins dispatched",
     });
 
-    checkCaParam.next(cpSucceed);
+    checkCaParam.next(triggerWorkerRejoins);
+    triggerWorkerRejoins.next(cpSucceed);
     cpSteps.end.next(initCaPollCount);
     initCaPollCount.next(checkCaParam);
 

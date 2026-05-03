@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------
+# Preview IngressRoute — Header-Based Blue/Green Testing
+#
+# Routes requests containing the X-Preview: true header to the
+# preview (blue/green) ReplicaSet instead of the active one.
+# Production users without the header are unaffected.
+#
+# Usage:
+#   curl -H "X-Preview: true" https://tucaken.io/
+#   Or use a browser extension (e.g. ModHeader) to add the header.
+#
+# Priority 100 ensures this route takes precedence over the
+# default route when the header is present.
+# ---------------------------------------------------------------
+{{- if .Values.ingress.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: tucaken-app-preview
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "tucaken-app.fullLabels" . | nindent 4 }}
+spec:
+  entryPoints:
+    - {{ .Values.ingress.entryPoint }}
+  routes:
+    - match: "{{ if .Values.ingress.host }}Host(`{{ .Values.ingress.host }}`) && {{ end }}{{ .Values.ingress.matchRule }} && Header(`X-Preview`, `true`)"
+      kind: Rule
+      priority: 100
+      services:
+        - name: tucaken-app-preview
+          port: {{ .Values.service.port }}
+{{- end }}

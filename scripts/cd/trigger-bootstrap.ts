@@ -136,7 +136,7 @@ interface TriggerTarget {
  * Build the ordered list of node targets to trigger.
  *
  * Worker targets have been updated to the new ASG pool names:
- *   `general-pool`    — t3.small Spot; hosts Next.js, start-admin, and ArgoCD
+ *   `general-pool`    — t3.small Spot; hosts Next.js, tucaken-app, and ArgoCD
  *   `monitoring-pool` — t3.medium Spot; hosts the observability stack
  *
  * @param prefix - SSM prefix (e.g. `/k8s/development`)

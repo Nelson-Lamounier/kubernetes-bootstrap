@@ -1,0 +1,13 @@
+# @format
+# platform-job-watcher — Development environment overrides
+image:
+  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-job-watcher
+  # tag: written by ArgoCD Image Updater
+
+namespace: platform
+
+config:
+  watchers:
+    - namespace: resume-import
+      dbTable: resume_imports
+      staleAfterMinutes: 15

@@ -67,6 +67,36 @@ export const installArgocd = (cfg: Config): void => {
     log('✓ ArgoCD core installed');
 };
 
+/**
+ * Patches fsGroup: 999 onto argocd-dex-server and argocd-repo-server.
+ *
+ * The copyutil init container writes to an emptyDir volume at /shared.
+ * Without fsGroup, the emptyDir is root-owned and non-root init containers
+ * fail with "permission denied". fsGroup: 999 matches the ArgoCD GID so
+ * Kubernetes chowns the volume on pod creation.
+ */
+export const patchArgocdFsGroup = (cfg: Config): void => {
+    log('=== Step 4a: Patching ArgoCD fsGroup (dex-server + repo-server) ===');
+    if (cfg.dryRun) {
+        log('  [DRY-RUN] patchArgocdFsGroup');
+        return;
+    }
+
+    const patch = JSON.stringify({ spec: { template: { spec: { securityContext: { fsGroup: 999 } } } } });
+    for (const deployment of ['argocd-dex-server', 'argocd-repo-server']) {
+        const result = run(
+            ['kubectl', 'patch', 'deployment', deployment, '-n', 'argocd', '--type=merge', '-p', patch],
+            cfg,
+            { check: false },
+        );
+        if (result.ok) {
+            log(`  ✓ ${deployment} patched with fsGroup: 999`);
+        } else {
+            log(`  WARN: Failed to patch ${deployment}: ${result.stderr}`);
+        }
+    }
+};
+
 export const createDefaultProject = async (cfg: Config): Promise<void> => {
     log('=== Step 4b: Creating default AppProject ===');
     const projectFile = `${cfg.argocdDir}/default-project.yaml`;

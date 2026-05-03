@@ -29,7 +29,7 @@ metadata:
   name: admin-api
   namespace: argocd
   annotations:
-    kubernetes.io/description: "admin-api BFF (start-admin TanStack) — ApplicationSet for templated ECR URI"
+    kubernetes.io/description: "admin-api BFF (tucaken-app TanStack) — ApplicationSet for templated ECR URI"
   labels:
     app.kubernetes.io/part-of: argocd
 spec:
@@ -63,8 +63,8 @@ spec:
       name: admin-api
       namespace: argocd
       annotations:
-        kubernetes.io/description: "ArgoCD application for the admin-api BFF service (start-admin TanStack)"
-        argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps — same wave as nextjs + start-admin
+        kubernetes.io/description: "ArgoCD application for the admin-api BFF service (tucaken-app TanStack)"
+        argocd.argoproj.io/sync-wave: "5"  # Wave 5: Business Apps — same wave as nextjs + tucaken-app
         # ----- ArgoCD Image Updater — admin-api own image only ---------------
         argocd-image-updater.argoproj.io/image-list: "admin-api={{ecrAccount}}.dkr.ecr.{{ecrRegion}}.amazonaws.com/admin-api"
         argocd-image-updater.argoproj.io/admin-api.update-strategy: newest-build

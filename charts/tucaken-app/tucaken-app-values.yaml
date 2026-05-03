@@ -1,0 +1,44 @@
+# @format
+# Development environment overrides — lower resources, single replica.
+#
+# NOTE: image.tag is intentionally absent here.
+# ArgoCD Image Updater owns image.tag via its git write-back to
+# .argocd-source-tucaken-app.yaml. Any static tag in this file (including
+# a "PENDING" sentinel) creates a competing source of truth: ArgoCD's
+# selfHeal loop re-applies the merged spec with the stale hardcoded value, so
+# Argo Rollouts sees no image delta and restarts the pod in-place rather than
+# spawning a green ReplicaSet.
+
+image:
+  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/tucaken-app
+  # tag: managed by ArgoCD Image Updater → .argocd-source-tucaken-app.yaml
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+resourceQuota:
+  hard:
+    requests.cpu: "400m"
+    requests.memory: 512Mi
+    limits.cpu: "750m"
+    limits.memory: 768Mi
+    persistentvolumeclaims: "1"
+
+# ---------------------------------------------------------------------------
+# Argo Rollouts — BlueGreen strategy overrides for development
+# ---------------------------------------------------------------------------
+rollout:
+  blueGreen:
+    autoPromotionEnabled: false
+    autoPromotionSeconds: 120
+    scaleDownDelaySeconds: 30
+
+networkPolicy:
+  enabled: false

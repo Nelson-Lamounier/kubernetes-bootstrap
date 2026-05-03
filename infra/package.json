@@ -18,10 +18,15 @@
     "constructs": "^10.0.0"
   },
   "devDependencies": {
+    "@aws-sdk/client-auto-scaling": "^3.0.0",
+    "@aws-sdk/client-sfn": "^3.0.0",
+    "@aws-sdk/client-ssm": "^3.0.0",
+    "@types/aws-lambda": "^8.10.0",
     "@types/node": "^22.0.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "aws-cdk": "^2.1118.3",
+    "esbuild": "^0.25.0",
     "eslint": "^9.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.0"

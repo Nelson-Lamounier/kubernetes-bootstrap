@@ -1,0 +1,33 @@
+# @format
+# ExternalSecret: admin-ip-allowlist (in argocd namespace)
+#
+# Reads operator IP allowlist from the same SSM paths used by the
+# monitoring namespace. Consumed at sync time by the allowlist-patcher
+# PostSync Job (allowlist-patcher.yaml), which reads .data.ipv4 / .data.ipv6
+# and rewrites the admin-ip-allowlist Middleware's spec.ipAllowList.sourceRange.
+#
+# Rotation: update SSM /k8s/{env}/monitoring/allow-ipv{4,6} and trigger
+# an ArgoCD sync of the argocd-ingress Application.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: admin-ip-allowlist
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "Operator IP allowlist for /argocd IngressRoute — patched in by PostSync hook"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: admin-ip-allowlist
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: ipv4
+      remoteRef:
+        key: /k8s/development/monitoring/allow-ipv4
+    - secretKey: ipv6
+      remoteRef:
+        key: /k8s/development/monitoring/allow-ipv6

@@ -52,12 +52,12 @@ spec:
           # The manually committed workloads/argocd-apps/nextjs.yaml is used instead.
           - path: charts/nextjs
             exclude: true
-          # start-admin is excluded for the same reason as nextjs:
+          # tucaken-app is excluded for the same reason as nextjs:
           # it requires ArgoCD Image Updater annotations (ECR SHA tag tracking,
-          # git write-back to .argocd-source-start-admin.yaml) that the generic
+          # git write-back to .argocd-source-tucaken-app.yaml) that the generic
           # ApplicationSet template cannot inject.
-          # The manually committed workloads/argocd-apps/start-admin.yaml is used instead.
-          - path: charts/start-admin
+          # The manually committed argocd-apps/tucaken-app.yaml is used instead.
+          - path: charts/tucaken-app
             exclude: true
           # wiki-mcp is excluded because it requires ArgoCD Image Updater annotations
           # (ECR SHA tag tracking, git write-back to .argocd-source-wiki-mcp.yaml).
@@ -139,8 +139,8 @@ spec:
           - ApplyOutOfSyncOnly=true
           - ServerSideApply=true
         retry:
-          limit: 3
+          limit: 5
           backoff:
-            duration: 5s
+            duration: 10s
             factor: 2
-            maxDuration: 3m
+            maxDuration: 5m

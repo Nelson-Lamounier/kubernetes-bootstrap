@@ -113,6 +113,8 @@ const KUBELET_CONFIG_FILE     = '/var/lib/kubelet/config.yaml';
 const STALE_PV_CLEANUP_MARKER = '/tmp/.stale-pv-cleanup-done';
 /** Marker path for the CloudWatch agent installation step. */
 const CW_AGENT_MARKER         = '/tmp/.cw-agent-installed';
+/** Records the control-plane instance-id this worker joined against. */
+const CP_INSTANCE_ID_FILE     = '/var/lib/k8s-bootstrap/joined-cp-instance-id';
 /** CloudWatch agent control binary path. */
 const CW_AGENT_CTL            = '/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl';
 /** CloudWatch agent JSON config file path. */
@@ -847,8 +849,41 @@ const joinCluster = async (cfg: WorkerConfig): Promise<void> => {
     if (caReset) info('CA mismatch handled — proceeding to re-join cluster');
 
     if (existsSync(KUBELET_CONF)) {
-        info('[join-cluster] skip — kubelet.conf exists (already joined)');
-        return;
+        // Detect silent CP replacement: same CA but new control-plane instance.
+        // Occurs when AMI refresh replaces CP after workers have already joined.
+        const storedCpId  = existsSync(CP_INSTANCE_ID_FILE)
+            ? readFileSync(CP_INSTANCE_ID_FILE, 'utf8').trim()
+            : null;
+        const currentCpId = await ssmGet(`${cfg.ssmPrefix}/instance-id`, cfg.awsRegion)
+            .catch(() => null);
+
+        const cpReplaced = storedCpId && currentCpId && storedCpId !== currentCpId;
+        // No stored ID means we cannot verify whether this worker joined the
+        // current CP.  Treat as ambiguous and force a fresh join rather than
+        // risk leaving the worker pointing at a dead API server.
+        const cpUnknown  = !storedCpId && currentCpId != null;
+
+        if (cpReplaced || cpUnknown) {
+            warn('='.repeat(60));
+            if (cpReplaced) {
+                warn('CONTROL PLANE REPLACED — re-joining cluster');
+                warn(`  Joined against: ${storedCpId}`);
+                warn(`  Current CP:     ${currentCpId}`);
+            } else {
+                warn('NO STORED CP INSTANCE ID — cannot verify join state, re-joining');
+                warn(`  Current CP: ${currentCpId}`);
+            }
+            warn('='.repeat(60));
+            run(['kubeadm', 'reset', '-f'], { check: false });
+            if (existsSync(KUBELET_CONF))    unlinkSync(KUBELET_CONF);
+            if (existsSync(CA_CERT_PATH))    unlinkSync(CA_CERT_PATH);
+            if (existsSync(CP_INSTANCE_ID_FILE)) unlinkSync(CP_INSTANCE_ID_FILE);
+            info('Worker reset complete — re-joining with new control plane');
+            // Fall through to join
+        } else {
+            info('[join-cluster] skip — kubelet.conf exists and CP instance unchanged');
+            return;
+        }
     }
 
     const endpoint = await resolveControlPlaneEndpoint(cfg);
@@ -856,6 +891,15 @@ const joinCluster = async (cfg: WorkerConfig): Promise<void> => {
     await doJoin(endpoint, cfg);
     await waitForKubelet();
     patchProviderId();
+
+    // Record which CP instance this worker joined so future runs can detect replacement.
+    const cpInstanceId = await ssmGet(`${cfg.ssmPrefix}/instance-id`, cfg.awsRegion)
+        .catch(() => null);
+    if (cpInstanceId) {
+        mkdirSync('/var/lib/k8s-bootstrap', { recursive: true });
+        writeFileSync(CP_INSTANCE_ID_FILE, cpInstanceId);
+        info(`Recorded joined CP instance-id: ${cpInstanceId}`);
+    }
 
     const kubeletVersion = run(['kubelet', '--version'], { check: false }).stdout.trim();
     info(`Worker node joined cluster successfully: ${kubeletVersion}`);

@@ -1,0 +1,16 @@
+# @format
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-job-watcher-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: platform-job-watcher
+data:
+  config.yaml: |
+    watchers:
+    {{- range .Values.config.watchers }}
+      - namespace: {{ .namespace }}
+        dbTable: {{ .dbTable }}
+        staleAfterMinutes: {{ .staleAfterMinutes }}
+    {{- end }}

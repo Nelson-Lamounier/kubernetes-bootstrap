@@ -1,7 +1,7 @@
 # @format
 # admin-api — Helm chart default values.
 #
-# BFF for the start-admin TanStack application.
+# BFF for the tucaken-app TanStack application.
 # Handles write operations: article publish, update, delete, asset upload.
 #
 # ─── Config Sources ───────────────────────────────────────────────────────────

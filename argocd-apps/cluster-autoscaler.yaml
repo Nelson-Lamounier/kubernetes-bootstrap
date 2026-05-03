@@ -109,12 +109,13 @@ spec:
       selfHeal: true
       allowEmpty: false
     syncOptions:
+      - CreateNamespace=true
       - CreateNamespace=false  # kube-system already exists
       - PruneLast=true
       - ServerSideApply=true
     retry:
-      limit: 3
+      limit: 5
       backoff:
-        duration: 5s
+        duration: 10s
         factor: 2
-        maxDuration: 3m
+        maxDuration: 5m

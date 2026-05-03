@@ -1,0 +1,7 @@
+# @format
+apiVersion: v2
+name: platform-job-watcher
+description: Watches K8s batch Jobs and writes failure status to the DB
+type: application
+version: 0.1.0
+appVersion: "latest"
