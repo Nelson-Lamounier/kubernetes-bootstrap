@@ -1,7 +1,7 @@
 helm:
   parameters:
   - name: image.tag
-    value: d58c230a214183b3b4dcd1d51e9bd90f1edc0a0d-r1
+    value: 5f1d5cca67fe28e2ce179de00501f2c1f9154eae-r1
     forcestring: true
   - name: image.repository
     value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/tucaken-app
