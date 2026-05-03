@@ -52,7 +52,7 @@ spec:
           - env: development
             ecrAccount: "771826808455"
             ecrRegion: eu-west-1
-            gitBranch: develop
+            gitBranch: main
             namespace: admin-api
 
   template:
