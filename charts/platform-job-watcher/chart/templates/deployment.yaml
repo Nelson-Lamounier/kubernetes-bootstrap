@@ -1,0 +1,45 @@
+# @format
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-job-watcher
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: platform-job-watcher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: platform-job-watcher
+  template:
+    metadata:
+      labels:
+        app: platform-job-watcher
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+        - name: watcher
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: Always
+          command: ["node", "dist/run-watcher.js"]
+          env:
+            - name: WATCHER_CONFIG_PATH
+              value: /etc/watcher/config.yaml
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+          volumeMounts:
+            - name: watcher-config
+              mountPath: /etc/watcher
+              readOnly: true
+          resources:
+            requests:
+              memory: {{ .Values.resources.requests.memory }}
+              cpu: {{ .Values.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.resources.limits.memory }}
+              cpu: {{ .Values.resources.limits.cpu }}
+      volumes:
+        - name: watcher-config
+          configMap:
+            name: platform-job-watcher-config
