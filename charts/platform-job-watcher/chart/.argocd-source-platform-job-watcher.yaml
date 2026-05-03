@@ -1,0 +1,8 @@
+helm:
+  parameters:
+  - name: image.repository
+    value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-job-watcher
+    forcestring: true
+  - name: image.tag
+    value: 7a6b4b5099680fc3de46ef2d7e18b3ee3d366bdb-r1
+    forcestring: true
