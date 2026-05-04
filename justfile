@@ -341,6 +341,177 @@ ami-workflow env="development" build-ami="true" existing-ami-id="":
     fi
     gh workflow run deploy-golden-ami.yml "${ARGS[@]}"
 
+# =============================================================================
+# GITHUB SECRETS — Bulk manage repo & environment secrets/variables.
+# =============================================================================
+# Wraps scripts/gh-secrets.ts. Uses your authenticated `gh` session — no
+# extra auth flow. See `just gh-secrets-help` for full CLI surface.
+
+# Show the gh-secrets CLI help.
+# Usage: just gh-secrets-help
+[group('ci')]
+gh-secrets-help:
+    cd scripts && yarn gh-secrets --help
+
+# List secrets + variables on one repo (optionally scoped to an env).
+# Usage: just gh-secrets-list tucaken-app
+#        just gh-secrets-list tucaken-app development
+[group('ci')]
+gh-secrets-list repo env="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd scripts
+    if [ -n "{{env}}" ]; then
+      yarn gh-secrets list --repo {{repo}} --env {{env}}
+    else
+      yarn gh-secrets list --repo {{repo}}
+    fi
+
+# Set a literal-value secret on one or more repos.
+# Usage: just gh-secrets-set NAME 'literal value' tucaken-app,ai-applications
+#        just gh-secrets-set LOG_LEVEL debug tucaken-app development variable
+[group('ci')]
+gh-secrets-set name value repos env="" type="secret":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd scripts
+    ARGS=(--name {{name}} --value '{{value}}' --repos {{repos}} --type {{type}})
+    if [ -n "{{env}}" ]; then ARGS+=(--env {{env}}); fi
+    yarn gh-secrets set "${ARGS[@]}"
+
+# Set a secret by piping its value via stdin (recommended for tokens —
+# the cleartext never appears in argv or shell history).
+# Usage: echo -n 'github-actions:s3cret' | just gh-secrets-set-stdin LOKI_PUSH_BASIC_AUTH tucaken-app,ai-applications,cdk-monitoring,kubernetes-bootstrap
+[group('ci')]
+gh-secrets-set-stdin name repos env="" type="secret":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd scripts
+    ARGS=(--name {{name}} --from-stdin --repos {{repos}} --type {{type}})
+    if [ -n "{{env}}" ]; then ARGS+=(--env {{env}}); fi
+    yarn gh-secrets set "${ARGS[@]}"
+
+# Apply a declarative YAML/JSON config across many secrets at once.
+# Path is relative to scripts/. With --dry-run, prints intended changes only.
+# Usage: just gh-secrets-apply loki-secrets.example.yaml
+#        just gh-secrets-apply loki-secrets.example.yaml --dry-run
+# For configs with stdin entries, pipe the value:
+#   echo -n 'github-actions:s3cret' | just gh-secrets-apply loki-secrets.example.yaml
+[group('ci')]
+gh-secrets-apply config *FLAGS:
+    cd scripts && yarn gh-secrets apply {{config}} {{FLAGS}}
+
+# Delete a secret (or variable) from one or more repos.
+# Usage: just gh-secrets-delete OLD_TOKEN tucaken-app,ai-applications
+[group('ci')]
+gh-secrets-delete name repos env="" type="secret":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd scripts
+    ARGS=(--name {{name}} --repos {{repos}} --type {{type}})
+    if [ -n "{{env}}" ]; then ARGS+=(--env {{env}}); fi
+    yarn gh-secrets delete "${ARGS[@]}"
+
+# Convenience: wire BOTH Loki secrets across all 4 portfolio repos using
+# the example YAML. The token comes from stdin so cleartext never lands in
+# shell history. Pipe the cleartext token in.
+# Usage: echo -n 'github-actions:CLEARTEXT' | just gh-secrets-loki-bootstrap
+[group('ci')]
+gh-secrets-loki-bootstrap:
+    cd scripts && yarn gh-secrets apply loki-secrets.example.yaml
+
+# =============================================================================
+# DR DRILLS — etcd restore RTO test
+# =============================================================================
+# The script lives in cdk-monitoring/scripts/local/etcd-restore-rto-test.sh
+# and is published to s3://<scripts-bucket>/dr/ by the sync-dr-scripts
+# GH Actions workflow. This recipe sends an SSM Run Command to a chosen
+# control-plane instance which pulls the script and runs it. The result
+# (etcd_restore_rto_seconds) lands in Pushgateway → DORA dashboard.
+#
+# Pre-flight:
+#   - The sync-dr-scripts workflow has run on this branch
+#   - Pushgateway secrets known on the CP instance (or override below)
+#   - Target instance is a control-plane node (etcd + kubeadm PKI present)
+#
+# Usage:
+#   just etcd-rto-test i-0abc123def456 development eu-west-1 dev-account
+#   just etcd-rto-test i-0abc123def456                        # uses defaults
+
+[group('dr')]
+etcd-rto-test instance-id env="development" region="eu-west-1" profile="dev-account":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    PROFILE_FLAG="--profile {{profile}}"
+    REGION_FLAG="--region {{region}}"
+
+    BUCKET=$(aws ssm get-parameter \
+      --name "/k8s/{{env}}/scripts-bucket" \
+      --query 'Parameter.Value' --output text \
+      $PROFILE_FLAG $REGION_FLAG | sed 's|^s3://||;s|/$||')
+    if [ -z "$BUCKET" ]; then
+      echo "::error::scripts-bucket SSM key not found for {{env}}"
+      exit 1
+    fi
+
+    PUSHGATEWAY_URL="https://pushgateway.nelsonlamounier.com"
+    PUSHGATEWAY_AUTH=$(aws ssm get-parameter \
+      --name "/k8s/{{env}}/loki-push-basic-auth" \
+      --with-decryption --query 'Parameter.Value' --output text \
+      $PROFILE_FLAG $REGION_FLAG)
+    # Convert htpasswd line ('user:bcrypt') back to cleartext for HTTP basic
+    # auth — it isn't recoverable from bcrypt, so we expect SSM holds the
+    # cleartext token at /k8s/<env>/loki-push-cleartext for ops use.
+    PUSHGATEWAY_CLEARTEXT=$(aws ssm get-parameter \
+      --name "/k8s/{{env}}/loki-push-cleartext" \
+      --with-decryption --query 'Parameter.Value' --output text \
+      $PROFILE_FLAG $REGION_FLAG 2>/dev/null || echo "")
+    if [ -z "$PUSHGATEWAY_CLEARTEXT" ]; then
+      echo "::warn::/k8s/{{env}}/loki-push-cleartext not set — RTO will print but not push to Pushgateway."
+    fi
+
+    echo "Sending etcd RTO test to instance {{instance-id}}..."
+    CMD_ID=$(aws ssm send-command \
+      --instance-ids "{{instance-id}}" \
+      --document-name "AWS-RunShellScript" \
+      --comment "etcd restore RTO drill" \
+      --parameters commands="[
+        \"set -euo pipefail\",
+        \"aws s3 cp s3://${BUCKET}/dr/etcd-restore-rto-test.sh /tmp/etcd-rto.sh\",
+        \"export PUSHGATEWAY_URL='${PUSHGATEWAY_URL}'\",
+        \"export PUSHGATEWAY_AUTH='${PUSHGATEWAY_CLEARTEXT}'\",
+        \"export CLUSTER='portfolio-{{env}}'\",
+        \"sudo --preserve-env=PUSHGATEWAY_URL,PUSHGATEWAY_AUTH,CLUSTER bash /tmp/etcd-rto.sh '${BUCKET}'\"
+      ]" \
+      --query 'Command.CommandId' --output text \
+      $PROFILE_FLAG $REGION_FLAG)
+
+    echo "Command ID: $CMD_ID"
+    echo "Tailing output (Ctrl-C to detach — drill keeps running)..."
+    until aws ssm get-command-invocation \
+      --command-id "$CMD_ID" \
+      --instance-id "{{instance-id}}" \
+      --query 'Status' --output text \
+      $PROFILE_FLAG $REGION_FLAG 2>/dev/null \
+      | grep -qE 'Success|Failed|Cancelled|TimedOut'; do
+      sleep 5
+    done
+
+    echo "=== STDOUT ==="
+    aws ssm get-command-invocation \
+      --command-id "$CMD_ID" \
+      --instance-id "{{instance-id}}" \
+      --query 'StandardOutputContent' --output text \
+      $PROFILE_FLAG $REGION_FLAG
+    echo ""
+    echo "=== STDERR ==="
+    aws ssm get-command-invocation \
+      --command-id "$CMD_ID" \
+      --instance-id "{{instance-id}}" \
+      --query 'StandardErrorContent' --output text \
+      $PROFILE_FLAG $REGION_FLAG
+
 # Sync bootstrap scripts from sm-a/boot/ to S3 (for AMI bake or emergency re-sync)
 # Usage: just sync-k8s-bootstrap development dev-account
 [group('k8s')]
