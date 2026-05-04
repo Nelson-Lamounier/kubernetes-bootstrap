@@ -69,6 +69,7 @@ spec:
       - CreateNamespace=true
       - CreateNamespace=false
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
     retry:
       limit: 5
       backoff:

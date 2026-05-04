@@ -113,6 +113,7 @@ spec:
       - CreateNamespace=false  # kube-system already exists
       - PruneLast=true
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
     retry:
       limit: 5
       backoff:

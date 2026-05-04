@@ -66,6 +66,7 @@ spec:
       - ServerSideApply=true
       # Required so ignoreDifferences applies to sync, not just diff.
       - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
     retry:
       limit: 5
       backoff:
