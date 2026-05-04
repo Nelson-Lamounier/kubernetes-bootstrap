@@ -33230,10 +33230,10 @@ spec:
           # CUSTOMISED: resource requests from kubectl top (observed p50 × 1.5)
           requests:
             cpu: 50m
-            memory: 384Mi
+            memory: 512Mi
           limits:
             cpu: 500m
-            memory: 768Mi
+            memory: 1280Mi
         ports:
         - containerPort: 8082
         readinessProbe:

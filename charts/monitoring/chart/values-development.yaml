@@ -113,10 +113,10 @@ pyroscope:
 
 resourceQuota:
   hard:
-    requests.cpu: "1000m"  # Raised from 500m — steampipe(250m) + github-actions-exporter(50m)
-                           # were excluded from original budget; actual total is ~710m
+    requests.cpu: "1500m"  # Raised: grafana(15m) + prometheus(50m) + tempo(20m) + alloy(50m)
+                           # were not scheduling due to exhausted budget; actual total ~960m
     requests.memory: 3Gi
-    limits.cpu: "3"
+    limits.cpu: "6"        # Raised from 3 — grafana(300m) + prometheus(250m) + tempo(250m) + alloy(?) pushed over 3
     limits.memory: 5Gi
     persistentvolumeclaims: "6"
 

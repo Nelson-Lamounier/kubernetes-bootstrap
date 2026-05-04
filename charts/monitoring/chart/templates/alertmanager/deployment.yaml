@@ -36,7 +36,7 @@ spec:
             - "--storage.path=/alertmanager"
             - "--data.retention={{ .Values.alertmanager.retention }}"
             - "--web.listen-address=:{{ .Values.alertmanager.service.port }}"
-            - "--web.external-url=/alertmanager"
+            - "--web.external-url={{ .Values.alertmanager.externalUrl }}"
             - "--web.route-prefix=/"
           ports:
             - containerPort: {{ .Values.alertmanager.service.port }}

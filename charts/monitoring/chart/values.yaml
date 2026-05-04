@@ -401,6 +401,7 @@ alertmanager:
   enabled: true
   image: prom/alertmanager:v0.28.1
   replicas: 1
+  externalUrl: "https://ops.nelsonlamounier.com/alertmanager"
   resources:
     requests:
       cpu: 25m

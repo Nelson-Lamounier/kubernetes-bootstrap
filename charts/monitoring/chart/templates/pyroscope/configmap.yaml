@@ -22,5 +22,6 @@ data:
       data_path: /var/pyroscope/data
     limits:
       max_query_lookback: {{ .Values.pyroscope.retention }}
-      retention_period:   {{ .Values.pyroscope.retention }}
+    compactor:
+      blocks_retention_period: {{ .Values.pyroscope.retention }}
 {{- end }}
