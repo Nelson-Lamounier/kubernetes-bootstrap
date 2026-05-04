@@ -49,8 +49,37 @@ data:
       }
     }
 
+    // --- OTLP Receiver (server-side workloads) ---
+    // admin-api and tucaken-app SSR push traces here via OTEL_EXPORTER_OTLP_
+    // ENDPOINT=http://alloy.monitoring:4318. The receiver continues whatever
+    // trace context the upstream caller (Faro browser → SSR → admin-api → pg)
+    // already carries — Tempo renders one waterfall.
+    otelcol.receiver.otlp "default" {
+      http {
+        endpoint = "0.0.0.0:{{ .Values.alloy.service.otlpHttpPort }}"
+      }
+      grpc {
+        endpoint = "0.0.0.0:{{ .Values.alloy.service.otlpGrpcPort }}"
+      }
+
+      output {
+        traces = [otelcol.processor.batch.default.input]
+        // Logs/metrics receivers can be added later; for now only traces
+        // flow through this pipeline. Server logs ship via stdout → Loki.
+      }
+    }
+
+    // --- Batch processor ---
+    // Coalesces span exports to reduce egress to Tempo. 5s/512 spans is the
+    // OTel Collector default — matches Tempo's ingestion sweet spot.
+    otelcol.processor.batch "default" {
+      output {
+        traces = [otelcol.exporter.otlp.tempo.input]
+      }
+    }
+
     // --- OTLP Exporter (Tempo) ---
-    // Forwards client-side spans to Tempo for trace correlation
+    // Forwards both Faro client spans and OTLP server spans to Tempo.
     otelcol.exporter.otlp "tempo" {
       client {
         endpoint = "tempo.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.tempo.service.otlpGrpcPort }}"
@@ -65,3 +94,114 @@ data:
     // Expose Alloy internal metrics for Prometheus scraping
     prometheus.exporter.self "default" {
     }
+
+    // =========================================================================
+    // AWS log scrapers — CloudWatch Logs → Loki
+    // =========================================================================
+    // Each block polls a CW Log Group every 1m and writes to Loki with a
+    // stable `job` label that the infra-lifecycle / edge-cdn / lambda-services
+    // dashboards filter on. IAM permissions live on the EC2 instance profile.
+
+    {{- if .Values.alloy.awsLogs.cloudtrail.enabled }}
+    loki.source.awsfirehose "cloudtrail" {
+      // Polling adapter (no Firehose required) — name kept for back-compat.
+      forward_to = [loki.process.cloudtrail.receiver]
+    }
+    loki.source.cloudwatch "cloudtrail" {
+      region          = "{{ .Values.alloy.awsLogs.region }}"
+      log_group_name  = "{{ .Values.alloy.awsLogs.cloudtrail.logGroupName }}"
+      poll_interval   = "1m"
+      forward_to      = [loki.process.cloudtrail.receiver]
+    }
+    loki.process "cloudtrail" {
+      forward_to = [loki.write.default.receiver]
+      stage.json {
+        expressions = {
+          eventName     = "eventName",
+          eventSource   = "eventSource",
+          awsRegion     = "awsRegion",
+          eventTime     = "eventTime",
+          userIdentity  = "userIdentity.type",
+        }
+      }
+      stage.labels {
+        values = {
+          job          = "cloudtrail",
+          eventName    = "",
+          eventSource  = "",
+        }
+      }
+    }
+    {{- end }}
+
+    {{- if .Values.alloy.awsLogs.ssmAutomation.enabled }}
+    loki.source.cloudwatch "ssm_automation" {
+      region          = "{{ .Values.alloy.awsLogs.region }}"
+      log_group_name  = "{{ .Values.alloy.awsLogs.ssmAutomation.logGroupName }}"
+      poll_interval   = "30s"
+      forward_to      = [loki.process.ssm_automation.receiver]
+    }
+    loki.process "ssm_automation" {
+      forward_to = [loki.write.default.receiver]
+      stage.static_labels {
+        values = { job = "ssm-automation" }
+      }
+      // SM-A boot scripts emit `[boot]` / `[control_plane]` / `[worker]`
+      // prefixes — extract them as a `step` label so panels can group.
+      stage.regex {
+        expression = "\\[(?P<step>boot|control_plane|worker|kubeadm)\\]"
+      }
+      stage.labels {
+        values = { step = "" }
+      }
+    }
+    {{- end }}
+
+    {{- if .Values.alloy.awsLogs.cloudfrontLogs.enabled }}
+    // CloudFront standard logs ship to S3 — Alloy polls the bucket prefix.
+    // For realtime logs (Kinesis), swap this for loki.source.kinesis_firehose.
+    loki.source.aws_s3 "cloudfront" {
+      bucket          = "{{ .Values.alloy.awsLogs.cloudfrontLogs.bucket }}"
+      key_prefix      = "{{ .Values.alloy.awsLogs.cloudfrontLogs.prefix }}"
+      region          = "{{ .Values.alloy.awsLogs.region }}"
+      forward_to      = [loki.process.cloudfront.receiver]
+    }
+    loki.process "cloudfront" {
+      forward_to = [loki.write.default.receiver]
+      stage.static_labels {
+        values = { job = "cloudfront-logs" }
+      }
+      // CF logs are TSV — extract status, edge-result, and origin-latency.
+      stage.regex {
+        expression = "(?P<date>\\S+)\\s+(?P<time>\\S+)\\s+(?P<edge>\\S+)\\s+(?P<bytes>\\S+)\\s+(?P<client_ip>\\S+)\\s+(?P<method>\\S+)\\s+(?P<host>\\S+)\\s+(?P<uri>\\S+)\\s+(?P<status>\\d+)\\s+(?P<referer>\\S+)\\s+(?P<ua>\\S+)"
+      }
+      stage.labels {
+        values = { status = "", edge = "", method = "" }
+      }
+    }
+    {{- end }}
+
+    {{- if .Values.alloy.awsLogs.lambdaLogs.enabled }}
+    // Discover every /aws/lambda/* log group at startup. New Functions are
+    // picked up on Alloy restart — acceptable for our deploy cadence.
+    loki.source.cloudwatch "lambda_all" {
+      region                = "{{ .Values.alloy.awsLogs.region }}"
+      log_group_name_prefix = "{{ .Values.alloy.awsLogs.lambdaLogs.logGroupPrefix }}"
+      poll_interval         = "30s"
+      forward_to            = [loki.process.lambda_all.receiver]
+    }
+    loki.process "lambda_all" {
+      forward_to = [loki.write.default.receiver]
+      stage.static_labels {
+        values = { job = "cloudwatch" }
+      }
+      // Surface the Lambda function name as a label so panels can filter.
+      stage.regex {
+        expression = "/aws/lambda/(?P<function>[^\\s]+)"
+        source     = "__path__"
+      }
+      stage.labels {
+        values = { function = "" }
+      }
+    }
+    {{- end }}

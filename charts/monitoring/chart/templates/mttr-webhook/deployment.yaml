@@ -1,0 +1,77 @@
+{{- if .Values.mttrWebhook.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mttr-webhook
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "mttr-webhook" | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # in-memory state — no benefit from rolling update
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "mttr-webhook" | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/script: {{ include (print $.Template.BasePath "/mttr-webhook/configmap.yaml") . | sha256sum }}
+      labels: {{- include "monitoring.fullLabels" "mttr-webhook" | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: webhook
+          image: {{ .Values.mttrWebhook.image }}
+          command: ["node", "/app/server.js"]
+          ports:
+            - containerPort: {{ .Values.mttrWebhook.service.port }}
+              name: http
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.mttrWebhook.service.port | quote }}
+            # Optional — when set, /ack-pagerduty enforces HMAC-SHA256
+            # signature verification on every request. Provision the
+            # Secret via ESO from SSM /k8s/{env}/pagerduty-webhook-secret;
+            # without it, signature checks are skipped (relies on basic
+            # auth at the ingress instead). Empty value = no secret.
+            - name: PD_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name:     pagerduty-webhook-secret
+                  key:      secret
+                  optional: true
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+          resources: {{- toYaml .Values.mttrWebhook.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.mttrWebhook.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: {{ .Values.mttrWebhook.service.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+      volumes:
+        - name: script
+          configMap:
+            name: mttr-webhook-script
+            items:
+              - key:  server.js
+                path: server.js
+{{- end }}

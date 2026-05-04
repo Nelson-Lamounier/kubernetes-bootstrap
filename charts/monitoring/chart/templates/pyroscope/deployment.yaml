@@ -1,0 +1,68 @@
+{{- if .Values.pyroscope.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyroscope
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "pyroscope" | nindent 4 }}
+spec:
+  replicas: {{ .Values.pyroscope.replicas }}
+  strategy:
+    # Recreate — single-replica all-in-one with RWO PVC; rolling would
+    # block on the volume mount.
+    type: Recreate
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "pyroscope" | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/pyroscope/configmap.yaml") . | sha256sum }}
+      labels: {{- include "monitoring.fullLabels" "pyroscope" | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        runAsNonRoot: true
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: pyroscope
+          image: {{ .Values.pyroscope.image }}
+          args:
+            - "-config.file=/etc/pyroscope/config.yaml"
+          ports:
+            - containerPort: {{ .Values.pyroscope.service.httpPort }}
+              name: http
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pyroscope
+            - name: data
+              mountPath: /var/pyroscope
+          resources: {{- toYaml .Values.pyroscope.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .Values.pyroscope.service.httpPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .Values.pyroscope.service.httpPort }}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: pyroscope-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: pyroscope-data
+{{- end }}

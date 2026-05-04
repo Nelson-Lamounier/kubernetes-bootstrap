@@ -1,0 +1,39 @@
+{{- if .Values.loki.pushIngress.enabled }}
+# Write-only Loki push endpoint exposed for GitHub Actions deploy markers.
+# Locked down two ways:
+#   1. Path-scoped to /loki/api/v1/push only (read APIs stay internal)
+#   2. Basic auth via the loki-push-basic-auth middleware (htpasswd in SSM)
+#
+# Use case: GH Actions curls one log line per successful deploy. Volume is
+# tiny — a few hundred lines per day across all repos.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: loki-push-basic-auth
+  namespace: {{ .Values.namespace }}
+spec:
+  basicAuth:
+    secret: loki-push-basic-auth-secret
+    removeHeader: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: loki-push-ingress
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "loki" | nindent 4 }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.loki.pushIngress.hostname }}`) && PathPrefix(`/loki/api/v1/push`)
+      kind: Rule
+      priority: 200
+      middlewares:
+        - name: loki-push-basic-auth
+      services:
+        - name: loki
+          port: {{ .Values.loki.service.port }}
+  tls: {}
+{{- end }}

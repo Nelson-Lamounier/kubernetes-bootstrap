@@ -1,0 +1,26 @@
+{{- if and .Values.pushgateway.enabled .Values.pushgateway.pushIngress.enabled }}
+# Write-only Pushgateway endpoint exposed for GitHub Actions DORA metrics
+# (deployment_event_total, deployment_lead_time_seconds, etc.).
+#
+# Reuses the loki-push-basic-auth Middleware — same caller (CI), same
+# credential rotation cadence, same SSM source.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: pushgateway-push-ingress
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "pushgateway" | nindent 4 }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.pushgateway.pushIngress.hostname }}`) && PathPrefix(`/metrics/job/`)
+      kind: Rule
+      priority: 200
+      middlewares:
+        - name: loki-push-basic-auth
+      services:
+        - name: pushgateway
+          port: {{ .Values.pushgateway.service.port }}
+  tls: {}
+{{- end }}

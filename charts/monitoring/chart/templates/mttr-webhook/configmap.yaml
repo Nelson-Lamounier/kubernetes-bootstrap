@@ -1,0 +1,392 @@
+{{- if .Values.mttrWebhook.enabled }}
+# Tiny Alertmanager → Prometheus exposition bridge.
+# Receives webhook payloads at POST /webhook, exposes the resulting
+# histogram + counter at GET /metrics. Zero external deps — runs on a
+# stock node:22-alpine image with the script mounted from this ConfigMap.
+#
+# Lifecycle: in-memory state, lost on pod restart. Prometheus scrapes
+# every 30s into TSDB so the loss window is bounded and historical
+# series are durable.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mttr-webhook-script
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "mttr-webhook" | nindent 4 }}
+data:
+  server.js: |
+    'use strict';
+    // Pure Node — no `npm install`. Manual Prometheus exposition format.
+    const http   = require('http');
+    const crypto = require('crypto');
+
+    // Histogram buckets in seconds: 1m / 5m / 10m / 30m / 1h / 4h / 1d.
+    // Aligned with DORA MTTR thresholds (elite < 1h, high < 1d).
+    const BUCKETS = [60, 300, 600, 1800, 3600, 14400, 86400];
+    const PORT = parseInt(process.env.PORT || '8080', 10);
+
+    /** key → histogram state */
+    const histogram = new Map();
+    /** key → counter value */
+    const counters  = new Map();
+
+    function labelKey(labels) {
+        return Object.entries(labels).map(([k, v]) => `${k}=${v}`).sort().join('|');
+    }
+    function labelStr(labels) {
+        return Object.entries(labels)
+            .map(([k, v]) => `${k}="${String(v).replace(/"/g, '\\"')}"`)
+            .join(',');
+    }
+    function observeIncident(labels, seconds) {
+        const k = labelKey(labels);
+        let h = histogram.get(k);
+        if (!h) {
+            h = { labels, buckets: BUCKETS.map(() => 0), sum: 0, count: 0 };
+            histogram.set(k, h);
+        }
+        h.count++;
+        h.sum += seconds;
+        for (let i = 0; i < BUCKETS.length; i++) {
+            if (seconds <= BUCKETS[i]) h.buckets[i]++;
+        }
+    }
+    function bumpCounter(labels) {
+        const k = labelKey(labels);
+        counters.set(k, { labels, value: (counters.get(k)?.value || 0) + 1 });
+    }
+
+    /** Four histograms — Google SRE incident timeline:
+     *    incident_detection_seconds      = TTD (alert `for:` duration)
+     *    incident_acknowledgement_seconds = TTA (alert.startsAt → /ack arrival)
+     *    incident_resolution_seconds     = TTM (alert.endsAt - alert.startsAt)
+     *    incident_total_seconds          = TTR = TTD + TTM (Google SRE MTTR)
+     *  All share bucket boundaries so PromQL quantile() works identically.
+     */
+    const detectionHist     = new Map();
+    const ackHist           = new Map();
+    const totalHist         = new Map();
+    /** Pending acknowledgements: key → { firedAt, labels }. Drained on
+     *  /ack receipt OR alert resolution. In-memory only; lost on pod
+     *  restart (recovers within one alert cycle). */
+    const pendingAck = new Map();
+    function alertKey(labels) {
+        return [labels.alertname, labels.service, labels.severity, labels.slo].join('|');
+    }
+
+    function observeAny(map, labels, seconds) {
+        const k = labelKey(labels);
+        let h = map.get(k);
+        if (!h) {
+            h = { labels, buckets: BUCKETS.map(() => 0), sum: 0, count: 0 };
+            map.set(k, h);
+        }
+        h.count++;
+        h.sum += seconds;
+        for (let i = 0; i < BUCKETS.length; i++) {
+            if (seconds <= BUCKETS[i]) h.buckets[i]++;
+        }
+    }
+    // Keep the original observeIncident for backwards compatibility.
+    function observeIncidentLegacy(labels, seconds) { observeAny(histogram, labels, seconds); }
+
+    function renderHistogram(name, help, map) {
+        let out = `# HELP ${name} ${help}\n# TYPE ${name} histogram\n`;
+        for (const h of map.values()) {
+            const lbl = labelStr(h.labels);
+            for (let i = 0; i < BUCKETS.length; i++) {
+                out += `${name}_bucket{${lbl},le="${BUCKETS[i]}"} ${h.buckets[i]}\n`;
+            }
+            out += `${name}_bucket{${lbl},le="+Inf"} ${h.count}\n`;
+            out += `${name}_sum{${lbl}} ${h.sum}\n`;
+            out += `${name}_count{${lbl}} ${h.count}\n`;
+        }
+        return out;
+    }
+
+    function renderMetrics() {
+        let out = '';
+        out += renderHistogram(
+            'incident_detection_seconds',
+            'Detection latency (alert `for:` duration) — Time To Detect.',
+            detectionHist,
+        );
+        out += renderHistogram(
+            'incident_acknowledgement_seconds',
+            'Engagement gap (alert.startsAt → ack received via /ack) — Time To Ack.',
+            ackHist,
+        );
+        out += renderHistogram(
+            'incident_resolution_seconds',
+            'Mitigation duration (alert.endsAt - alert.startsAt) — Time To Mitigate.',
+            histogram,
+        );
+        out += renderHistogram(
+            'incident_total_seconds',
+            'Full SRE MTTR (TTD + TTM) — failure-onset → service restored.',
+            totalHist,
+        );
+        out += '# HELP incident_total Alertmanager events received, by status.\n';
+        out += '# TYPE incident_total counter\n';
+        for (const c of counters.values()) {
+            out += `incident_total{${labelStr(c.labels)}} ${c.value}\n`;
+        }
+        return out;
+    }
+
+    function processPayload(body) {
+        // Alertmanager schema: { status, alerts: [{labels, status, startsAt, endsAt, ...}] }
+        const data = JSON.parse(body);
+        const alerts = data.alerts || [];
+        for (const a of alerts) {
+            const labels = {
+                service:   a.labels?.service   || 'unknown',
+                severity:  a.labels?.severity  || 'unknown',
+                alertname: a.labels?.alertname || 'unknown',
+                slo:       a.labels?.slo       || '',
+            };
+            bumpCounter({ ...labels, status: a.status || 'unknown' });
+            // Track firing alerts so /ack can compute TTA. Stash by key;
+            // re-firing of the same group doesn't move the original
+            // firedAt (we want the FIRST firing, not the last).
+            if (a.status === 'firing' && a.startsAt) {
+                const k = alertKey(a.labels || {});
+                if (!pendingAck.has(k)) {
+                    pendingAck.set(k, { firedAt: new Date(a.startsAt).getTime(), labels });
+                }
+            }
+            // Only resolved alerts contribute to MTTR — firing alerts have
+            // no endsAt (1970 epoch sentinel from Alertmanager).
+            if (a.status === 'resolved' && a.startsAt && a.endsAt) {
+                const start = new Date(a.startsAt).getTime();
+                const end   = new Date(a.endsAt).getTime();
+                if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+                    const ttm = Math.round((end - start) / 1000);
+                    // detect_lag_seconds is stamped on each rule's labels —
+                    // see rules-configmap.yaml. Fallback 0 when absent
+                    // (e.g. user-defined rule without the label) — counts
+                    // the incident's TTD as instantaneous, which is how
+                    // most incident trackers default.
+                    const ttd = parseInt(a.labels?.detect_lag_seconds || '0', 10) || 0;
+
+                    observeAny(histogram,     labels, ttm);
+                    observeAny(detectionHist, labels, ttd);
+                    observeAny(totalHist,     labels, ttd + ttm);
+                }
+                // Clean up pending ack — alert resolved before ack
+                // arrived (or after; either way the entry is stale).
+                pendingAck.delete(alertKey(a.labels || {}));
+            }
+        }
+    }
+
+    /**
+     * Verify PagerDuty Webhook V3 signature.
+     * Header: `X-PagerDuty-Signature: v1=<hex-hmac>,v1=<hex-hmac-rotation>`
+     * Algorithm: HMAC-SHA256 over the raw body, key = configured secret.
+     * If no PD_WEBHOOK_SECRET is set, verification is skipped (rely on
+     * basic auth at the ingress instead).
+     */
+    function verifyPagerDutySignature(rawBody, headerVal) {
+        const secret = process.env.PD_WEBHOOK_SECRET || '';
+        if (!secret) return true;
+        if (!headerVal) return false;
+        const expected = crypto
+            .createHmac('sha256', secret)
+            .update(rawBody)
+            .digest('hex');
+        const candidates = headerVal.split(',')
+            .map(s => s.trim())
+            .filter(s => s.startsWith('v1='))
+            .map(s => s.slice(3));
+        return candidates.some(c => {
+            try {
+                return c.length === expected.length &&
+                       crypto.timingSafeEqual(Buffer.from(c, 'hex'), Buffer.from(expected, 'hex'));
+            } catch { return false; }
+        });
+    }
+
+    /**
+     * Map a PagerDuty Webhook V3 payload into the generic /ack format.
+     * Configure your PD service alert payload to set custom_details.{
+     * alertname, service, severity, slo } to match Alertmanager labels —
+     * that's how the sink locates the matching firing alert.
+     *
+     * Fallback chain when custom_details is absent:
+     *   alertname  → data.title
+     *   service    → data.service.summary
+     *   severity   → urgency mapping (high → critical, low → warning)
+     *   slo        → '' (empty)
+     */
+    function pdToAck(pdPayload) {
+        const ev   = pdPayload.event || {};
+        const data = ev.data || {};
+        const cd   = data.custom_details || {};
+
+        const urgencyMap = { high: 'critical', low: 'warning' };
+        const severity = cd.severity ||
+                         urgencyMap[(data.urgency || '').toLowerCase()] ||
+                         'unknown';
+
+        return {
+            alertname: cd.alertname || data.title || 'unknown',
+            service:   cd.service   || (data.service && data.service.summary) || 'unknown',
+            severity,
+            slo:       cd.slo       || '',
+            ackedAt:   ev.occurred_at || new Date().toISOString(),
+            ackedBy:   (ev.agent && ev.agent.summary) || 'pagerduty',
+        };
+    }
+
+    function processAck(body) {
+        // Generic ack payload — any pager-tool webhook can map to this.
+        //   {
+        //     "alertname": "AdminApiAvailabilityFastBurn",
+        //     "service":   "admin-api",
+        //     "severity":  "critical",
+        //     "slo":       "availability",       // optional
+        //     "ackedAt":   "2026-01-01T00:01:30Z",
+        //     "ackedBy":   "nelson@example.com"  // optional, free-form
+        //   }
+        // Returns the seconds observed (for caller-side logging).
+        const data = JSON.parse(body);
+        const labels = {
+            service:   data.service   || 'unknown',
+            severity:  data.severity  || 'unknown',
+            alertname: data.alertname || 'unknown',
+            slo:       data.slo       || '',
+        };
+        bumpCounter({ ...labels, status: 'acknowledged' });
+
+        const key = alertKey(labels);
+        const pending = pendingAck.get(key);
+        if (!pending) {
+            // Ack arrived before we saw the firing event, or for an
+            // unknown alert. Record the event but don't observe TTA.
+            return null;
+        }
+        const ackedAtMs = data.ackedAt ? new Date(data.ackedAt).getTime() : Date.now();
+        if (!Number.isFinite(ackedAtMs)) return null;
+
+        const tta = Math.max(0, Math.round((ackedAtMs - pending.firedAt) / 1000));
+        observeAny(ackHist, labels, tta);
+        // Drain — TTA only counts the first ack. Subsequent acks (e.g. on
+        // re-firing of the same alert) start a new lifecycle on next firing.
+        pendingAck.delete(key);
+        return tta;
+    }
+
+    http.createServer(async (req, res) => {
+        try {
+            if (req.method === 'GET' && (req.url === '/livez' || req.url === '/readyz')) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end('{"status":"ok"}');
+                return;
+            }
+            if (req.method === 'GET' && req.url === '/metrics') {
+                res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
+                res.end(renderMetrics());
+                return;
+            }
+            if (req.method === 'POST' && req.url === '/webhook') {
+                let body = '';
+                req.on('data', (chunk) => { body += chunk; });
+                req.on('end', () => {
+                    try {
+                        processPayload(body);
+                        res.writeHead(204).end();
+                    } catch (err) {
+                        // Malformed payload — Alertmanager retries on 5xx but
+                        // not on 4xx. Use 400 so we don't loop on bad JSON.
+                        console.error('webhook parse error:', err.message);
+                        res.writeHead(400).end('bad payload');
+                    }
+                });
+                return;
+            }
+            if (req.method === 'POST' && req.url === '/ack') {
+                let body = '';
+                req.on('data', (chunk) => { body += chunk; });
+                req.on('end', () => {
+                    try {
+                        const tta = processAck(body);
+                        const out = JSON.stringify({
+                            ok: true,
+                            tta_seconds: tta,
+                            note: tta == null ? 'no firing alert matched — observation skipped' : undefined,
+                        });
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(out);
+                    } catch (err) {
+                        console.error('ack parse error:', err.message);
+                        res.writeHead(400).end('bad payload');
+                    }
+                });
+                return;
+            }
+            if (req.method === 'POST' && req.url === '/ack-pagerduty') {
+                // Buffer the raw body — HMAC verification needs the bytes
+                // exactly as sent (Buffer.concat preserves binary safety).
+                const chunks = [];
+                req.on('data', (chunk) => { chunks.push(chunk); });
+                req.on('end', () => {
+                    const rawBody = Buffer.concat(chunks).toString('utf-8');
+                    const sig = req.headers['x-pagerduty-signature'];
+                    if (!verifyPagerDutySignature(rawBody, sig)) {
+                        // 401 — opaque about whether secret is set vs sig mismatch.
+                        res.writeHead(401).end('signature verification failed');
+                        return;
+                    }
+                    try {
+                        const pd = JSON.parse(rawBody);
+                        const eventType = pd.event && pd.event.event_type;
+
+                        // Always count the event for visibility.
+                        bumpCounter({
+                            alertname: (pd.event && pd.event.data && pd.event.data.title) || 'unknown',
+                            service:   (pd.event && pd.event.data && pd.event.data.service && pd.event.data.service.summary) || 'unknown',
+                            severity:  'pagerduty',
+                            status:    `pd_${eventType || 'unknown'}`,
+                        });
+
+                        // Only `incident.acknowledged` produces a TTA
+                        // observation. Triggered + resolved come from
+                        // Alertmanager already; counting them here would
+                        // double-record.
+                        if (eventType !== 'incident.acknowledged') {
+                            res.writeHead(200, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({
+                                ok: true,
+                                tta_seconds: null,
+                                note: `event_type=${eventType} — only incident.acknowledged produces TTA`,
+                            }));
+                            return;
+                        }
+                        const normalised = pdToAck(pd);
+                        const tta = processAck(JSON.stringify(normalised));
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({
+                            ok: true,
+                            source: 'pagerduty',
+                            incident_id: pd.event && pd.event.data && pd.event.data.id,
+                            tta_seconds: tta,
+                            normalised,
+                            note: tta == null ? 'no firing alert matched — observation skipped' : undefined,
+                        }));
+                    } catch (err) {
+                        console.error('pagerduty parse error:', err.message);
+                        res.writeHead(400).end('bad payload');
+                    }
+                });
+                return;
+            }
+            res.writeHead(404).end();
+        } catch (err) {
+            console.error('handler error:', err);
+            res.writeHead(500).end();
+        }
+    }).listen(PORT, () => {
+        console.log(JSON.stringify({ msg: 'mttr-webhook listening', port: PORT }));
+    });
+{{- end }}

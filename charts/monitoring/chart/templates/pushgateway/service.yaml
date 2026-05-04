@@ -1,0 +1,26 @@
+{{- if .Values.pushgateway.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: pushgateway
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "pushgateway" | nindent 4 }}
+  annotations:
+    # Self-scrape so Pushgateway's own /metrics flow into Prometheus and
+    # the pushed Job counters land on every scrape interval.
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   {{ .Values.pushgateway.service.port | quote }}
+    prometheus.io/path:   "/metrics"
+    # honor_labels needed so pushed `instance` labels (per-Job UUID)
+    # aren't overwritten with the Pushgateway pod IP.
+    prometheus.io/honor_labels: "true"
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "monitoring.selectorLabels" "pushgateway" | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.pushgateway.service.port }}
+      targetPort: {{ .Values.pushgateway.service.port }}
+      protocol: TCP
+{{- end }}

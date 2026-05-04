@@ -27,6 +27,12 @@ data:
               matcherRegex: '"traceID":"(\w+)"'
               name: TraceID
               url: "$${__value.raw}"
+      - name: Pyroscope
+        type: grafana-pyroscope-datasource
+        access: proxy
+        uid: pyroscope
+        url: http://pyroscope.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.pyroscope.service.httpPort }}
+        editable: false
       - name: Tempo
         type: tempo
         access: proxy

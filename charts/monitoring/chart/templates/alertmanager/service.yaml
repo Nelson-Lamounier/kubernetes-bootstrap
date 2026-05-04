@@ -1,0 +1,23 @@
+{{- if .Values.alertmanager.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "alertmanager" | nindent 4 }}
+  annotations:
+    # Self-scrape Alertmanager so we can alert on the alerting pipeline
+    # going down (the canonical "who watches the watcher" pattern).
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   {{ .Values.alertmanager.service.port | quote }}
+    prometheus.io/path:   "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "monitoring.selectorLabels" "alertmanager" | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.alertmanager.service.port }}
+      targetPort: {{ .Values.alertmanager.service.port }}
+      protocol: TCP
+{{- end }}

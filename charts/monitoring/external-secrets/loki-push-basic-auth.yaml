@@ -1,0 +1,39 @@
+# @format
+# ExternalSecret: loki-push-basic-auth-secret
+#
+# Resolves the htpasswd-formatted credentials from SSM. Provision the
+# parameter in SSM at /k8s/{env}/loki-push-basic-auth — value must be:
+#   <user>:<bcrypt-hash>
+#
+# Generate locally:
+#   htpasswd -nbB github-actions 's3cret-token-here'
+#
+# Referenced by: charts/monitoring/chart/templates/loki/ingress-push.yaml
+# (loki-push-basic-auth Middleware via spec.basicAuth.secret).
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: loki-push-basic-auth-secret
+  namespace: monitoring
+  annotations:
+    kubernetes.io/description: "Loki push API basic-auth — used by GitHub Actions for deploy markers"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: loki-push-basic-auth-secret
+    creationPolicy: Owner
+    deletionPolicy: Delete
+    template:
+      type: Opaque
+      data:
+        # Traefik's basicAuth Middleware reads the htpasswd line from a
+        # key named `users`. ESO templates the SSM-fetched string into it.
+        users: |
+          {{ .credentials }}
+  data:
+    - secretKey: credentials
+      remoteRef:
+        key: /k8s/development/loki-push-basic-auth

@@ -43,6 +43,12 @@ spec:
             - containerPort: {{ .Values.alloy.service.faroPort }}
               name: faro
               protocol: TCP
+            - containerPort: {{ .Values.alloy.service.otlpHttpPort }}
+              name: otlp-http
+              protocol: TCP
+            - containerPort: {{ .Values.alloy.service.otlpGrpcPort }}
+              name: otlp-grpc
+              protocol: TCP
           volumeMounts:
             - name: config
               mountPath: /etc/alloy

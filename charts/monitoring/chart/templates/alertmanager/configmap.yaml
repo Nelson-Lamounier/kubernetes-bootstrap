@@ -1,0 +1,101 @@
+{{- if .Values.alertmanager.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "alertmanager" | nindent 4 }}
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    # Two-tier route tree:
+    #   critical → SNS immediately, retry every 30m so a sleeping operator
+    #              gets nudged on the long-burn alert.
+    #   warning  → 5m group_wait collapses bursts; 4h repeat avoids
+    #              ticket spam for slow-burn issues.
+    # default fallback (no severity label) routes to SNS but with the
+    # warning cadence so misconfigured rules don't go silent.
+    route:
+      receiver: sns
+      group_by: ['alertname', 'service', 'slo']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        {{- if $.Values.mttrWebhook.enabled }}
+        # Carbon-copy EVERY alert (firing + resolved) to the MTTR sink.
+        # `continue: true` ensures human-facing routes below still match.
+        # Webhook gets resolved events because the parent route's
+        # send_resolved is upstream-default; the sink itself only counts
+        # resolved alerts toward MTTR.
+        - receiver: mttr-webhook
+          continue: true
+        {{- end }}
+        # Dev-environment alerts go to /dev/null for HUMAN routing —
+        # but the MTTR sink above already counted them.
+        - matchers:
+            - environment = development
+          receiver: blackhole
+          continue: false
+        - matchers:
+            - severity = critical
+          receiver: sns
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 30m
+        - matchers:
+            - severity = warning
+          receiver: sns
+          group_wait: 5m
+          group_interval: 10m
+          repeat_interval: 4h
+
+    # SNS receiver — uses the EC2 instance profile credentials. The topic
+    # ARN is templated in from .Values.grafana.alerting.snsTopicArn so the
+    # Grafana contact point and Alertmanager point at the same SNS topic.
+    receivers:
+      - name: blackhole   # silently drop — used for dev-environment routing
+      {{- if $.Values.mttrWebhook.enabled }}
+      # MTTR sink — every receiver chain ends with this so resolved alerts
+      # carry firing→resolved deltas to Prometheus regardless of severity.
+      # The route tree below uses `continue: true` on the SNS routes so
+      # alerts hit BOTH the human (SNS) and the metrics path (this hook).
+      - name: mttr-webhook
+        webhook_configs:
+          - url: http://mttr-webhook.{{ $.Values.namespace }}.svc.cluster.local:{{ $.Values.mttrWebhook.service.port }}/webhook
+            send_resolved: true   # critical — without this, no MTTR signal
+      {{- end }}
+      - name: sns
+        sns_configs:
+          - sigv4:
+              region: {{ .Values.grafana.alerting.awsRegion | quote }}
+            topic_arn: {{ .Values.grafana.alerting.snsTopicArn | quote }}
+            subject: "{{ .Values.alertmanager.subjectPrefix }} {{ "{{ .CommonLabels.severity | toUpper }}" }} {{ "{{ .CommonLabels.alertname }}" }}"
+            message: |
+              {{ "{{ range .Alerts }}" }}
+              Alert:    {{ "{{ .Labels.alertname }}" }}
+              Service:  {{ "{{ .Labels.service }}" }}
+              Severity: {{ "{{ .Labels.severity }}" }}
+              SLO:      {{ "{{ .Labels.slo }}" }}  Burn: {{ "{{ .Labels.burn }}" }}
+              State:    {{ "{{ .Status }}" }}
+              Started:  {{ "{{ .StartsAt }}" }}
+              Summary:  {{ "{{ .Annotations.summary }}" }}
+              Detail:   {{ "{{ .Annotations.description }}" }}
+              {{ "{{ end }}" }}
+
+    inhibit_rules:
+      # Fast-burn supersedes the slower-burn alerts on the same SLO —
+      # don't double-page when the budget is melting in 1h AND in 6h.
+      - source_matchers:
+          - burn = fast
+        target_matchers:
+          - burn =~ "medium|slow|monthly"
+        equal: ['service', 'slo']
+      - source_matchers:
+          - burn = medium
+        target_matchers:
+          - burn =~ "slow|monthly"
+        equal: ['service', 'slo']
+{{- end }}

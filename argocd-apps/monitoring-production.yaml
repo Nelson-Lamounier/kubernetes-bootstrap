@@ -1,0 +1,69 @@
+# @format
+# ArgoCD Application: Monitoring Stack — PRODUCTION
+#
+# NOT IN USE YET. Two patterns to apply when prod cluster comes online:
+#
+#   Pattern A (single ArgoCD, multi-cluster):
+#     Keep this Application as-is, change destination.server to the prod
+#     cluster's API server URL, register the cluster with `argocd cluster add`.
+#
+#   Pattern B (separate ArgoCD per cluster):
+#     Apply this manifest to the prod cluster's ArgoCD instance and remove
+#     it from dev. Each cluster's ArgoCD owns its own Applications.
+#
+# values-production.yaml in the chart is a TEMPLATE — review and tune
+# before rolling out (snsTopicArn, cloudfront bucket, resource sizing).
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-production
+  annotations:
+    kubernetes.io/description: "Monitoring stack for the production cluster"
+    argocd.argoproj.io/sync-wave: "3"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    environment: production
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/monitoring/chart
+    helm:
+      valueFiles:
+        - values-production.yaml
+
+  destination:
+    # Pattern A — set this to the prod cluster API server.
+    # Pattern B — leave default; prod-cluster ArgoCD applies its own copy.
+    server:    https://kubernetes.default.svc
+    namespace: monitoring
+
+  ignoreDifferences:
+    - group: traefik.io
+      kind:  Middleware
+      name:  admin-ip-allowlist
+      jsonPointers:
+        - /spec/ipAllowList/sourceRange
+
+  syncPolicy:
+    automated:
+      prune:    true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration:    10s
+        factor:      2
+        maxDuration: 5m

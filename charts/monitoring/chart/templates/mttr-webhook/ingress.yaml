@@ -1,0 +1,41 @@
+{{- if and .Values.mttrWebhook.enabled .Values.mttrWebhook.pushIngress.enabled }}
+# External ack endpoints for paging tools.
+# Two paths exposed:
+#   /ack             generic format (any tool can map to this shape)
+#   /ack-pagerduty   native PagerDuty Webhook V3 schema, optional HMAC verify
+#
+# /webhook stays cluster-internal — Alertmanager → sink only.
+# /metrics is NOT exposed externally — only Prometheus scrapes it.
+#
+# Defence layers per endpoint:
+#   /ack             basic-auth via loki-push-basic-auth Middleware (SSM htpasswd)
+#   /ack-pagerduty   basic-auth + (optional) HMAC-SHA256 X-PagerDuty-Signature
+#                    when PD_WEBHOOK_SECRET is set on the deployment.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mttr-webhook-ack-ingress
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "mttr-webhook" | nindent 4 }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.mttrWebhook.pushIngress.hostname }}`) && Path(`/ack`)
+      kind: Rule
+      priority: 200
+      middlewares:
+        - name: loki-push-basic-auth
+      services:
+        - name: mttr-webhook
+          port: {{ .Values.mttrWebhook.service.port }}
+    - match: Host(`{{ .Values.mttrWebhook.pushIngress.hostname }}`) && Path(`/ack-pagerduty`)
+      kind: Rule
+      priority: 200
+      middlewares:
+        - name: loki-push-basic-auth
+      services:
+        - name: mttr-webhook
+          port: {{ .Values.mttrWebhook.service.port }}
+  tls: {}
+{{- end }}

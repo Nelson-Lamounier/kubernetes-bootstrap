@@ -1,0 +1,23 @@
+{{- if .Values.mttrWebhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: mttr-webhook
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "mttr-webhook" | nindent 4 }}
+  annotations:
+    # Auto-scraped by Prometheus's kubernetes-service-endpoints job.
+    # Drives DORA dashboard MTTR panels.
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   {{ .Values.mttrWebhook.service.port | quote }}
+    prometheus.io/path:   "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "monitoring.selectorLabels" "mttr-webhook" | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.mttrWebhook.service.port }}
+      targetPort: {{ .Values.mttrWebhook.service.port }}
+      protocol: TCP
+{{- end }}

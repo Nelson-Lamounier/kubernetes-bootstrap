@@ -1,0 +1,26 @@
+{{- if .Values.pyroscope.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pyroscope-config
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "pyroscope" | nindent 4 }}
+data:
+  config.yaml: |
+    # All-in-one Pyroscope deployment: distributor + ingester + querier in
+    # one process, file-system blocks on a PVC. Suitable up to a few dozen
+    # services pushing every 10s. Switch to micro-services mode when QPS
+    # justifies the operational overhead.
+    target: all
+    server:
+      http_listen_port: {{ .Values.pyroscope.service.httpPort }}
+    storage:
+      backend: filesystem
+      filesystem:
+        dir: /var/pyroscope/data
+    pyroscopedb:
+      data_path: /var/pyroscope/data
+    limits:
+      max_query_lookback: {{ .Values.pyroscope.retention }}
+      retention_period:   {{ .Values.pyroscope.retention }}
+{{- end }}

@@ -90,6 +90,14 @@ grafana:
 # ---------------------------------------------------------------------------
 loki:
   image: grafana/loki:3.5.0
+  # ── External push endpoint for GH Actions deploy markers ────────────────
+  # Exposes `/loki/api/v1/push` only via Traefik with basic auth.
+  # OFF by default; turn on per environment via values-{env}.yaml when the
+  # ExternalSecret `loki-push-basic-auth-secret` is provisioned in SSM at
+  # /k8s/{env}/loki-push-basic-auth (htpasswd format: "user:bcrypt_hash").
+  pushIngress:
+    enabled:  false
+    hostname: ""    # e.g. loki-push.nelsonlamounier.com
   replicas: 1
   resources:
     requests:
@@ -222,6 +230,43 @@ alloy:
   service:
     httpPort: 12345
     faroPort: 12347
+    # OTLP receiver — backend services (admin-api, tucaken-app SSR) push
+    # spans here. Alloy fans out to Tempo (and span_metrics to Prometheus
+    # via its remote_write if enabled later). HTTP receiver is sufficient
+    # for the Node SDK; gRPC is exposed in case other workloads prefer it.
+    otlpHttpPort: 4318
+    otlpGrpcPort: 4317
+
+  # ── AWS log scrapers ────────────────────────────────────────────────────────
+  # Alloy polls CloudWatch Log Groups + S3 buckets and forwards to Loki.
+  # Required IAM on the EC2 instance profile:
+  #   logs:FilterLogEvents, logs:GetLogEvents, logs:DescribeLogGroups
+  #   s3:GetObject, s3:ListBucket  (only if cloudfrontLogs.bucket is set)
+  awsLogs:
+    region: eu-west-1
+    # CloudTrail — instance launches, ASG actions, IAM, KMS. Default delivery
+    # is to the management-events log group. Adjust if you use a different name.
+    cloudtrail:
+      enabled: true
+      logGroupName: /aws/cloudtrail/management-events
+    # SSM Automation — boot script log streams from SM-A.
+    ssmAutomation:
+      enabled: true
+      logGroupName: /aws/ssm/automation
+    # CloudFront standard logs land in S3, not CloudWatch. Realtime logs go
+    # to Kinesis. Either path works; pick one. Leave both disabled if you
+    # haven't set CF logging up yet (the dashboard panels will show no data
+    # rather than break).
+    cloudfrontLogs:
+      enabled:    false
+      bucket:     ""               # e.g. portfolio-cf-access-logs
+      prefix:     "AWSLogs/"       # CF default prefix
+    # Self-healing Lambda logs — already covered via the generic /aws/lambda/*
+    # prefix below if enabled. Otherwise list discrete groups.
+    lambdaLogs:
+      enabled: true
+      # Wildcard prefix — Alloy expands to every matching group at startup.
+      logGroupPrefix: /aws/lambda/
   ingress:
     enabled: true
     matchRule: "PathPrefix(`/faro`)"
@@ -229,6 +274,154 @@ alloy:
       - "https://nelsonlamounier.com"
       - "https://www.nelsonlamounier.com"
       - "http://localhost:3000"
+
+# ---------------------------------------------------------------------------
+# SLO definitions — multi-window multi-burn-rate alerting (Google SRE workbook)
+# ---------------------------------------------------------------------------
+# Each entry produces:
+#   - 7 recording rules per SLO (5m/30m/1h/2h/6h/1d/3d windows)
+#   - 4 alert rules per SLO (page-2%, page-5%, ticket-10%, ticket-monthly)
+# Rendered by templates/prometheus/rules-configmap.yaml.
+#
+# Burn-rate maths: alert when error rate over both a long and short window
+# exceeds N× the budget burn rate. The two-window guard prevents flapping
+# on transient blips. Constants below match the SRE workbook table:
+#   2% in 1h        → 14.4×, windows 1h + 5m
+#   5% in 6h        → 6×,    windows 6h + 30m
+#   10% in 1d       → 3×,    windows 1d + 2h
+#   10% in 3d       → 1×,    windows 3d + 6h
+# ---------------------------------------------------------------------------
+# Pyroscope — continuous profiling server
+# ---------------------------------------------------------------------------
+# Receives pprof profiles pushed by @pyroscope/nodejs in admin-api and the
+# tucaken-app SSR process every 10s. Single replica with EBS-backed PVC;
+# all-in-one mode (querier + distributor + ingester) is sufficient at
+# this traffic level.
+pyroscope:
+  enabled: true
+  image: grafana/pyroscope:1.13.0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  service:
+    httpPort: 4040
+  pvc:
+    size: 20Gi
+    storageClass: ebs-sc
+  retention: 720h          # 30 days
+
+# ---------------------------------------------------------------------------
+# Alertmanager — routes Prometheus SLO alerts to SNS (email)
+# ---------------------------------------------------------------------------
+# Reuses .Values.grafana.alerting.snsTopicArn so the SNS topic is declared
+# once. The cluster runs on EC2 with an instance profile that already
+# carries `sns:Publish` for this topic — no IRSA / SA annotation needed.
+#
+# Severity labels on Prometheus rules drive routing:
+#   severity: critical  →  immediate page (no group_wait)
+#   severity: warning   →  ticket queue   (5m group_wait, 4h repeat)
+# ---------------------------------------------------------------------------
+# Pushgateway — terminal metrics from short-lived Jobs
+# ---------------------------------------------------------------------------
+# K8s Jobs (resume-import-processor, platform-rds-bootstrap) finish before
+# Prometheus can scrape. They push final counters/histograms here at exit;
+# Prometheus then scrapes Pushgateway as a regular target. Use group keys
+# {service, instance} so successive runs replace, not stack.
+pushgateway:
+  enabled: true
+  image: prom/pushgateway:v1.10.0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  service:
+    port: 9091
+  # External push endpoint for GH Actions DORA leg. Reuses the Loki
+  # push-auth Middleware (same htpasswd, same SSM path) since both surface
+  # write-only to the same caller.
+  pushIngress:
+    enabled:  false
+    hostname: ""    # e.g. pushgateway.nelsonlamounier.com
+
+# ---------------------------------------------------------------------------
+# MTTR webhook — Alertmanager → Prometheus exposition bridge.
+# ---------------------------------------------------------------------------
+# Tiny Node service in monitoring namespace. Receives Alertmanager webhook
+# payloads, exposes /metrics with `incident_resolution_seconds` histogram
+# and `incident_total` counter. Drives the DORA dashboard's MTTR panels
+# without needing a separate Lambda or external sink.
+mttrWebhook:
+  enabled: true
+  # Stock node:22-alpine — script lives in a ConfigMap, no external image
+  # build pipeline. Pin a specific tag for reproducibility.
+  image: node:22-alpine
+  resources:
+    requests: { cpu: 10m,  memory: 32Mi }
+    limits:   { cpu: 100m, memory: 96Mi }
+  service:
+    port: 8080
+  # External /ack endpoint for paging tools (PagerDuty, OpsGenie, custom
+  # webhook). Reuses loki-push-basic-auth Middleware (shared credential
+  # rotation; same SSM source). OFF by default — turn on per env when a
+  # pager is wired.
+  pushIngress:
+    enabled:  false
+    hostname: ""    # e.g. mttr-webhook.nelsonlamounier.com
+
+alertmanager:
+  enabled: true
+  image: prom/alertmanager:v0.28.1
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  service:
+    port: 9093
+  pvc:
+    size: 2Gi
+    storageClass: ebs-sc
+  retention: 120h
+  # Domain-specific subject prefix in the SNS message — useful when one
+  # topic fans out to multiple email subscribers.
+  subjectPrefix: "[portfolio-dev]"
+
+slo:
+  enabled: true
+  # Recording rules always render — dashboards use them.
+  # Alert rules are gated: in dev, burn-rate alerts are noise (no real
+  # load), so set alertsEnabled=false in values-development.yaml. Even
+  # when true, Alertmanager drops alerts with environment="development"
+  # at the routing layer (defence-in-depth).
+  alertsEnabled: true
+  services:
+    - name:               admin-api
+      namespace:          admin-api
+      availabilityTarget: 0.999       # 99.9% — three nines, 43m budget / 30d
+      latencyTarget:      0.95        # 95% of requests under bucket le
+      latencyBucketLe:    "0.5"       # 500 ms
+      requestMetric:      http_requests_total
+      latencyMetric:      http_request_duration_seconds_bucket
+
+    - name:               tucaken-app
+      namespace:          tucaken-app
+      availabilityTarget: 0.995       # 99.5% — accommodates SSR cold starts
+      latencyTarget:      0.95
+      latencyBucketLe:    "1"         # 1 s — SSR is heavier than API
+      requestMetric:      ssr_requests_total
+      latencyMetric:      ssr_request_duration_seconds_bucket
 
 # ---------------------------------------------------------------------------
 # Resource Quota (namespace-level limits)

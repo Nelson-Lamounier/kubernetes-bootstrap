@@ -1,0 +1,84 @@
+# @format
+# Production environment overrides — placeholders.
+# NOT IN USE YET. Copy + tune when the prod cluster comes online.
+#
+# Resource sizing here is a STARTING POINT (≈ 2x dev). After 1-2 weeks of
+# real traffic, run `kubectl top` on the prod stack and shrink — the
+# 120% rule (observed p50 × 1.5) gives the safe minimum.
+
+# ─── Environment identity ────────────────────────────────────────────────────
+environment: production
+clusterName: portfolio-production
+
+# ─── SLO alerting — ON in prod ──────────────────────────────────────────────
+slo:
+  alertsEnabled: true     # burn-rate alerts route to SNS via Alertmanager
+
+grafana:
+  alerting:
+    # SET BEFORE PROD GO-LIVE. Provision the topic + email subscription via
+    # Terraform/CDK; ESO can sync the ARN from SSM if you prefer not to
+    # commit it here.
+    snsTopicArn: arn:aws:sns:eu-west-1:CHANGEME:portfolio-prod-alerts
+    awsRegion:   eu-west-1
+
+# ─── AWS log scrapers — separate prod log groups ─────────────────────────────
+alloy:
+  awsLogs:
+    region: eu-west-1
+    cloudtrail:
+      enabled: true
+      logGroupName: /aws/cloudtrail/management-events    # multi-region trail
+    ssmAutomation:
+      enabled: true
+      logGroupName: /aws/ssm/automation
+    cloudfrontLogs:
+      enabled: true
+      bucket:  portfolio-prod-cf-logs                    # CHANGEME
+      prefix:  AWSLogs/
+    lambdaLogs:
+      enabled: true
+      logGroupPrefix: /aws/lambda/
+
+# ─── Resource sizing — 2x dev as starting point ──────────────────────────────
+prometheus:
+  resources:
+    requests: { cpu: 100m, memory: 768Mi }
+    limits:   { cpu: 500m, memory: 2Gi }
+  pvc:
+    size: 50Gi
+  retention: 30d
+
+grafana:
+  resources:
+    requests: { cpu: 30m,  memory: 256Mi }
+    limits:   { cpu: 600m, memory: 768Mi }
+  pvc:
+    size: 5Gi
+
+loki:
+  resources:
+    requests: { cpu: 50m,  memory: 512Mi }
+    limits:   { cpu: 600m, memory: 1Gi }
+  pvc:
+    size: 50Gi
+
+tempo:
+  resources:
+    requests: { cpu: 40m,  memory: 640Mi }
+    limits:   { cpu: 500m, memory: 1Gi }
+  pvc:
+    size: 30Gi
+
+pyroscope:
+  pvc:
+    size: 50Gi
+  retention: 720h          # 30 days — ample for prod regression hunts
+
+resourceQuota:
+  hard:
+    requests.cpu: "2000m"
+    requests.memory: 6Gi
+    limits.cpu: "6"
+    limits.memory: 10Gi
+    persistentvolumeclaims: "10"

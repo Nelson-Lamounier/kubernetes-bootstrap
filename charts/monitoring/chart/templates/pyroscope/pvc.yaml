@@ -1,0 +1,16 @@
+{{- if .Values.pyroscope.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pyroscope-data
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "pyroscope" | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if .Values.pyroscope.pvc.storageClass }}
+  storageClassName: {{ .Values.pyroscope.pvc.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.pyroscope.pvc.size }}
+{{- end }}

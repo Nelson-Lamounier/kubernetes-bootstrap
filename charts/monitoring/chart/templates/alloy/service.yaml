@@ -17,3 +17,11 @@ spec:
       port: {{ .Values.alloy.service.faroPort }}
       targetPort: {{ .Values.alloy.service.faroPort }}
       protocol: TCP
+    - name: otlp-http
+      port: {{ .Values.alloy.service.otlpHttpPort }}
+      targetPort: {{ .Values.alloy.service.otlpHttpPort }}
+      protocol: TCP
+    - name: otlp-grpc
+      port: {{ .Values.alloy.service.otlpGrpcPort }}
+      targetPort: {{ .Values.alloy.service.otlpGrpcPort }}
+      protocol: TCP

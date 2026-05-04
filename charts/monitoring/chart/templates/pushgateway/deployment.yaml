@@ -1,0 +1,51 @@
+{{- if .Values.pushgateway.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pushgateway
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "pushgateway" | nindent 4 }}
+spec:
+  replicas: {{ .Values.pushgateway.replicas }}
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "pushgateway" | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "monitoring.fullLabels" "pushgateway" | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: pushgateway
+          image: {{ .Values.pushgateway.image }}
+          args:
+            # Persist push state on graceful shutdown so a pod restart
+            # doesn't lose the most recent terminal counters.
+            - "--persistence.file=/tmp/pushgateway-state"
+            - "--persistence.interval=5m"
+            - "--web.listen-address=:{{ .Values.pushgateway.service.port }}"
+          ports:
+            - containerPort: {{ .Values.pushgateway.service.port }}
+              name: http
+          resources: {{- toYaml .Values.pushgateway.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: {{ .Values.pushgateway.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: {{ .Values.pushgateway.service.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 15
+{{- end }}

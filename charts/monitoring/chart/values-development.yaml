@@ -2,6 +2,45 @@
 # Development environment overrides — right-sized to actual kubectl top observations.
 # Development: 1x t3.medium node shared with ArgoCD components.
 # All values ≈ observed p50 × 1.5 (120% rule from ops standards).
+#
+# ─── Environment identity ────────────────────────────────────────────────────
+# Stamped onto every metric (external_labels), every span (resource attrs),
+# every log line (pino base), every alert routing decision. Single source.
+environment: development
+clusterName: portfolio-development
+
+# ─── Alerting — DEV BLACKHOLE ────────────────────────────────────────────────
+# In dev, SLO burn-rate alerts are fiction (no real load → unstable ratios).
+# Two-layer defence:
+#   1. alertsEnabled=false → Prometheus rules don't render the alert blocks.
+#      Recording rules still emit so dashboards stay populated.
+#   2. Alertmanager has a route matcher for environment=development that
+#      drops anything that does fire to a `blackhole` receiver. Belt + braces.
+slo:
+  alertsEnabled: false
+
+grafana:
+  alerting:
+    snsTopicArn: ""        # no SNS in dev — email/Slack are noise
+    awsRegion:   eu-west-1
+
+# ─── AWS log scrapers — adjust group names if yours differ ───────────────────
+alloy:
+  awsLogs:
+    region: eu-west-1
+    cloudtrail:
+      enabled: true
+      logGroupName: /aws/cloudtrail/management-events
+    ssmAutomation:
+      enabled: true
+      logGroupName: /aws/ssm/automation
+    cloudfrontLogs:
+      enabled: false        # turn on once a CF logs S3 bucket is set up
+      bucket:  ""
+      prefix:  "AWSLogs/"
+    lambdaLogs:
+      enabled: true
+      logGroupPrefix: /aws/lambda/
 
 prometheus:
   resources:
@@ -40,6 +79,24 @@ loki:
       memory: 512Mi
   pvc:
     size: 5Gi
+  # Expose the push endpoint so GitHub Actions can write deploy markers.
+  # Provision /k8s/development/loki-push-basic-auth in SSM first
+  # (htpasswd line — see external-secrets/loki-push-basic-auth.yaml).
+  pushIngress:
+    enabled:  true
+    hostname: loki-push.nelsonlamounier.com
+
+# Pushgateway external endpoint — same auth as Loki push, distinct hostname.
+pushgateway:
+  pushIngress:
+    enabled:  true
+    hostname: pushgateway.nelsonlamounier.com
+
+# MTTR webhook /ack endpoint — external pager → in-cluster sink.
+mttrWebhook:
+  pushIngress:
+    enabled:  true
+    hostname: mttr-webhook.nelsonlamounier.com
 
 tempo:
   resources:
