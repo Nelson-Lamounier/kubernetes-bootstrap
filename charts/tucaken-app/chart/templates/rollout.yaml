@@ -59,6 +59,32 @@ spec:
             - containerPort: {{ .Values.port }}
               name: http
               protocol: TCP
+          env:
+            # ── Observability (OTel SDK + pino + prom-client) ─────────────
+            # The image preloads telemetry.js via `node --import` so the
+            # SDK monkey-patches http/undici before server.js evaluates;
+            # outbound fetches to admin-api therefore carry traceparent
+            # without any per-callsite plumbing.
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.observability.serviceName | quote }}
+            - name: OTEL_SERVICE_VERSION
+              value: {{ .Values.image.tag | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.observability.otlpEndpoint | quote }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment={{ .Values.observability.env }},k8s.namespace.name={{ .Values.namespace }}"
+            - name: DEPLOY_ENV
+              value: {{ .Values.observability.env | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.observability.logLevel | quote }}
+            {{- if .Values.observability.pyroscopeServer }}
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: {{ .Values.observability.pyroscopeServer | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- end }}
           envFrom:
             - secretRef:
                 name: {{ .Values.secrets.name }}

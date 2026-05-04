@@ -59,17 +59,31 @@ service:
 # ---------------------------------------------------------------------------
 probes:
   readiness:
-    path: /sign-in
+    path: /readyz
     initialDelaySeconds: 10
     periodSeconds: 10
-    timeoutSeconds: 10
+    timeoutSeconds: 5
     failureThreshold: 3
   liveness:
-    path: /sign-in
+    path: /livez
     initialDelaySeconds: 30
     periodSeconds: 15
-    timeoutSeconds: 10
+    timeoutSeconds: 5
     failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# Observability — OTel + pino + prom-client (server-side SSR Node process)
+# ---------------------------------------------------------------------------
+# Faro RUM continues to run in the browser (see src/lib/observability/
+# faro-admin.ts) — these settings cover the SSR Node leg only. Trace context
+# from the browser flows into the SSR span and out to admin-api as one
+# distributed trace once both ends ship to Alloy.
+observability:
+  serviceName:    tucaken-app
+  env:            development
+  logLevel:       info
+  otlpEndpoint:   http://alloy.monitoring.svc.cluster.local:4318
+  pyroscopeServer: http://pyroscope.monitoring.svc.cluster.local:4040
 
 # ---------------------------------------------------------------------------
 # Ingress (Traefik IngressRoute CRD)

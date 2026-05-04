@@ -5,6 +5,13 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "tucaken-app.fullLabels" . | nindent 4 }}
+  annotations:
+    # Auto-discovered by Prometheus's `kubernetes-service-endpoints` job in
+    # the monitoring chart. Scrape lands on the SSR Node process which
+    # exposes prom-client default metrics + SSR/admin-api RED histograms.
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   {{ .Values.port | quote }}
+    prometheus.io/path:   "/metrics"
 spec:
   type: {{ .Values.service.type }}
   selector:

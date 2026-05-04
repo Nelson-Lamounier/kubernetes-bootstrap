@@ -30,3 +30,23 @@ migration:
   enabled: false
   articlesTable: ""
   strategistTable: ""
+
+# ── Observability — neutral chart default; per-env files override ───────────
+# Set env=development in values-development.yaml and env=production in
+# values-production.yaml. This block keeps templates from blowing up when
+# neither file is applied (e.g. local helm template).
+observability:
+  env:      development
+  logLevel: info
+
+# ── PgBouncer metrics — opt-in sidecar ──────────────────────────────────────
+# pgbouncer itself only exposes stats via its admin SQL console (SHOW STATS
+# / SHOW POOLS), not HTTP. The community exporter
+# (prometheuscommunity/pgbouncer-exporter) connects to that console and
+# republishes as Prometheus metrics on :9127. Off in this chart; flip on
+# in values-{env}.yaml when ready — it adds one sidecar container + one
+# Service port and the database.json dashboard panels populate.
+metricsExporter:
+  enabled: false
+  image:   prometheuscommunity/pgbouncer-exporter:0.10.2
+  port:    9127

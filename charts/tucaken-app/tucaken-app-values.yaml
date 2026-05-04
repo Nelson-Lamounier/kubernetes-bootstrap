@@ -42,3 +42,12 @@ rollout:
 
 networkPolicy:
   enabled: false
+
+# ── Observability — pin to development ────────────────────────────────────────
+# Stamps env=development on every Faro RUM event, every SSR span, every pino
+# log line. Faro reads the value at boot from the chart-templated config the
+# tucaken-app exposes; verify by checking dev-tools network: the Faro
+# /collect POST body should contain {"meta":{"app":{"environment":"development"}}}.
+observability:
+  env:      development
+  logLevel: debug
