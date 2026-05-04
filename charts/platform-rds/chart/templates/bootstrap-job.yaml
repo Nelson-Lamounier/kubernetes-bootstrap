@@ -41,6 +41,22 @@ spec:
       containers:
       - name: bootstrap
         image: {{ .Values.bootstrap.image.repository }}:{{ .Values.bootstrap.image.tag }}
+        env:
+          # Observability — same pattern as the workload Jobs in
+          # admin-api/k8s-job-builder.ts. Logs emitted via the shared
+          # @bedrock/shared logger auto-pick env+trace_id from these.
+          # No /metrics exposed (one-shot Job); no Pushgateway push (DDL
+          # outcomes are visible from the Job's exit code + Loki stream).
+          - name: DEPLOY_ENV
+            value: {{ .Values.observability.env | quote }}
+          - name: LOG_LEVEL
+            value: {{ .Values.observability.logLevel | quote }}
+          - name: OTEL_SERVICE_NAME
+            value: "platform-rds-bootstrap"
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: "http://alloy.monitoring.svc.cluster.local:4318"
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: "deployment.environment={{ .Values.observability.env }},k8s.namespace.name={{ .Values.namespace }},job.kind=ddl-bootstrap"
         envFrom:
         - secretRef:
             name: platform-rds-credentials

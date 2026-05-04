@@ -37,6 +37,17 @@ spec:
               value: {{ .Values.migration.articlesTable | quote }}
             - name: STRATEGIST_TABLE
               value: {{ .Values.migration.strategistTable | quote }}
+            # Observability — env + trace context propagation
+            - name: DEPLOY_ENV
+              value: {{ .Values.observability.env | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.observability.logLevel | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: "platform-rds-migration"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://alloy.monitoring.svc.cluster.local:4318"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment={{ .Values.observability.env }},k8s.namespace.name={{ .Values.namespace }},job.kind=ddl-migration"
           envFrom:
             - secretRef:
                 name: platform-rds-credentials

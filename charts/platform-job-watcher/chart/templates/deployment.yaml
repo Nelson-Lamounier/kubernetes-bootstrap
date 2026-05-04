@@ -22,9 +22,28 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: Always
           command: ["node", "dist/run-watcher.js"]
+          ports:
+            - containerPort: 9100
+              name: metrics
+              protocol: TCP
           env:
             - name: WATCHER_CONFIG_PATH
               value: /etc/watcher/config.yaml
+            # ── Observability ────────────────────────────────────────────────
+            - name: OTEL_SERVICE_NAME
+              value: "platform-job-watcher"
+            - name: OTEL_SERVICE_VERSION
+              value: {{ .Values.image.tag | quote }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://alloy.monitoring.svc.cluster.local:4318"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment={{ .Values.observability.env | default "dev" }},k8s.namespace.name={{ .Values.namespace }}"
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: "http://pyroscope.monitoring.svc.cluster.local:4040"
+            - name: DEPLOY_ENV
+              value: {{ .Values.observability.env | default "dev" | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.observability.logLevel | default "info" | quote }}
           envFrom:
             - secretRef:
                 name: platform-rds-credentials
@@ -32,6 +51,18 @@ spec:
             - name: watcher-config
               mountPath: /etc/watcher
               readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9100
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 9100
+            initialDelaySeconds: 15
+            periodSeconds: 20
           resources:
             requests:
               memory: {{ .Values.resources.requests.memory }}

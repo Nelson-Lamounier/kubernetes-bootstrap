@@ -1,0 +1,109 @@
+# @format
+# ArgoCD Applications — workload stack for PRODUCTION.
+# NOT IN USE YET. Three Applications in one manifest:
+#
+#   admin-api-production
+#   tucaken-app-production
+#   platform-job-watcher-production
+#
+# Each points at the SAME chart directory as dev but selects its
+# corresponding values-production.yaml file. The destination.server can
+# point at the prod cluster's API URL (multi-cluster ArgoCD) or stay as the
+# in-cluster URL if you run a separate ArgoCD per cluster.
+
+# ───────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: admin-api-production
+  annotations:
+    kubernetes.io/description: "admin-api BFF — production"
+    argocd.argoproj.io/sync-wave: "10"
+  namespace: argocd
+  labels: { app.kubernetes.io/part-of: argocd, environment: production }
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL:        git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path:           charts/admin-api/chart
+    helm:
+      valueFiles:
+        - "../admin-api-values-production.yaml"
+  destination:
+    server:    https://kubernetes.default.svc       # change for multi-cluster
+    namespace: admin-api
+  ignoreDifferences:
+    - group: argoproj.io
+      kind:  Rollout
+      jsonPointers:
+        - /spec/template/metadata/annotations
+  syncPolicy:
+    automated: { prune: true, selfHeal: true, allowEmpty: false }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tucaken-app-production
+  annotations:
+    kubernetes.io/description: "tucaken-app SSR — production"
+    argocd.argoproj.io/sync-wave: "10"
+  namespace: argocd
+  labels: { app.kubernetes.io/part-of: argocd, environment: production }
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL:        git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path:           charts/tucaken-app/chart
+    helm:
+      valueFiles:
+        - "../tucaken-app-values-production.yaml"
+  destination:
+    server:    https://kubernetes.default.svc
+    namespace: tucaken-app
+  ignoreDifferences:
+    - group: argoproj.io
+      kind:  Rollout
+      jsonPointers:
+        - /spec/template/metadata/annotations
+  syncPolicy:
+    automated: { prune: true, selfHeal: true, allowEmpty: false }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-job-watcher-production
+  annotations:
+    kubernetes.io/description: "platform-job-watcher — production"
+    argocd.argoproj.io/sync-wave: "10"
+  namespace: argocd
+  labels: { app.kubernetes.io/part-of: argocd, environment: production }
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL:        git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path:           charts/platform-job-watcher/chart
+    helm:
+      valueFiles:
+        - "../platform-job-watcher-values-production.yaml"
+  destination:
+    server:    https://kubernetes.default.svc
+    namespace: platform
+  syncPolicy:
+    automated: { prune: true, selfHeal: true, allowEmpty: false }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

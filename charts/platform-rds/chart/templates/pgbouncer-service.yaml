@@ -13,6 +13,14 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     app: pgbouncer
+  {{- if .Values.metricsExporter.enabled }}
+  annotations:
+    # Auto-scraped by Prometheus's kubernetes-service-endpoints job once
+    # the exporter sidecar is enabled. Drives database.json PgBouncer panels.
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   {{ .Values.metricsExporter.port | quote }}
+    prometheus.io/path:   "/metrics"
+  {{- end }}
 spec:
   type: ClusterIP
   selector:
@@ -22,3 +30,9 @@ spec:
     port: 5432
     targetPort: 5432
     protocol: TCP
+  {{- if .Values.metricsExporter.enabled }}
+  - name: metrics
+    port: {{ .Values.metricsExporter.port }}
+    targetPort: {{ .Values.metricsExporter.port }}
+    protocol: TCP
+  {{- end }}

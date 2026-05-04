@@ -1,0 +1,44 @@
+# @format
+# tucaken-app — Production environment overrides.
+# NOT IN USE YET. Wire up via argocd-apps/tucaken-app-production.yaml when ready.
+
+image:
+  repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/tucaken-app
+  # tag managed by ArgoCD Image Updater
+
+replicas: 2
+
+resources:
+  requests:
+    cpu:    100m
+    memory: 256Mi
+  limits:
+    cpu:    1000m
+    memory: 1Gi
+
+resourceQuota:
+  hard:
+    requests.cpu:    "1000m"
+    requests.memory: 2Gi
+    limits.cpu:      "3"
+    limits.memory:   3Gi
+    persistentvolumeclaims: "2"
+
+# Auto-promote rollouts in prod once analysis passes — manual gating in dev,
+# unattended-but-analysed in prod.
+rollout:
+  blueGreen:
+    autoPromotionEnabled: true
+    autoPromotionSeconds: 600     # 10m soak before swing
+    scaleDownDelaySeconds: 60
+
+networkPolicy:
+  enabled: true
+
+observability:
+  env:      production
+  logLevel: info
+
+ingress:
+  host:      tucaken.io           # canonical prod domain (already in dev defaults)
+  matchRule: "PathPrefix(`/`)"

@@ -110,3 +110,37 @@ spec:
             port: 5432
           initialDelaySeconds: 5
           periodSeconds: 5
+      {{- if .Values.metricsExporter.enabled }}
+      # ── PgBouncer metrics exporter (sidecar) ────────────────────────────
+      # Connects to the colocated PgBouncer admin console over loopback,
+      # runs SHOW STATS / SHOW POOLS, exposes Prometheus metrics on
+      # :{{ .Values.metricsExporter.port }}. Prometheus auto-discovers via
+      # the prometheus.io/scrape annotation on the pgbouncer Service.
+      - name: pgbouncer-exporter
+        image: {{ .Values.metricsExporter.image }}
+        args:
+          - --pgBouncer.connectionString=postgres://$(POSTGRESQL_USERNAME):$(POSTGRESQL_PASSWORD)@127.0.0.1:5432/pgbouncer?sslmode=disable
+          - --web.listen-address=:{{ .Values.metricsExporter.port }}
+        env:
+          - name: POSTGRESQL_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: platform-rds-credentials
+                key:  POSTGRESQL_USERNAME
+          - name: POSTGRESQL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: platform-rds-credentials
+                key:  POSTGRESQL_PASSWORD
+        ports:
+          - containerPort: {{ .Values.metricsExporter.port }}
+            name: metrics
+            protocol: TCP
+        resources:
+          requests:
+            cpu:    10m
+            memory: 32Mi
+          limits:
+            cpu:    50m
+            memory: 64Mi
+      {{- end }}

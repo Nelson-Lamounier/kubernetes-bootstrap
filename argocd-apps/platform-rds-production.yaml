@@ -1,0 +1,50 @@
+# @format
+# ArgoCD Application: platform-rds — PRODUCTION
+# NOT IN USE YET. Mirror of platform-rds.yaml but pointed at the
+# values-production.yaml file. Activate when the prod cluster is online.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-rds-production
+  annotations:
+    kubernetes.io/description: "platform-rds (PgBouncer + DDL bootstrap) — production"
+    argocd.argoproj.io/sync-wave: "3"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    environment:               production
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL:        git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path:           charts/platform-rds/chart
+    helm:
+      valueFiles:
+        - values-production.yaml
+
+  destination:
+    # Pattern A (multi-cluster ArgoCD): set to the prod cluster API URL.
+    # Pattern B (per-cluster ArgoCD):   leave default; apply on prod cluster.
+    server:    https://kubernetes.default.svc
+    namespace: platform
+
+  syncPolicy:
+    automated:
+      prune:    true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration:    10s
+        factor:      2
+        maxDuration: 5m

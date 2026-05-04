@@ -1,0 +1,23 @@
+# Service exists solely for Prometheus to discover + scrape /metrics on
+# the watcher's HTTP port. No external traffic — the watcher is purely a
+# k8s-API client.
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-job-watcher
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: platform-job-watcher
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   "9100"
+    prometheus.io/path:   "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app: platform-job-watcher
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: 9100
+      protocol: TCP

@@ -26,3 +26,13 @@ resources:
 
 networkPolicy:
   enabled: false
+
+# ── Observability — pin to development ────────────────────────────────────────
+# Stamps the env label on every metric/log/span this pod emits. K8s Jobs the
+# admin-api dispatches inherit DEPLOY_ENV via the centralised observabilityEnv()
+# helper in src/lib/k8s-job-builder.ts, so this single line covers everything
+# downstream. Do NOT default to env=development in chart/values.yaml — keep
+# the env decision in this overrides file.
+observability:
+  env:      development
+  logLevel: debug          # debug in dev — chatty, useful; flip to info in prod

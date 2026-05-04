@@ -21,3 +21,8 @@ resources:
   limits:
     memory: 256Mi
     cpu: 200m
+
+# ── Observability ────────────────────────────────────────────────────────────
+observability:
+  env:      development
+  logLevel: info

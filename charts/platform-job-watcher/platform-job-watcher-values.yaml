@@ -6,6 +6,11 @@ image:
 
 namespace: platform
 
+# ── Observability — pin to development ────────────────────────────────────────
+observability:
+  env:      development
+  logLevel: debug
+
 config:
   watchers:
     - namespace: resume-import

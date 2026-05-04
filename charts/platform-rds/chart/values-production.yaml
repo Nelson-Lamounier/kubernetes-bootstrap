@@ -1,0 +1,41 @@
+# @format
+# Production environment value overrides for platform-rds chart.
+# NOT IN USE YET. Activate via argocd-apps/platform-rds-production.yaml.
+#
+# Notes:
+#   - The actual RDS instance lives outside this chart (Terraform/CDK).
+#     Only PgBouncer + the DDL bootstrap Job are managed here.
+#   - PgBouncer is the connection-pool front door — running 2 replicas in
+#     prod ensures node drains don't tear down all DB connectivity at once.
+
+# ─── Environment identity ───────────────────────────────────────────────────
+observability:
+  env:      production
+  logLevel: info
+
+# ─── PgBouncer — HA + tighter pool sizing ───────────────────────────────────
+pgbouncer:
+  replicas:        2
+  poolMode:        transaction
+  # 200 client conns × 2 replicas = 400 max client connections to PgBouncer.
+  # Each replica's defaultPoolSize × #databases = open server-side conns.
+  # Tune defaultPoolSize so 2 × replicas × pool size <= RDS max_connections.
+  maxClientConn:   400
+  defaultPoolSize: 25
+
+# ─── Metrics exporter — ON in prod ──────────────────────────────────────────
+# Drives the database.json dashboard's PgBouncer panels (active/waiting
+# clients, server pool utilisation). Sidecar pattern: one container per
+# pgbouncer pod, no extra Deployment.
+metricsExporter:
+  enabled: true
+  image:   prometheuscommunity/pgbouncer-exporter:0.10.2
+  port:    9127
+
+# ─── Bootstrap — same image stream as dev. CHANGE the tag at prod cut-over ─
+bootstrap:
+  enabled: true
+  image:
+    repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-rds-bootstrap
+    # PIN to a known-good tag for prod — do NOT auto-track dev's bleeding edge.
+    tag: "CHANGEME-pin-to-tested-tag"

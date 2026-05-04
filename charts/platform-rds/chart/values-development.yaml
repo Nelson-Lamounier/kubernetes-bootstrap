@@ -1,6 +1,15 @@
 # @format
 # Development environment value overrides for platform-rds chart.
 # ArgoCD application references this file in spec.source.helm.valueFiles.
+
+# ─── Environment identity ───────────────────────────────────────────────────
+# Stamps every PgBouncer / bootstrap / migration Job's logs + spans with
+# env=development. Mirrors the pattern in admin-api, tucaken-app, and
+# platform-job-watcher dev values files.
+observability:
+  env:      development
+  logLevel: debug
+
 bootstrap:
   enabled: true
   image:
@@ -9,3 +18,11 @@ bootstrap:
     # sync here manually until ArgoCD Image Updater is wired to this chart.
     repository: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-rds-bootstrap"
     tag: "e822e8b62640d720dc2ecfeeb0d97ec98c2841a6-r1"
+
+# ── PgBouncer — single replica is fine for dev ──────────────────────────────
+pgbouncer:
+  replicas: 1
+
+# ── Metrics exporter — leave off in dev until the sidecar is wired ──────────
+metricsExporter:
+  enabled: false

@@ -120,19 +120,37 @@ serviceAccount:
   name: admin-api
 
 # ── Health probes ─────────────────────────────────────────────────────────────
+# Split probes after the observability rollout:
+#   /livez  — process alive (no DB touch — transient PG outage must NOT
+#             trigger a restart storm).
+#   /readyz — DB reachable. Failing pulls the pod from the Service
+#             endpoint until it recovers, no restart.
 probes:
   readiness:
-    path: /healthz
+    path: /readyz
     initialDelaySeconds: 5
     periodSeconds: 10
     timeoutSeconds: 3
     failureThreshold: 3
   liveness:
-    path: /healthz
+    path: /livez
     initialDelaySeconds: 15
     periodSeconds: 30
     timeoutSeconds: 5
     failureThreshold: 3
+
+# ── Observability — OTel + pino + prom-client ────────────────────────────────
+# otlpEndpoint points at the Alloy DaemonSet's OTLP/HTTP receiver. Alloy fans
+# traces to Tempo (and span metrics to Mimir if enabled). The Service is
+# annotated for prometheus.io/scrape on `/metrics`.
+observability:
+  serviceName:    admin-api
+  env:            development
+  logLevel:       info
+  otlpEndpoint:   http://alloy.monitoring.svc.cluster.local:4318
+  # Continuous profiling. Set to "" (empty string) to disable the SDK at
+  # runtime — useful when iterating locally with `helm upgrade --set`.
+  pyroscopeServer: http://pyroscope.monitoring.svc.cluster.local:4040
 
 # ── Ingress (disabled — owned by deploy.py) ───────────────────────────────────
 ingress:
