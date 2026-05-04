@@ -18,7 +18,7 @@ data:
     # default fallback (no severity label) routes to SNS but with the
     # warning cadence so misconfigured rules don't go silent.
     route:
-      receiver: sns
+      receiver: {{ if .Values.grafana.alerting.snsTopicArn }}sns{{ else }}blackhole{{ end }}
       group_by: ['alertname', 'service', 'slo']
       group_wait: 30s
       group_interval: 5m
@@ -39,6 +39,7 @@ data:
             - environment = development
           receiver: blackhole
           continue: false
+        {{- if .Values.grafana.alerting.snsTopicArn }}
         - matchers:
             - severity = critical
           receiver: sns
@@ -51,6 +52,7 @@ data:
           group_wait: 5m
           group_interval: 10m
           repeat_interval: 4h
+        {{- end }}
 
     # SNS receiver — uses the EC2 instance profile credentials. The topic
     # ARN is templated in from .Values.grafana.alerting.snsTopicArn so the
@@ -67,6 +69,7 @@ data:
           - url: http://mttr-webhook.{{ $.Values.namespace }}.svc.cluster.local:{{ $.Values.mttrWebhook.service.port }}/webhook
             send_resolved: true   # critical — without this, no MTTR signal
       {{- end }}
+      {{- if .Values.grafana.alerting.snsTopicArn }}
       - name: sns
         sns_configs:
           - sigv4:
@@ -84,6 +87,7 @@ data:
               Summary:  {{ "{{ .Annotations.summary }}" }}
               Detail:   {{ "{{ .Annotations.description }}" }}
               {{ "{{ end }}" }}
+      {{- end }}
 
     inhibit_rules:
       # Fast-burn supersedes the slower-burn alerts on the same SLO —
