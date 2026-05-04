@@ -13,7 +13,7 @@
 #
 # ASG Discovery Tags (already applied by worker-asg-stack.ts):
 #   - k8s.io/cluster-autoscaler/enabled: "true"
-#   - k8s.io/cluster-autoscaler/k8s-development: "owned"
+#   - k8s.io/cluster-autoscaler/k8s-dev: "owned"
 #
 # Key Design Decisions:
 #   - Runs on node-pool=monitoring (MUST NOT run on the general pool it manages —
@@ -47,7 +47,7 @@ spec:
       values: |
         # ── Auto-discovery ─────────────────────────────────────────────────────
         autoDiscovery:
-          clusterName: k8s-development
+          clusterName: k8s-dev
 
         # ── AWS Region ─────────────────────────────────────────────────────────
         awsRegion: eu-west-1
