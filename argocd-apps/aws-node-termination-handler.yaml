@@ -1,0 +1,167 @@
+# @format
+# ArgoCD Application: aws-node-termination-handler (NTH)
+#
+# Deploys NTH in queue mode — the production-hardened pattern. NTH polls a
+# single SQS queue for every event that should trigger a Kubernetes drain:
+#
+#   1. ASG INSTANCE_TERMINATING lifecycle hook events
+#   2. EC2 Spot Instance Interruption Warning
+#   3. EC2 Instance Rebalance Recommendation
+#   4. AWS Health scheduled instance events
+#
+# AWS-side wiring (queue, EventBridge rules, lifecycle hook, IAM
+# ManagedPolicy) lives in cdk-monitoring:
+#   - infra/lib/constructs/events/node-termination/node-termination-queue.ts
+#   - infra/lib/stacks/kubernetes/worker-asg-stack.ts (general pool stack
+#     creates the queue; both pools attach the lifecycle hook + node policy)
+#
+# IAM model — important context for kubeadm clusters:
+#   The cluster has no native OIDC provider, so IRSA is unavailable. NTH
+#   inherits permissions from the *node IAM role* (via IMDS). The
+#   ManagedPolicy attached on the worker-asg-stack side scopes the
+#   permissions tightly:
+#     - sqs:Receive/Delete/GetQueueAttributes/GetQueueUrl on this queue ARN
+#     - autoscaling:CompleteLifecycleAction on `k8s-dev-*` ASGs only
+#     - ec2:DescribeInstances + autoscaling:Describe* (read-only)
+#
+# Coexistence with existing ops-alerts:
+#   The kubernetes-bootstrap bootstrap-alarm SNS topic remains the email
+#   sink for `EC2 Instance Launch/Terminate Successful` events (post-hoc
+#   visibility). The new EventBridge rules created by the CDK construct can
+#   target both this SQS *and* that SNS in a follow-up once the topic ARN
+#   is exported via SSM (the `opsAlertsTopic` prop is already wired).
+#
+# Coordination with Cluster Autoscaler / Step Functions AMI refresh:
+#   - CA scales desiredCapacity → ASG terminates → lifecycle hook fires →
+#     NTH drains. CA and NTH cooperate by design.
+#   - AMI-refresh Step Function uses MinHealthyPercentage=50, InstanceWarmup=300s
+#     so at most 1 of (1..4) general-pool nodes is in-flight at a time and
+#     each replacement waits for boot+bootstrap before the next termination.
+#   - SSM State Manager (30-min idempotent drift cycle) does not race the
+#     drain; check-before-act steps no-op against a cordoned node.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aws-node-termination-handler
+  annotations:
+    kubernetes.io/description: "AWS Node Termination Handler (queue mode) — graceful drain on ASG/Spot/Scheduled events"
+    argocd.argoproj.io/sync-wave: "1"  # Wave 1: Infrastructure — must run before workload waves
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://aws.github.io/eks-charts
+    chart: aws-node-termination-handler
+    targetRevision: "0.27.*"
+    helm:
+      values: |
+        # ── Mode ───────────────────────────────────────────────────────────────
+        # Queue mode is the production-hardened path: a single SQS subscription
+        # consolidates every drain trigger and lets the ASG lifecycle hook
+        # gate the actual termination on a successful drain.
+        enableSqsTerminationDraining: true
+
+        # ── Queue endpoint ─────────────────────────────────────────────────────
+        # Created in CDK (worker-asg-stack.ts → NodeTerminationHandlerQueue).
+        # Queue name is `{namePrefix}-nth` where namePrefix = `k8s-dev` in
+        # the development account. Hardcoded here because Helm values don't
+        # support secretKeyRef for plain strings; for multi-env deploys split
+        # into values-{env}.yaml or sync the SSM value via a ConfigMap +
+        # envFrom (chart supports `extraEnv`).
+        queueURL: "https://sqs.eu-west-1.amazonaws.com/771826808455/k8s-dev-nth"
+        awsRegion: eu-west-1
+
+        # ── ASG discovery filter ───────────────────────────────────────────────
+        # Only act on lifecycle events from ASGs tagged
+        # `aws-node-termination-handler/managed: ""`. The CDK side applies
+        # this tag in worker-asg-stack.ts. Without the filter NTH would also
+        # consume EventBridge events from any other ASG in the account.
+        checkASGTagBeforeDraining: true
+        managedAsgTag: "aws-node-termination-handler/managed"
+
+        # ── Triggers ───────────────────────────────────────────────────────────
+        enableSpotInterruptionDraining: true
+        enableRebalanceMonitoring: true
+        enableRebalanceDraining: true
+        enableScheduledEventDraining: true
+
+        # ── Drain behaviour ────────────────────────────────────────────────────
+        # Pod grace period — how long to wait for SIGTERM-handled shutdowns.
+        # 120s is generous; PDBs override this anyway when they need to.
+        podTerminationGracePeriod: 120
+        # Time to give the cordon+drain operation total before forcing it.
+        # Must stay BELOW the ASG lifecycle-hook heartbeatTimeout (600s) to
+        # leave headroom for CompleteLifecycleAction round-trip.
+        nodeTerminationGracePeriod: 300
+
+        # Use providerID matching to map EC2 instances to Kubernetes Nodes.
+        # Required when running with the AWS Cloud Controller Manager (this
+        # cluster does — see argocd-apps/aws-cloud-controller-manager.yaml).
+        useProviderId: true
+
+        # ── ServiceAccount ─────────────────────────────────────────────────────
+        # No IRSA — kubeadm has no native OIDC. NTH inherits the node IAM
+        # role's permissions via IMDS. The ManagedPolicy attached on the
+        # CDK side already grants what's needed.
+        serviceAccount:
+          create: true
+          name: aws-node-termination-handler
+          annotations: {}
+
+        # ── Placement ──────────────────────────────────────────────────────────
+        # DaemonSet on every worker so NTH can drain the host it runs on.
+        # Tolerations cover the monitoring pool's NoSchedule taint so the
+        # pod lands there too — without it the monitoring pool would have
+        # no NTH and its terminations would skip the drain path entirely.
+        daemonsetTolerations:
+          - operator: Exists
+        nodeSelector: {}
+
+        # ── Resources ──────────────────────────────────────────────────────────
+        resources:
+          requests:
+            cpu: 25m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+
+        # ── Prometheus metrics ─────────────────────────────────────────────────
+        # NTH exposes metrics on :9092/metrics. Annotation-based discovery
+        # already configured in the monitoring chart's Prometheus scrape
+        # config picks this up.
+        enablePrometheusServer: true
+        podMonitor:
+          create: false  # using annotation-based scrape, not PodMonitor CRD
+        podAnnotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "9092"
+
+        # ── Logging ────────────────────────────────────────────────────────────
+        jsonLogging: true
+        logLevel: info
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false  # kube-system already exists
+      - ServerSideApply=true
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
