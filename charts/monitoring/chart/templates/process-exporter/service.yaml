@@ -1,0 +1,28 @@
+{{- if .Values.processExporter.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: process-exporter
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "process-exporter" | nindent 4 }}
+  annotations:
+    # Prometheus auto-discovers via the kubernetes-service-endpoints
+    # job; targets every DaemonSet pod once. Per-node breakout is via
+    # the `instance` label (pod IP) which Prometheus joins with
+    # kube_pod_info to recover hostname.
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   {{ .Values.processExporter.service.port | quote }}
+    prometheus.io/path:   "/metrics"
+spec:
+  type: ClusterIP
+  # Headless so we get one Endpoint per pod (per node) — necessary
+  # for prometheus to scrape each DaemonSet replica independently.
+  clusterIP: None
+  selector:
+    {{- include "monitoring.selectorLabels" "process-exporter" | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.processExporter.service.port }}
+      targetPort: {{ .Values.processExporter.service.port }}
+      protocol: TCP
+{{- end }}

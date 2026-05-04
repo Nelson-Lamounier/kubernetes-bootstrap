@@ -1,0 +1,101 @@
+{{- if .Values.processExporter.enabled }}
+# process-exporter — per-process Linux metrics
+#
+# Reads /proc on the host to expose CPU/memory/threads/IO/FD per
+# process *group* (multiple PIDs collapsed by cmdline regex). The
+# group definitions below cover the typical k8s-on-EC2 process tree:
+# kubelet, container runtime, kube-proxy, calico, ssm-agent, kernel
+# threads, plus a catch-all `user` bucket.
+#
+# Cardinality: one timeseries per (group × node × metric_kind). With
+# ~10 groups × ~5 nodes × ~7 metric kinds = ~350 series. Cheap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: process-exporter-config
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "process-exporter" | nindent 4 }}
+data:
+  config.yaml: |
+    process_names:
+      # ── Kubernetes core ─────────────────────────────────────────────
+      - name: "kubelet"
+        cmdline:
+          - 'kubelet'
+      - name: "kube-proxy"
+        cmdline:
+          - 'kube-proxy'
+      - name: "kube-apiserver"
+        cmdline:
+          - 'kube-apiserver'
+      - name: "kube-controller-manager"
+        cmdline:
+          - 'kube-controller-manager'
+      - name: "kube-scheduler"
+        cmdline:
+          - 'kube-scheduler'
+      - name: "etcd"
+        cmdline:
+          - 'etcd'
+      # ── Container runtime ───────────────────────────────────────────
+      - name: "containerd"
+        cmdline:
+          - 'containerd$'
+          - 'containerd-shim'
+      - name: "runc"
+        cmdline:
+          - 'runc '
+      # ── CNI ─────────────────────────────────────────────────────────
+      - name: "calico"
+        cmdline:
+          - 'calico-node'
+          - 'felix'
+          - 'bird'
+          - 'confd'
+      # ── AWS / SSM ───────────────────────────────────────────────────
+      - name: "ssm-agent"
+        cmdline:
+          - 'amazon-ssm-agent'
+          - 'ssm-agent-worker'
+      - name: "amazon-cloudwatch-agent"
+        cmdline:
+          - 'amazon-cloudwatch-agent'
+      # ── Observability self ──────────────────────────────────────────
+      - name: "node-exporter"
+        cmdline:
+          - 'node_exporter'
+      - name: "process-exporter"
+        cmdline:
+          - 'process-exporter'
+      - name: "promtail"
+        cmdline:
+          - 'promtail'
+      # ── System ──────────────────────────────────────────────────────
+      - name: "systemd"
+        cmdline:
+          - '/lib/systemd/systemd'
+          - '^systemd '
+      - name: "journald"
+        cmdline:
+          - 'systemd-journald'
+      - name: "chronyd"
+        cmdline:
+          - 'chronyd'
+      - name: "sshd"
+        cmdline:
+          - 'sshd'
+      # ── Kernel threads (everything starting with [name]) ───────────
+      - name: "kernel-threads"
+        comm:
+          - 'kworker'
+          - 'ksoftirqd'
+          - 'migration'
+          - 'rcu_sched'
+          - 'rcu_preempt'
+          - 'kswapd'
+          - 'watchdog'
+      # ── Catch-all (anything else) ──────────────────────────────────
+      - name: "{{`{{.Comm}}`}}"
+        cmdline:
+          - '.+'
+{{- end }}

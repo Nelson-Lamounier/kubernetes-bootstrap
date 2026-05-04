@@ -45,5 +45,39 @@ data:
           labels:
             job: systemd-journal
         relabel_configs:
+          # Always carry the systemd unit + hostname for filtering.
           - source_labels: [__journal__systemd_unit]
             target_label: unit
+          - source_labels: [__journal__hostname]
+            target_label: node
+          # Tag kernel events distinctly. Loki query pattern:
+          #   {job="systemd-journal", stream="kernel"}
+          # Drives the "OOM kills + segfaults + NIC drops" panel on
+          # node-os.json. Falls through to the generic stream otherwise.
+          - source_labels: [__journal__transport]
+            regex:          'kernel'
+            target_label:   stream
+            replacement:    'kernel'
+          # journald priority (0..7, syslog levels). 0=emerg, 3=err.
+          - source_labels: [__journal_priority]
+            target_label:   priority
+        pipeline_stages:
+          # Cheap label extraction so dashboards can filter without
+          # Loki-side `|~`. Each event class becomes its own discrete
+          # label (oom_event=present | crash_event=segfault | nic_event=present)
+          # so panels can `{job="systemd-journal", oom_event=""}` etc.
+          - match:
+              selector: '{job="systemd-journal"} |~ "Killed process|oom-kill|Out of memory"'
+              stages:
+                - labels:
+                    oom_event: ""
+          - match:
+              selector: '{job="systemd-journal"} |~ "segfault at"'
+              stages:
+                - labels:
+                    crash_event: "segfault"
+          - match:
+              selector: '{job="systemd-journal"} |~ "NIC Link is Down|carrier lost"'
+              stages:
+                - labels:
+                    nic_event: ""

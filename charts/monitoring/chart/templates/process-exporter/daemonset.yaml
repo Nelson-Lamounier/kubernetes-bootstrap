@@ -1,0 +1,78 @@
+{{- if .Values.processExporter.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: process-exporter
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "process-exporter" | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "process-exporter" | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/process-exporter/configmap.yaml") . | sha256sum }}
+      labels: {{- include "monitoring.fullLabels" "process-exporter" | nindent 8 }}
+    spec:
+      # Run on every node, including control plane.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      # hostPID required to see all PIDs on the node, not just our own.
+      hostPID: true
+      containers:
+        - name: process-exporter
+          image: {{ .Values.processExporter.image }}
+          args:
+            - "--procfs=/host/proc"
+            - "--config.path=/etc/process-exporter/config.yaml"
+            - "--web.listen-address=:{{ .Values.processExporter.service.port }}"
+          ports:
+            - containerPort: {{ .Values.processExporter.service.port }}
+              name: metrics
+              protocol: TCP
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: config
+              mountPath: /etc/process-exporter
+              readOnly: true
+          resources: {{- toYaml .Values.processExporter.resources | nindent 12 }}
+          securityContext:
+            # Read /proc with elevated privileges. Read-only — no
+            # privilege escalation, no host-network needed.
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              # SYS_PTRACE so we can read /proc/<pid>/io and /proc/<pid>/limits
+              # for processes we don't own. Without this, FD/IO metrics are
+              # blank for kubelet, containerd, kernel threads.
+              add: [SYS_PTRACE]
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.processExporter.service.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.processExporter.service.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: config
+          configMap:
+            name: process-exporter-config
+{{- end }}

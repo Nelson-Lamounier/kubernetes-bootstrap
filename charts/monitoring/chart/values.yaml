@@ -151,6 +151,26 @@ promtail:
       memory: 128Mi
 
 # ---------------------------------------------------------------------------
+# process-exporter — per-process Linux metrics (DaemonSet)
+# ---------------------------------------------------------------------------
+# Closes the visibility gap below cAdvisor: exposes CPU/memory/threads/
+# IO/FD per process *group* (kubelet, containerd, kernel threads, etc.)
+# Maintained by ncabatoff; canonical for this purpose. ~10MB image,
+# ~30Mi resident, scrapes /proc once per scrape interval.
+processExporter:
+  enabled: true
+  image: ncabatoff/process-exporter:0.7.10
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+  service:
+    port: 9256
+
+# ---------------------------------------------------------------------------
 # Node Exporter (host metrics — DaemonSet)
 # ---------------------------------------------------------------------------
 nodeExporter:

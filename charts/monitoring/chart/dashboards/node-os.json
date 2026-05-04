@@ -1,0 +1,302 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["node", "os", "linux", "use-method"],
+  "title": "Node OS — USE method (Linux host)",
+  "uid": "node-os",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "node", "type": "query", "datasource": { "type": "prometheus", "uid": "prometheus" }, "query": "label_values(node_uname_info, nodename)", "refresh": 2, "multi": true, "includeAll": true, "current": { "text": "All", "value": "$__all" } }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text", "id": 1, "title": "Node OS — USE method",
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "options": { "mode": "markdown", "content": "**[USE Method](https://www.brendangregg.com/usemethod.html)** by Brendan Gregg — for every Linux resource, surface **U**tilization, **S**aturation, **E**rrors. Below grouped by resource. Pressure stalls (PSI) are the modern saturation signal — non-zero means processes are queued waiting on the resource." }
+    },
+
+    { "type": "row", "id": 100, "title": "CPU", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 3 } },
+    {
+      "id": 101, "type": "timeseries", "title": "CPU utilization by mode",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "stacking": { "mode": "normal" } } } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "avg by (mode) (rate(node_cpu_seconds_total{mode!=\"idle\",instance=~\"$node:.*\"}[5m]))", "legendFormat": "{{mode}}" }
+      ]
+    },
+    {
+      "id": 102, "type": "timeseries", "title": "Run-queue length + procs blocked",
+      "description": "node_procs_running >> CPU count = run-queue saturation. node_procs_blocked > 0 = processes waiting on I/O.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "node_procs_running{instance=~\"$node:.*\"}",            "legendFormat": "{{instance}} running" },
+        { "refId": "B", "expr": "node_procs_blocked{instance=~\"$node:.*\"}",            "legendFormat": "{{instance}} blocked" },
+        { "refId": "C", "expr": "node_load1{instance=~\"$node:.*\"}",                    "legendFormat": "{{instance}} load1" },
+        { "refId": "D", "expr": "count(count by (cpu) (node_cpu_seconds_total{instance=~\"$node:.*\"}))", "legendFormat": "vCPU count" }
+      ]
+    },
+    {
+      "id": 103, "type": "timeseries", "title": "PSI — CPU pressure (some / full)",
+      "description": "node_pressure_cpu_*_seconds_total. `some` = at least one process stalled. `full` = ALL processes stalled (catastrophic). Non-zero is a problem.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "targets": [
+        { "refId": "A", "expr": "rate(node_pressure_cpu_waiting_seconds_total{instance=~\"$node:.*\"}[5m])", "legendFormat": "{{instance}} some" }
+      ]
+    },
+    {
+      "id": 104, "type": "timeseries", "title": "Context switches + interrupts / sec",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
+      "targets": [
+        { "refId": "A", "expr": "rate(node_context_switches_total{instance=~\"$node:.*\"}[5m])", "legendFormat": "{{instance}} ctx switches" },
+        { "refId": "B", "expr": "rate(node_intr_total{instance=~\"$node:.*\"}[5m])",            "legendFormat": "{{instance}} interrupts" }
+      ]
+    },
+
+    { "type": "row", "id": 200, "title": "Memory", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 } },
+    {
+      "id": 201, "type": "timeseries", "title": "Memory breakdown",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0, "custom": { "stacking": { "mode": "normal" } } } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "node_memory_MemTotal_bytes{instance=~\"$node:.*\"} - node_memory_MemAvailable_bytes{instance=~\"$node:.*\"}", "legendFormat": "{{instance}} used" },
+        { "refId": "B", "expr": "node_memory_Buffers_bytes{instance=~\"$node:.*\"}", "legendFormat": "{{instance}} buffers" },
+        { "refId": "C", "expr": "node_memory_Cached_bytes{instance=~\"$node:.*\"}",  "legendFormat": "{{instance}} cached" },
+        { "refId": "D", "expr": "node_memory_MemFree_bytes{instance=~\"$node:.*\"}", "legendFormat": "{{instance}} free" }
+      ]
+    },
+    {
+      "id": 202, "type": "timeseries", "title": "PSI — memory pressure",
+      "description": "node_pressure_memory_*_seconds_total. Sustained > 0 = the kernel is reclaiming pages under duress. Imminent risk of OOM-kill.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "targets": [
+        { "refId": "A", "expr": "rate(node_pressure_memory_waiting_seconds_total{instance=~\"$node:.*\"}[5m])", "legendFormat": "{{instance}} some" },
+        { "refId": "B", "expr": "rate(node_pressure_memory_stalled_seconds_total{instance=~\"$node:.*\"}[5m])", "legendFormat": "{{instance}} full (catastrophic)" }
+      ]
+    },
+    {
+      "id": 203, "type": "stat", "title": "Swap used",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "bytes", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1048576 }, { "color": "red", "value": 104857600 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "max(node_memory_SwapTotal_bytes{instance=~\"$node:.*\"} - node_memory_SwapFree_bytes{instance=~\"$node:.*\"})" }]
+    },
+    {
+      "id": 204, "type": "stat", "title": "OOM kills (15m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "sum(increase(node_vmstat_oom_kill{instance=~\"$node:.*\"}[15m]))" }]
+    },
+    {
+      "id": 205, "type": "stat", "title": "Page faults / sec (major)",
+      "description": "Major page faults = swap or disk read. Healthy system: ~0.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "expr": "sum(rate(node_vmstat_pgmajfault{instance=~\"$node:.*\"}[5m]))" }]
+    },
+
+    { "type": "row", "id": 300, "title": "Disk", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 } },
+    {
+      "id": 301, "type": "timeseries", "title": "Disk IOPS by device",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "fieldConfig": { "defaults": { "unit": "iops", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "rate(node_disk_reads_completed_total{instance=~\"$node:.*\"}[5m])",  "legendFormat": "{{device}} reads" },
+        { "refId": "B", "expr": "rate(node_disk_writes_completed_total{instance=~\"$node:.*\"}[5m])", "legendFormat": "{{device}} writes" }
+      ]
+    },
+    {
+      "id": 302, "type": "timeseries", "title": "Disk queue depth + I/O wait",
+      "description": "node_disk_io_now = current queue depth. node_pressure_io_waiting_seconds = how long processes wait on I/O.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "fieldConfig": { "defaults": { "min": 0 } },
+      "targets": [
+        { "refId": "A", "expr": "node_disk_io_now{instance=~\"$node:.*\"}", "legendFormat": "{{device}} queue" },
+        { "refId": "B", "expr": "rate(node_pressure_io_waiting_seconds_total{instance=~\"$node:.*\"}[5m])", "legendFormat": "{{instance}} PSI io some" }
+      ]
+    },
+    {
+      "id": 303, "type": "timeseries", "title": "Disk latency (await)",
+      "description": "Time per IO including queue wait. Healthy NVMe < 1ms; degraded EBS gp3 climbs to 10ms+.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "targets": [
+        { "refId": "A", "expr": "rate(node_disk_read_time_seconds_total{instance=~\"$node:.*\"}[5m])  / clamp_min(rate(node_disk_reads_completed_total{instance=~\"$node:.*\"}[5m]), 1)",  "legendFormat": "{{device}} read await" },
+        { "refId": "B", "expr": "rate(node_disk_write_time_seconds_total{instance=~\"$node:.*\"}[5m]) / clamp_min(rate(node_disk_writes_completed_total{instance=~\"$node:.*\"}[5m]), 1)", "legendFormat": "{{device}} write await" }
+      ]
+    },
+    {
+      "id": 304, "type": "timeseries", "title": "Filesystem usage by mountpoint",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.80 }, { "color": "red", "value": 0.90 }] } } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "1 - node_filesystem_avail_bytes{instance=~\"$node:.*\",fstype!~\"tmpfs|overlay|squashfs\"} / node_filesystem_size_bytes{instance=~\"$node:.*\",fstype!~\"tmpfs|overlay|squashfs\"}", "legendFormat": "{{instance}} {{mountpoint}}" }
+      ]
+    },
+
+    { "type": "row", "id": 400, "title": "Network", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 } },
+    {
+      "id": 401, "type": "timeseries", "title": "NIC throughput by device",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "rate(node_network_receive_bytes_total{instance=~\"$node:.*\",device!~\"lo|veth.*|docker.*|cali.*|cni.*\"}[5m])",  "legendFormat": "{{device}} rx" },
+        { "refId": "B", "expr": "rate(node_network_transmit_bytes_total{instance=~\"$node:.*\",device!~\"lo|veth.*|docker.*|cali.*|cni.*\"}[5m])", "legendFormat": "{{device}} tx" }
+      ]
+    },
+    {
+      "id": 402, "type": "timeseries", "title": "NIC drops + errors",
+      "description": "Any non-zero rate of packet drops or errors at the NIC level is a serious signal — investigate buffer sizing and link health.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "rate(node_network_receive_drop_total{instance=~\"$node:.*\",device!~\"lo|veth.*\"}[5m])",  "legendFormat": "{{device}} rx drops" },
+        { "refId": "B", "expr": "rate(node_network_transmit_drop_total{instance=~\"$node:.*\",device!~\"lo|veth.*\"}[5m])", "legendFormat": "{{device}} tx drops" },
+        { "refId": "C", "expr": "rate(node_network_receive_errs_total{instance=~\"$node:.*\",device!~\"lo|veth.*\"}[5m])",  "legendFormat": "{{device}} rx errs" }
+      ]
+    },
+    {
+      "id": 403, "type": "timeseries", "title": "TCP socket states",
+      "description": "ESTABLISHED + TIME_WAIT + CLOSE_WAIT. Sustained CLOSE_WAIT growth = app bug (not closing sockets). TIME_WAIT mountain = high churn or short-lived connections.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 59 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "node_netstat_Tcp_CurrEstab{instance=~\"$node:.*\"}",     "legendFormat": "{{instance}} ESTABLISHED" },
+        { "refId": "B", "expr": "node_sockstat_TCP_tw{instance=~\"$node:.*\"}",            "legendFormat": "{{instance}} TIME_WAIT" },
+        { "refId": "C", "expr": "node_netstat_Tcp_PassiveOpens{instance=~\"$node:.*\"} - node_netstat_Tcp_CurrEstab{instance=~\"$node:.*\"}", "legendFormat": "{{instance}} closed/dropped" }
+      ]
+    },
+    {
+      "id": 404, "type": "timeseries", "title": "TCP retransmits",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 59 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
+      "targets": [
+        { "refId": "A", "expr": "rate(node_netstat_Tcp_RetransSegs{instance=~\"$node:.*\"}[5m])", "legendFormat": "{{instance}} retransmits" }
+      ]
+    },
+
+    { "type": "row", "id": 500, "title": "File descriptors", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 67 } },
+    {
+      "id": 501, "type": "timeseries", "title": "File descriptors used vs max",
+      "description": "node_filefd_allocated approaching node_filefd_maximum = node will start refusing connections. Cluster-wide FD exhaustion is a frequent late-stage outage signature.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "node_filefd_allocated{instance=~\"$node:.*\"}", "legendFormat": "{{instance}} used" },
+        { "refId": "B", "expr": "node_filefd_maximum{instance=~\"$node:.*\"}",   "legendFormat": "{{instance}} max" }
+      ]
+    },
+
+    { "type": "row", "id": 600, "title": "Per-process — top by CPU / memory (process-exporter)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 76 } },
+    {
+      "id": 601, "type": "timeseries", "title": "Top 10 process groups by CPU",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 77 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "topk(10, sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total[5m])))", "legendFormat": "{{groupname}}" }
+      ]
+    },
+    {
+      "id": 602, "type": "timeseries", "title": "Top 10 process groups by RSS",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 77 },
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "topk(10, sum by (groupname) (namedprocess_namegroup_memory_bytes{memtype=\"resident\"}))", "legendFormat": "{{groupname}}" }
+      ]
+    },
+    {
+      "id": 603, "type": "timeseries", "title": "Threads per process group",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 85 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "topk(10, sum by (groupname) (namedprocess_namegroup_num_threads))", "legendFormat": "{{groupname}}" }
+      ]
+    },
+    {
+      "id": 604, "type": "timeseries", "title": "Open FDs per process group",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 85 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "topk(10, sum by (groupname) (namedprocess_namegroup_open_filedesc))", "legendFormat": "{{groupname}}" }
+      ]
+    },
+    {
+      "id": 605, "type": "timeseries", "title": "Process I/O — read + write",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 93 },
+      "fieldConfig": { "defaults": { "unit": "Bps", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "topk(10, sum by (groupname) (rate(namedprocess_namegroup_read_bytes_total[5m])))",  "legendFormat": "{{groupname}} read" },
+        { "refId": "B", "expr": "topk(10, sum by (groupname) (rate(namedprocess_namegroup_write_bytes_total[5m])))", "legendFormat": "{{groupname}} write" }
+      ]
+    },
+
+    { "type": "row", "id": 700, "title": "Kernel ring buffer (journald → Loki)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 101 } },
+    {
+      "id": 701, "type": "logs", "title": "OOM kills + segfaults + NIC drops (kernel events)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 102 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact" },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"systemd-journal\"} |~ \"oom-kill|Killed process|segfault|NIC Link is Down|kernel BUG|Out of memory\"" }
+      ]
+    },
+    {
+      "id": 702, "type": "logs", "title": "systemd unit failures",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 112 },
+      "options": { "showTime": true, "wrapLogMessage": true },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"systemd-journal\"} |~ \"Failed to start|entered failed state|status=1/FAILURE\"" }
+      ]
+    }
+  ]
+}
