@@ -23,6 +23,17 @@ grafana:
   alerting:
     snsTopicArn: ""        # no SNS in dev — email/Slack are noise
     awsRegion:   eu-west-1
+  pvc:
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 15m       # Observed: ~6m. Matches base default.
+      memory: 128Mi  # Observed: ~103Mi. Matches base default.
+    limits:
+      cpu: 300m
+      memory: 384Mi
+  ingress:
+    enabled: true
 
 # ─── AWS log scrapers — adjust group names if yours differ ───────────────────
 alloy:
@@ -51,21 +62,8 @@ prometheus:
       cpu: 250m
       memory: 512Mi
   pvc:
-    size: 5Gi
+    size: 50Gi
   retention: 7d
-  ingress:
-    enabled: true
-
-grafana:
-  resources:
-    requests:
-      cpu: 15m       # Observed: ~6m. Matches base default.
-      memory: 128Mi  # Observed: ~103Mi. Matches base default.
-    limits:
-      cpu: 300m
-      memory: 384Mi
-  pvc:
-    size: 2Gi
   ingress:
     enabled: true
 
@@ -78,7 +76,7 @@ loki:
       cpu: 300m
       memory: 512Mi
   pvc:
-    size: 5Gi
+    size: 50Gi
   # Expose the push endpoint so GitHub Actions can write deploy markers.
   # Provision /k8s/development/loki-push-basic-auth in SSM first
   # (htpasswd line — see external-secrets/loki-push-basic-auth.yaml).
@@ -107,7 +105,11 @@ tempo:
       cpu: 250m
       memory: 512Mi
   pvc:
-    size: 5Gi
+    size: 30Gi
+
+pyroscope:
+  pvc:
+    size: 50Gi
 
 resourceQuota:
   hard:
