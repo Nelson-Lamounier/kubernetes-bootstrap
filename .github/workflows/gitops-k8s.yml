@@ -97,3 +97,36 @@ jobs:
           TARGET_ENV: development
           TARGET_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
         run: just ci-verify-argocd --environment "$TARGET_ENV" --region "$TARGET_REGION"
+
+  deploy-marker:
+    name: Loki deploy marker
+    needs: [validate, verify-argocd]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute aggregate status
+        id: agg
+        env:
+          STATUSES: ${{ toJSON(needs) }}
+        run: |
+          if echo "$STATUSES" | jq -e 'to_entries | any(.value.result == "failure" or .value.result == "cancelled")' > /dev/null; then
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=succeeded" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./.github/actions/loki-deploy-marker
+        env:
+          LOKI_PUSH_URL:        ${{ secrets.LOKI_PUSH_URL }}
+          LOKI_PUSH_BASIC_AUTH: ${{ secrets.LOKI_PUSH_BASIC_AUTH }}
+          PUSHGATEWAY_URL: ${{ secrets.PUSHGATEWAY_URL }}
+          PUSHGATEWAY_BASIC_AUTH: ${{ secrets.PUSHGATEWAY_BASIC_AUTH }}
+        with:
+          service:     gitops-k8s
+          environment: development
+          status:      ${{ steps.agg.outputs.status }}
+          git-sha:     ${{ github.sha }}
+          notes:       "GitOps validate + ArgoCD sync"

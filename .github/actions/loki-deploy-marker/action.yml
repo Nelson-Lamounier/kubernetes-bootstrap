@@ -1,0 +1,188 @@
+# @format
+# Composite Action — Loki deploy marker
+#
+# Posts ONE log line to Loki at /loki/api/v1/push describing a deploy
+# event. Grafana's `dev-triage.json` and `applications-red.json` query
+# `{job="github-actions"} |~ "deploy_succeeded"` and render an annotation
+# strip across every panel — one vertical line per deploy.
+#
+# Best-effort: a Loki failure must NEVER fail the deploy. The curl uses
+# --max-time 10 + a wrapping `|| true` so a flaky push can't block CI.
+#
+# Required secrets on the calling workflow:
+#   LOKI_PUSH_URL          https://loki-push.nelsonlamounier.com/loki/api/v1/push
+#   LOKI_PUSH_BASIC_AUTH   user:secret  (matches the htpasswd entry in SSM)
+#
+# Required inputs:
+#   service                e.g. tucaken-app
+#   environment            development | staging | production
+#   status                 succeeded | failed
+#   git-sha                short SHA of deployed commit
+#
+# Optional inputs:
+#   notes                  free-text appended to the annotation tooltip
+#
+# Example:
+#   - uses: ./.github/actions/loki-deploy-marker
+#     if: always()
+#     with:
+#       service:     tucaken-app
+#       environment: development
+#       status:      ${{ job.status }}
+#       git-sha:     ${{ github.sha }}
+name: Loki Deploy Marker
+description: Post a deploy event to Loki for Grafana annotations
+inputs:
+  service:
+    description: Service name (matches Grafana annotation filter)
+    required: true
+  environment:
+    description: Deploy environment (development | staging | production)
+    required: true
+  status:
+    description: Deploy outcome (succeeded | failed). Pass ${{ job.status }}.
+    required: true
+  git-sha:
+    description: Commit SHA being deployed
+    required: true
+  notes:
+    description: Optional free-text note for the annotation tooltip
+    required: false
+    default: ""
+  loki-url:
+    description: Loki push API URL — defaults to env var LOKI_PUSH_URL
+    required: false
+    default: ""
+  loki-auth:
+    description: Loki basic-auth (user:pass) — defaults to env var LOKI_PUSH_BASIC_AUTH
+    required: false
+    default: ""
+  pushgateway-url:
+    description: Optional Pushgateway base URL (e.g. https://pushgateway.nelsonlamounier.com). When set, the Action also pushes deployment_event_total and deployment_lead_time_seconds metrics for DORA dashboards.
+    required: false
+    default: ""
+  pushgateway-auth:
+    description: Optional basic-auth for Pushgateway (user:pass). Same shape as loki-auth.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Push deploy marker to Loki
+      shell: bash
+      env:
+        LOKI_URL:         ${{ inputs.loki-url        || env.LOKI_PUSH_URL }}
+        LOKI_AUTH:        ${{ inputs.loki-auth       || env.LOKI_PUSH_BASIC_AUTH }}
+        # DORA leg (additive). Empty values = skip silently.
+        PUSHGATEWAY_URL:  ${{ inputs.pushgateway-url  || env.PUSHGATEWAY_URL }}
+        PUSHGATEWAY_AUTH: ${{ inputs.pushgateway-auth || env.PUSHGATEWAY_BASIC_AUTH }}
+        SERVICE:          ${{ inputs.service }}
+        DEPLOY_ENV:       ${{ inputs.environment }}
+        STATUS:           ${{ inputs.status }}
+        GIT_SHA:          ${{ inputs.git-sha }}
+        NOTES:            ${{ inputs.notes }}
+        WORKFLOW:         ${{ github.workflow }}
+        RUN_URL:          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # Required for `gh api` to authenticate against this repo when
+        # fetching the commit author-date for lead-time calculation.
+        GH_TOKEN:         ${{ env.GITHUB_TOKEN || github.token }}
+      run: |
+        set -uo pipefail
+        if [[ -z "${LOKI_URL:-}" || -z "${LOKI_AUTH:-}" ]]; then
+          echo "::warning::LOKI_PUSH_URL or LOKI_PUSH_BASIC_AUTH unset — skipping deploy marker."
+          exit 0
+        fi
+
+        # Loki expects ns-resolution timestamps as strings.
+        TS_NS="$(date +%s%N)"
+
+        # Normalise GH job.status (Success/Failure/Cancelled) → lowercase
+        # event names the dashboard query matches.
+        case "$(echo "$STATUS" | tr '[:upper:]' '[:lower:]')" in
+          success|succeeded) EVENT="deploy_succeeded" ;;
+          failure|failed)    EVENT="deploy_failed"    ;;
+          cancelled)         EVENT="deploy_cancelled" ;;
+          *)                 EVENT="deploy_unknown"   ;;
+        esac
+
+        # Single line; minified JSON. Labels are low-cardinality (service,
+        # env, event); high-cardinality fields (git_sha, run_url) live in
+        # the line body so Loki indices stay small.
+        BODY=$(jq -nc \
+          --arg ts    "$TS_NS" \
+          --arg svc   "$SERVICE" \
+          --arg env   "$DEPLOY_ENV" \
+          --arg evt   "$EVENT" \
+          --arg sha   "$GIT_SHA" \
+          --arg wfl   "$WORKFLOW" \
+          --arg url   "$RUN_URL" \
+          --arg notes "$NOTES" '
+          {
+            streams: [{
+              stream: { job: "github-actions", service: $svc, env: $env, event: $evt },
+              values: [[ $ts, ({
+                message:  $evt,
+                service:  $svc,
+                env:      $env,
+                git_sha:  $sha,
+                workflow: $wfl,
+                run_url:  $url,
+                notes:    $notes
+              } | tostring) ]]
+            }]
+          }')
+
+        # ── Compute lead time (commit author-date → now) ──────────────────
+        # Lead time per DORA = `deploy_time - commit_author_time`. We use
+        # the deploy commit's author-date (preserves cherry-pick + rebase
+        # ordering); fetched via `gh api` because the GH-Actions runner
+        # already has gh installed and authenticated for the repo. A
+        # failure here MUST NOT break the deploy: fall back to 0.
+        LEAD_SECONDS=0
+        if command -v gh >/dev/null 2>&1; then
+          AUTHOR_ISO=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GIT_SHA" --jq '.commit.author.date' 2>/dev/null || true)
+          if [[ -n "$AUTHOR_ISO" ]]; then
+            # macOS `date -j -f` and GNU `date -d` differ; runners are Linux.
+            AUTHOR_TS=$(date -d "$AUTHOR_ISO" +%s 2>/dev/null || echo 0)
+            NOW_TS=$(date +%s)
+            if [[ "$AUTHOR_TS" -gt 0 ]]; then
+              LEAD_SECONDS=$(( NOW_TS - AUTHOR_TS ))
+            fi
+          fi
+        fi
+        echo "Lead time: ${LEAD_SECONDS}s (commit ${GIT_SHA:0:7})"
+        echo "Posting deploy marker → $LOKI_URL"
+        # --fail returns nonzero on 4xx/5xx — but trailing `|| true` keeps
+        # a Loki hiccup from breaking the deploy job.
+        curl --silent --show-error --fail --max-time 10 \
+             --user "$LOKI_AUTH" \
+             -H 'Content-Type: application/json' \
+             --data-raw "$BODY" \
+             "$LOKI_URL" \
+          || echo "::warning::Loki push failed (non-fatal)"
+
+        # ── Pushgateway leg (optional, additive) ─────────────────────────
+        # Two metrics for the DORA dashboard:
+        #   deployment_event_total{service, env, outcome}    — counter (rate())
+        #   deployment_lead_time_seconds{service, env}       — gauge (last value)
+        # Pushgateway grouping key is service+env so successive deploys of the
+        # same service overwrite the gauge, but `count_over_time` /
+        # `increase()` on the counter still reflects every push.
+        PGW_URL="${PUSHGATEWAY_URL:-}"
+        PGW_AUTH="${PUSHGATEWAY_AUTH:-}"
+        if [[ -n "$PGW_URL" ]]; then
+          OUTCOME_LBL="${EVENT#deploy_}"
+          # `pushadd` semantics — increment counter, replace gauge. Reach via
+          # plain text exposition format (Pushgateway accepts both).
+          PGW_BODY=$(printf '# TYPE deployment_event_total counter\ndeployment_event_total{outcome="%s"} 1\n# TYPE deployment_lead_time_seconds gauge\ndeployment_lead_time_seconds %s\n' "$OUTCOME_LBL" "$LEAD_SECONDS")
+          PGW_PATH="$PGW_URL/metrics/job/github-actions/service/$SERVICE/env/$DEPLOY_ENV"
+          AUTH_FLAGS=()
+          if [[ -n "$PGW_AUTH" ]]; then AUTH_FLAGS=(--user "$PGW_AUTH"); fi
+          echo "Posting DORA metrics → $PGW_PATH"
+          curl --silent --show-error --fail --max-time 10 \
+               "${AUTH_FLAGS[@]}" \
+               --data-binary "$PGW_BODY" \
+               "$PGW_PATH" \
+            || echo "::warning::Pushgateway push failed (non-fatal)"
+        fi
