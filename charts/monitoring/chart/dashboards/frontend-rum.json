@@ -1,0 +1,131 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["frontend", "rum", "faro", "core-web-vitals"],
+  "title": "Frontend & RUM — portfolio + tucaken",
+  "uid": "frontend-rum",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "app", "type": "custom", "query": "portfolio,tucaken-app", "current": { "text": "tucaken-app", "value": "tucaken-app" }, "options": [{ "text": "portfolio", "value": "portfolio" }, { "text": "tucaken-app", "value": "tucaken-app" }] }
+    ]
+  },
+  "panels": [
+    { "type": "row", "id": 100, "title": "Core Web Vitals — $app", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    {
+      "id": 101, "type": "stat", "title": "LCP p75",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 2500 }, { "color": "red", "value": 4000 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"largest_contentful_paint\" | json | unwrap value [5m])" }
+      ]
+    },
+    {
+      "id": 102, "type": "stat", "title": "INP p75",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 200 }, { "color": "red", "value": 500 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"interaction_to_next_paint\" | json | unwrap value [5m])" }
+      ]
+    },
+    {
+      "id": 103, "type": "stat", "title": "CLS p75",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 3, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 0.25 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"cumulative_layout_shift\" | json | unwrap value [5m])" }
+      ]
+    },
+    {
+      "id": 104, "type": "stat", "title": "TTFB p75",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 800 }, { "color": "red", "value": 1800 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"time_to_first_byte\" | json | unwrap value [5m])" }
+      ]
+    },
+    {
+      "id": 105, "type": "timeseries", "title": "LCP / INP / CLS / TTFB trend",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"largest_contentful_paint\" | json | unwrap value [5m])", "legendFormat": "LCP" },
+        { "refId": "B", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"interaction_to_next_paint\" | json | unwrap value [5m])", "legendFormat": "INP" },
+        { "refId": "C", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"cumulative_layout_shift\" | json | unwrap value [5m])", "legendFormat": "CLS" },
+        { "refId": "D", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"time_to_first_byte\" | json | unwrap value [5m])", "legendFormat": "TTFB" }
+      ]
+    },
+    { "type": "row", "id": 200, "title": "JS errors + sessions", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 } },
+    {
+      "id": 201, "type": "stat", "title": "JS errors / 5m",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 50 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({job=\"faro\", app=\"$app\"} | json | level=\"error\" [5m]))" }
+      ]
+    },
+    {
+      "id": 202, "type": "stat", "title": "Active sessions (5m)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "count(count_over_time({job=\"faro\", app=\"$app\"} | json | __error__=\"\" | session_id != \"\" [5m]) by (session_id))" }
+      ]
+    },
+    {
+      "id": 203, "type": "stat", "title": "Page views (5m)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({job=\"faro\", app=\"$app\"} |= \"view_changed\" [5m]))" }
+      ]
+    },
+    {
+      "id": 204, "type": "stat", "title": "Long tasks / 5m",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({job=\"faro\", app=\"$app\"} |= \"long_task\" [5m]))" }
+      ]
+    },
+    {
+      "id": 205, "type": "logs", "title": "Recent JS errors",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact" },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"faro\", app=\"$app\"} | json | level=\"error\"" }
+      ]
+    },
+    { "type": "row", "id": 300, "title": "Browser → SSR trace correlation", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 } },
+    {
+      "id": 301, "type": "text", "title": "How to follow a slow page load",
+      "datasource": null,
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 31 },
+      "options": { "mode": "markdown", "content": "1. Find a slow LCP / INP entry in the trend above.\n2. Faro injected `traceparent` on outbound fetches (admin-api / SSR origin) — copy the `trace_id` from the log line.\n3. Pivot to **Tempo** with that `trace_id` → see the full waterfall: browser → SSR (`tucaken-app`) → admin-api → pg.\n4. From any backend span, click **Profile this span** → Pyroscope flame graph for the same time window." }
+    }
+  ]
+}

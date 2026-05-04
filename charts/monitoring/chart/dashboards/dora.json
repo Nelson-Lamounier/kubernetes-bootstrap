@@ -1,0 +1,203 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["dora", "delivery-performance", "four-keys"],
+  "title": "DORA — Four Keys + Reliability",
+  "uid": "dora",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": { "from": "now-28d", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "service", "type": "query", "datasource": { "type": "prometheus", "uid": "prometheus" }, "query": "label_values(deployment_event_total, service)", "refresh": 2, "multi": true, "includeAll": true, "current": { "text": "All", "value": "$__all" } }
+    ]
+  },
+  "panels": [
+    {
+      "type": "text", "id": 1, "title": "DORA — definitions",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "options": { "mode": "markdown", "content": "**Four Keys + Reliability** — measured per service, 28-day rolling window. Colour bands per [DORA classification](https://cloud.google.com/blog/products/devops-sre/the-2023-state-of-devops-report): elite / high / medium / low.\n\n| Metric | Elite | High | Medium | Low |\n|---|---|---|---|---|\n| Deployment frequency | ≥ multiple/day | 1/day–1/wk | 1/wk–1/mo | < 1/mo |\n| Lead time | < 1h | < 1d | 1d–1w | > 1w |\n| Change failure rate | 0–15% | 16–30% | 16–30% | > 30% |\n| MTTR | < 1h | < 1d | 1d–1w | > 1w |\n\n**Incident timeline (Google SRE)**: failure → **detected** (alert fires) → **acknowledged** (operator engages) → **mitigated** (alert resolves).\n\n- **TTD** = `firedAt − failureStartedAt` (alert `for:` duration)\n- **TTA** = `ackedAt − firedAt` (engagement gap — needs paging webhook → `/ack`)\n- **TTM** = `endsAt − firedAt` (alert lifetime)\n- **MTTR** = TTD + TTM (Google SRE definition; TTA is informational)\n\nThe stacked breakdown below shows each leg's contribution. TTA shows `—` until a paging tool POSTs to `/ack` on the mttr-webhook sink." }
+    },
+    { "type": "row", "id": 100, "title": "Four Keys — service: $service", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 4 } },
+    {
+      "id": 101, "type": "stat", "title": "Deployment frequency (deploys / day)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.033 }, { "color": "yellow", "value": 0.143 }, { "color": "green", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(dora:deployment_frequency:per_day{service=~\"$service\"})" }
+      ]
+    },
+    {
+      "id": 102, "type": "stat", "title": "Lead time (commit → deploy)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 3600 }, { "color": "orange", "value": 86400 }, { "color": "red", "value": 604800 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "avg(dora:lead_time_seconds:last{service=~\"$service\"})" }
+      ]
+    },
+    {
+      "id": 103, "type": "stat", "title": "Change failure rate (28d)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.15 }, { "color": "orange", "value": 0.30 }, { "color": "red", "value": 0.45 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "avg(dora:change_failure_rate:28d{service=~\"$service\"})" }
+      ]
+    },
+    {
+      "id": 104, "type": "stat", "title": "MTTR p50 (28d)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 3600 }, { "color": "orange", "value": 86400 }, { "color": "red", "value": 604800 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "avg(dora:mttr_seconds:p50:28d{service=~\"$service\"})" }
+      ]
+    },
+    { "type": "row", "id": 200, "title": "28-day trends", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 } },
+    {
+      "id": 201, "type": "timeseries", "title": "Deploys / day by service",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (service) (increase(deployment_event_total{outcome=\"succeeded\", service=~\"$service\"}[1d]))", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 202, "type": "timeseries", "title": "Lead time per deploy (seconds)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "max by (service) (deployment_lead_time_seconds{service=~\"$service\"})", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 203, "type": "timeseries", "title": "Failed deploys / day",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (service) (increase(deployment_event_total{outcome=\"failed\", service=~\"$service\"}[1d]))", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 204, "type": "timeseries", "title": "Change failure rate trend",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "dora:change_failure_rate:28d{service=~\"$service\"}", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 250, "type": "timeseries", "title": "MTTR breakdown — TTD + TTM = total (p50)",
+      "description": "Google SRE incident timeline. TTD = detection latency (alert `for:` duration). TTM = mitigation duration (alert.endsAt - alert.startsAt). MTTR = TTD + TTM. Stacked area shows the contribution of each leg.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0, "custom": { "stacking": { "mode": "normal" } } } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "avg(dora:mttd_seconds:p50:28d{service=~\"$service\"})", "legendFormat": "TTD p50" },
+        { "refId": "B", "expr": "avg(dora:mttm_seconds:p50:28d{service=~\"$service\"})", "legendFormat": "TTM p50" }
+      ]
+    },
+    {
+      "id": 251, "type": "timeseries", "title": "p95 — long-tail by service",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "dora:mttd_seconds:p95:28d{service=~\"$service\"}", "legendFormat": "{{service}} TTD p95" },
+        { "refId": "B", "expr": "dora:mttm_seconds:p95:28d{service=~\"$service\"}", "legendFormat": "{{service}} TTM p95" },
+        { "refId": "C", "expr": "dora:mttr_seconds:p95:28d{service=~\"$service\"}", "legendFormat": "{{service}} MTTR p95" }
+      ]
+    },
+    {
+      "id": 252, "type": "stat", "title": "MTTD p50",
+      "description": "Time To Detect — how long after failure starts before an alert fires. Driven by alert `for:` clauses.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 300 }, { "color": "orange", "value": 900 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "avg(dora:mttd_seconds:p50:28d{service=~\"$service\"})" }
+      ]
+    },
+    {
+      "id": 253, "type": "stat", "title": "MTTM p50",
+      "description": "Time To Mitigate — alert duration. Reflects how fast ops restores service once aware.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 600 }, { "color": "orange", "value": 3600 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "avg(dora:mttm_seconds:p50:28d{service=~\"$service\"})" }
+      ]
+    },
+    {
+      "id": 254, "type": "stat", "title": "Incidents / day",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(dora:incidents:per_day{service=~\"$service\"})" }
+      ]
+    },
+    {
+      "id": 255, "type": "timeseries", "title": "Incidents / day by service",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 40 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "dora:incidents:per_day{service=~\"$service\"}", "legendFormat": "{{service}}" }
+      ]
+    },
+    { "type": "row", "id": 300, "title": "Reliability + DR", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 } },
+    {
+      "id": 301, "type": "stat", "title": "etcd restore RTO (last test)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 47 },
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 300 }, { "color": "orange", "value": 900 }, { "color": "red", "value": 1800 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "dora:cluster_etcd_rto_seconds" }
+      ]
+    },
+    {
+      "id": 302, "type": "stat", "title": "etcd restore tests run",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 47 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "max(etcd_restore_rto_test_total)" }
+      ]
+    },
+    {
+      "id": 303, "type": "timeseries", "title": "etcd restore RTO over time",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "targets": [
+        { "refId": "A", "expr": "etcd_restore_rto_seconds", "legendFormat": "RTO" }
+      ]
+    }
+  ]
+}

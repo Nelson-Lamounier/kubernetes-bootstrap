@@ -1,0 +1,120 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["database", "rds", "postgres", "pgvector"],
+  "title": "Database — RDS Postgres / pgvector",
+  "uid": "database",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    { "type": "row", "id": 100, "title": "RDS instance health", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    {
+      "id": 101, "type": "stat", "title": "CPU",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 90 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "CPUUtilization", "statistic": "Average" }]
+    },
+    {
+      "id": 102, "type": "stat", "title": "DB connections",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 80 }, { "color": "red", "value": 100 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "DatabaseConnections", "statistic": "Average" }]
+    },
+    {
+      "id": 103, "type": "stat", "title": "Freeable memory",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "decbytes" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "FreeableMemory", "statistic": "Average" }]
+    },
+    {
+      "id": 104, "type": "stat", "title": "Free storage",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "decbytes", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 5368709120 }, { "color": "green", "value": 21474836480 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "FreeStorageSpace", "statistic": "Minimum" }]
+    },
+    {
+      "id": 105, "type": "timeseries", "title": "Read / Write IOPS",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "iops", "min": 0 } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/RDS", "metricName": "ReadIOPS",  "statistic": "Average" },
+        { "refId": "B", "namespace": "AWS/RDS", "metricName": "WriteIOPS", "statistic": "Average" }
+      ]
+    },
+    {
+      "id": 106, "type": "timeseries", "title": "Read / Write latency",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/RDS", "metricName": "ReadLatency",  "statistic": "Average" },
+        { "refId": "B", "namespace": "AWS/RDS", "metricName": "WriteLatency", "statistic": "Average" }
+      ]
+    },
+    { "type": "row", "id": 200, "title": "PgBouncer connection pool", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 } },
+    {
+      "id": 201, "type": "timeseries", "title": "Active / waiting clients (per pool)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (database) (pgbouncer_pools_client_active_connections)", "legendFormat": "{{database}} active" },
+        { "refId": "B", "expr": "sum by (database) (pgbouncer_pools_client_waiting_connections)", "legendFormat": "{{database}} waiting" }
+      ]
+    },
+    {
+      "id": 202, "type": "timeseries", "title": "Server connections in use",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (database) (pgbouncer_pools_server_active_connections)", "legendFormat": "{{database}} active" },
+        { "refId": "B", "expr": "sum by (database) (pgbouncer_pools_server_idle_connections)", "legendFormat": "{{database}} idle" }
+      ]
+    },
+    { "type": "row", "id": 300, "title": "App pg activity (from OTel pg instrumentation)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 } },
+    {
+      "id": 301, "type": "timeseries", "title": "DB calls / sec by service",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_CLIENT\",span_name=~\".*pg.*|.*postgres.*\"}[5m]))", "legendFormat": "{{service_name}}" }
+      ]
+    },
+    {
+      "id": 302, "type": "timeseries", "title": "DB call p95 latency by service",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_CLIENT\",span_name=~\".*pg.*|.*postgres.*\"}[5m])))", "legendFormat": "{{service_name}}" }
+      ]
+    },
+    { "type": "row", "id": 400, "title": "pgvector — embeddings tables", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 } },
+    {
+      "id": 401, "type": "text", "title": "Where pgvector data comes from",
+      "datasource": null,
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 33 },
+      "options": { "mode": "markdown", "content": "Embeddings live in `experience_embeddings` and the chunk store written by the **ingestion** Job. Row counts and pgvector index health are *not* exposed by RDS metrics — query them from a Grafana **PostgreSQL** data source pointed at the read replica.\n\nUseful queries:\n- `SELECT count(*) FROM experience_embeddings` — total vectors\n- `SELECT pg_size_pretty(pg_relation_size('experience_embeddings'))` — table size\n- `SELECT count(*) FROM experience_embeddings WHERE created_at > now() - interval '1h'` — ingest rate" }
+    }
+  ]
+}

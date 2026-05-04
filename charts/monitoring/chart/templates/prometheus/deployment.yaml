@@ -16,6 +16,11 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/prometheus/configmap.yaml") . | sha256sum }}
+        # Re-roll the Deployment when SLO rules change so the new rules
+        # are loaded without waiting for the next manual reload.
+        checksum/rules: {{ include (print $.Template.BasePath "/prometheus/rules-configmap.yaml") . | sha256sum }}
+        checksum/rules-cost: {{ include (print $.Template.BasePath "/prometheus/rules-cost-configmap.yaml") . | sha256sum }}
+        checksum/rules-dora: {{ include (print $.Template.BasePath "/prometheus/rules-dora-configmap.yaml") . | sha256sum }}
       labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 8}}
     spec:
       serviceAccountName: prometheus
@@ -56,6 +61,8 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
+            - name: rules
+              mountPath: /etc/prometheus/rules
             - name: data
               mountPath: /prometheus
           resources: {{- toYaml .Values.prometheus.resources | nindent 12}}
@@ -75,6 +82,18 @@ spec:
         - name: config
           configMap:
             name: prometheus-config
+        - name: rules
+          projected:
+            sources:
+              - configMap:
+                  name: prometheus-rules
+                  optional: true
+              - configMap:
+                  name: prometheus-rules-cost
+                  optional: true
+              - configMap:
+                  name: prometheus-rules-dora
+                  optional: true
         - name: data
           persistentVolumeClaim:
             claimName: prometheus-data

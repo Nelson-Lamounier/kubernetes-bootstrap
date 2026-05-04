@@ -1,0 +1,121 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["edge", "cloudfront", "waf", "cdn"],
+  "title": "Edge & CDN — CloudFront / WAF",
+  "uid": "edge-cdn",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "distribution", "type": "query", "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" }, "query": { "namespace": "AWS/CloudFront", "metricName": "Requests", "dimensionKey": "DistributionId", "region": "us-east-1" }, "refresh": 2, "multi": true, "includeAll": true, "current": { "text": "All", "value": "$__all" } }
+    ]
+  },
+  "panels": [
+    { "type": "row", "id": 100, "title": "Traffic", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    {
+      "id": 101, "type": "timeseries", "title": "Requests / minute",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/CloudFront", "metricName": "Requests", "statistic": "Sum", "region": "us-east-1", "dimensions": { "DistributionId": "$distribution", "Region": "Global" } }
+      ]
+    },
+    {
+      "id": 102, "type": "timeseries", "title": "Bytes downloaded",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/CloudFront", "metricName": "BytesDownloaded", "statistic": "Sum", "region": "us-east-1", "dimensions": { "DistributionId": "$distribution", "Region": "Global" } }
+      ]
+    },
+    { "type": "row", "id": 200, "title": "Errors", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 } },
+    {
+      "id": 201, "type": "stat", "title": "5xx error rate (1h)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.5 }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/CloudFront", "metricName": "5xxErrorRate", "statistic": "Average", "region": "us-east-1", "dimensions": { "DistributionId": "$distribution", "Region": "Global" } }
+      ]
+    },
+    {
+      "id": 202, "type": "stat", "title": "4xx error rate (1h)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 10 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/CloudFront", "metricName": "4xxErrorRate", "statistic": "Average", "region": "us-east-1", "dimensions": { "DistributionId": "$distribution", "Region": "Global" } }
+      ]
+    },
+    {
+      "id": 203, "type": "stat", "title": "Cache hit rate",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 60 }, { "color": "green", "value": 85 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/CloudFront", "metricName": "CacheHitRate", "statistic": "Average", "region": "us-east-1", "dimensions": { "DistributionId": "$distribution", "Region": "Global" } }
+      ]
+    },
+    {
+      "id": 204, "type": "stat", "title": "Origin latency p95 (ms)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 500 }, { "color": "red", "value": 1500 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/CloudFront", "metricName": "OriginLatency", "statistic": "p95", "region": "us-east-1", "dimensions": { "DistributionId": "$distribution", "Region": "Global" } }
+      ]
+    },
+    {
+      "id": 205, "type": "timeseries", "title": "Error rate trend (4xx + 5xx)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/CloudFront", "metricName": "4xxErrorRate", "statistic": "Average", "region": "us-east-1", "dimensions": { "DistributionId": "$distribution", "Region": "Global" }, "label": "4xx" },
+        { "refId": "B", "namespace": "AWS/CloudFront", "metricName": "5xxErrorRate", "statistic": "Average", "region": "us-east-1", "dimensions": { "DistributionId": "$distribution", "Region": "Global" }, "label": "5xx" }
+      ]
+    },
+    { "type": "row", "id": 300, "title": "WAF — blocked requests", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 } },
+    {
+      "id": 301, "type": "timeseries", "title": "WAF blocked requests by rule",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/WAFV2", "metricName": "BlockedRequests", "statistic": "Sum", "region": "us-east-1" }
+      ]
+    },
+    {
+      "id": 302, "type": "timeseries", "title": "WAF allowed requests",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch-edge" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/WAFV2", "metricName": "AllowedRequests", "statistic": "Sum", "region": "us-east-1" }
+      ]
+    },
+    { "type": "row", "id": 400, "title": "Edge logs (CloudFront)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 } },
+    {
+      "id": 401, "type": "logs", "title": "5xx & origin failover events",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 33 },
+      "options": { "showTime": true, "wrapLogMessage": true },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"cloudfront-logs\"} |~ \"^5\\\\d\\\\d|OriginUnavailable|OriginConnectError\"" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,194 @@
+{{- if .Values.slo.enabled }}
+# ---------------------------------------------------------------------------
+# Prometheus recording + alerting rules — SLO multi-window multi-burn-rate.
+#
+# Rendered into /etc/prometheus/rules/slo.yml inside the prometheus pod.
+# Mounted by templates/prometheus/deployment.yaml; referenced from the
+# main prometheus.yml via `rule_files: ["/etc/prometheus/rules/*.yml"]`.
+#
+# Per service in .Values.slo.services this file emits two SLOs (availability
+# + latency), each with 7 recording rules (one per window) and 4 alerting
+# rules (page-2%, page-5%, ticket-10%, ticket-monthly).
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+data:
+  slo.yml: |
+    groups:
+{{- range $svc := .Values.slo.services }}
+      # =====================================================================
+      # {{ $svc.name }} — recording rules
+      # =====================================================================
+      - name: slo:{{ $svc.name }}:recording
+        interval: 30s
+        rules:
+        {{- range $w := list "5m" "30m" "1h" "2h" "6h" "1d" "3d" }}
+          # availability error ratio — {{ $w }}
+          - record: slo:{{ $svc.name }}:errors_ratio:rate{{ $w }}
+            expr: |
+              sum(rate({{ $svc.requestMetric }}{service="{{ $svc.name }}",status_code=~"5.."}[{{ $w }}]))
+              /
+              clamp_min(sum(rate({{ $svc.requestMetric }}{service="{{ $svc.name }}"}[{{ $w }}])), 1)
+
+          # latency budget — share of requests SLOWER than the target bucket
+          # (1 - share within the bucket = bad share).
+          - record: slo:{{ $svc.name }}:latency_bad_ratio:rate{{ $w }}
+            expr: |
+              1 -
+              (
+                sum(rate({{ $svc.latencyMetric }}{service="{{ $svc.name }}",le="{{ $svc.latencyBucketLe }}"}[{{ $w }}]))
+                /
+                clamp_min(sum(rate({{ $svc.latencyMetric }}{service="{{ $svc.name }}",le="+Inf"}[{{ $w }}])), 1)
+              )
+        {{- end }}
+
+{{- if $.Values.slo.alertsEnabled }}
+      # =====================================================================
+      # {{ $svc.name }} — multi-window multi-burn-rate alerts
+      # Availability SLO: {{ $svc.availabilityTarget }}
+      # Latency SLO:      {{ $svc.latencyTarget }} of requests <= {{ $svc.latencyBucketLe }}s
+      # =====================================================================
+      - name: slo:{{ $svc.name }}:alerts
+        rules:
+          # ── Availability alerts ────────────────────────────────────────────
+          - alert: {{ $svc.name | title }}AvailabilityFastBurn
+            expr: |
+              slo:{{ $svc.name }}:errors_ratio:rate1h  > (14.4 * (1 - {{ $svc.availabilityTarget }}))
+              and
+              slo:{{ $svc.name }}:errors_ratio:rate5m  > (14.4 * (1 - {{ $svc.availabilityTarget }}))
+            for: 2m
+            labels:
+              severity:           critical
+              service:            {{ $svc.name }}
+              slo:                availability
+              burn:               fast
+              detect_lag_seconds: "120"
+            annotations:
+              summary: "{{ $svc.name }} burning availability budget 14.4× (2% in 1h)."
+              description: "Error rate over 1h and 5m both exceed 14.4× the {{ $svc.availabilityTarget }} budget burn rate. At this pace the monthly error budget is exhausted within 2 days."
+
+          - alert: {{ $svc.name | title }}AvailabilityMediumBurn
+            expr: |
+              slo:{{ $svc.name }}:errors_ratio:rate6h   > (6 * (1 - {{ $svc.availabilityTarget }}))
+              and
+              slo:{{ $svc.name }}:errors_ratio:rate30m  > (6 * (1 - {{ $svc.availabilityTarget }}))
+            for: 15m
+            labels:
+              severity:           critical
+              service:            {{ $svc.name }}
+              slo:                availability
+              burn:               medium
+              detect_lag_seconds: "900"
+            annotations:
+              summary: "{{ $svc.name }} burning availability budget 6× (5% in 6h)."
+
+          - alert: {{ $svc.name | title }}AvailabilitySlowBurn
+            expr: |
+              slo:{{ $svc.name }}:errors_ratio:rate1d  > (3 * (1 - {{ $svc.availabilityTarget }}))
+              and
+              slo:{{ $svc.name }}:errors_ratio:rate2h  > (3 * (1 - {{ $svc.availabilityTarget }}))
+            for: 1h
+            labels:
+              severity:           warning
+              service:            {{ $svc.name }}
+              slo:                availability
+              burn:               slow
+              detect_lag_seconds: "3600"
+            annotations:
+              summary: "{{ $svc.name }} burning availability budget 3× (10% in 1d)."
+
+          - alert: {{ $svc.name | title }}AvailabilityMonthlyBurn
+            expr: |
+              slo:{{ $svc.name }}:errors_ratio:rate3d  > (1 * (1 - {{ $svc.availabilityTarget }}))
+              and
+              slo:{{ $svc.name }}:errors_ratio:rate6h  > (1 * (1 - {{ $svc.availabilityTarget }}))
+            for: 3h
+            labels:
+              severity:           warning
+              service:            {{ $svc.name }}
+              slo:                availability
+              burn:               monthly
+              detect_lag_seconds: "10800"
+            annotations:
+              summary: "{{ $svc.name }} on track to exhaust monthly availability budget."
+
+          # ── Latency alerts ─────────────────────────────────────────────────
+          - alert: {{ $svc.name | title }}LatencyFastBurn
+            expr: |
+              slo:{{ $svc.name }}:latency_bad_ratio:rate1h > (14.4 * (1 - {{ $svc.latencyTarget }}))
+              and
+              slo:{{ $svc.name }}:latency_bad_ratio:rate5m > (14.4 * (1 - {{ $svc.latencyTarget }}))
+            for: 2m
+            labels:
+              severity:           critical
+              service:            {{ $svc.name }}
+              slo:                latency
+              burn:               fast
+              detect_lag_seconds: "120"
+            annotations:
+              summary: "{{ $svc.name }} latency >{{ $svc.latencyBucketLe }}s burning budget 14.4×."
+
+          - alert: {{ $svc.name | title }}LatencyMediumBurn
+            expr: |
+              slo:{{ $svc.name }}:latency_bad_ratio:rate6h  > (6 * (1 - {{ $svc.latencyTarget }}))
+              and
+              slo:{{ $svc.name }}:latency_bad_ratio:rate30m > (6 * (1 - {{ $svc.latencyTarget }}))
+            for: 15m
+            labels:
+              severity:           critical
+              service:            {{ $svc.name }}
+              slo:                latency
+              burn:               medium
+              detect_lag_seconds: "900"
+            annotations:
+              summary: "{{ $svc.name }} latency budget burning 6× (5% in 6h)."
+
+          - alert: {{ $svc.name | title }}LatencySlowBurn
+            expr: |
+              slo:{{ $svc.name }}:latency_bad_ratio:rate1d > (3 * (1 - {{ $svc.latencyTarget }}))
+              and
+              slo:{{ $svc.name }}:latency_bad_ratio:rate2h > (3 * (1 - {{ $svc.latencyTarget }}))
+            for: 1h
+            labels:
+              severity:           warning
+              service:            {{ $svc.name }}
+              slo:                latency
+              burn:               slow
+              detect_lag_seconds: "3600"
+            annotations:
+              summary: "{{ $svc.name }} latency budget burning 3× (10% in 1d)."
+
+          - alert: {{ $svc.name | title }}LatencyMonthlyBurn
+            expr: |
+              slo:{{ $svc.name }}:latency_bad_ratio:rate3d > (1 * (1 - {{ $svc.latencyTarget }}))
+              and
+              slo:{{ $svc.name }}:latency_bad_ratio:rate6h > (1 * (1 - {{ $svc.latencyTarget }}))
+            for: 3h
+            labels:
+              severity:           warning
+              service:            {{ $svc.name }}
+              slo:                latency
+              burn:               monthly
+              detect_lag_seconds: "10800"
+            annotations:
+              summary: "{{ $svc.name }} on track to exhaust monthly latency budget."
+
+          # ── Liveness — pod missing / not scraping ──────────────────────────
+          - alert: {{ $svc.name | title }}NoMetrics
+            expr: |
+              absent(up{namespace="{{ $svc.namespace }}",service="{{ $svc.name }}"} == 1)
+            for: 5m
+            labels:
+              severity:           critical
+              service:            {{ $svc.name }}
+              detect_lag_seconds: "300"
+            annotations:
+              summary: "{{ $svc.name }} not exposing /metrics — scrape target missing."
+              description: "Prometheus has no successful scrape of {{ $svc.name }} for 5m. Either the pod is down, the Service annotation is missing, or NetworkPolicy is blocking."
+{{- end }}{{/* slo.alertsEnabled */}}
+{{- end }}{{/* range slo.services */}}
+{{- end }}{{/* slo.enabled */}}

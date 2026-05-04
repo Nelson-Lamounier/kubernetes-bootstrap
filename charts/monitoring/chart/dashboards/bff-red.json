@@ -1,0 +1,247 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "name": "Deploys",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "enable": true,
+        "expr": "{job=\"github-actions\", event=~\"deploy_succeeded|deploy_failed\", service=~\"admin-api|tucaken-app\"} | json",
+        "iconColor": "blue",
+        "titleFormat": "{{event}} {{service}} {{git_sha}}",
+        "textFormat": "{{run_url}}"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "tags": ["bff", "tucaken", "admin-api", "red"],
+  "title": "BFF — tucaken-app ↔ admin-api RED",
+  "uid": "bff-red",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "row",
+      "id": 100,
+      "title": "admin-api — server-side RED",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "id": 101,
+      "type": "timeseries",
+      "title": "admin-api requests / sec by status class",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_class) (rate(http_requests_total{service=\"admin-api\"}[5m]) * on() group_left(status_class) label_replace(http_requests_total{service=\"admin-api\"}, \"status_class\", \"${1}xx\", \"status_code\", \"(.).*\"))",
+          "legendFormat": "{{status_class}}"
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "timeseries",
+      "title": "admin-api latency p50 / p95 / p99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"admin-api\"}[5m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"admin-api\"}[5m])))", "legendFormat": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"admin-api\"}[5m])))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "admin-api 5xx rate (last 5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.005 }, { "color": "red", "value": 0.01 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(http_requests_total{service=\"admin-api\",status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{service=\"admin-api\"}[5m])), 1)" }
+      ]
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "admin-api event-loop lag (p99)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.05 }, { "color": "red", "value": 0.2 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "max(nodejs_eventloop_lag_p99_seconds{service=\"admin-api\"})" }
+      ]
+    },
+    {
+      "id": 105,
+      "type": "stat",
+      "title": "admin-api heap used",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "decbytes" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "max(nodejs_heap_size_used_bytes{service=\"admin-api\"})" }
+      ]
+    },
+    {
+      "id": 106,
+      "type": "stat",
+      "title": "admin-api GC pause / sec",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(nodejs_gc_duration_seconds_sum{service=\"admin-api\"}[5m]))" }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 200,
+      "title": "tucaken-app SSR — RED + runtime",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "collapsed": false
+    },
+    {
+      "id": 201,
+      "type": "timeseries",
+      "title": "SSR requests / sec by route",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (route) (rate(ssr_requests_total{service=\"tucaken-app\"}[5m]))", "legendFormat": "{{route}}" }
+      ]
+    },
+    {
+      "id": 202,
+      "type": "timeseries",
+      "title": "SSR latency p50 / p95 / p99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(ssr_request_duration_seconds_bucket{service=\"tucaken-app\"}[5m])))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(ssr_request_duration_seconds_bucket{service=\"tucaken-app\"}[5m])))", "legendFormat": "p95" },
+        { "refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(ssr_request_duration_seconds_bucket{service=\"tucaken-app\"}[5m])))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 300,
+      "title": "tucaken-app → admin-api outbound",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false
+    },
+    {
+      "id": 301,
+      "type": "timeseries",
+      "title": "Outbound calls / sec by path",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (path, status_code) (rate(admin_api_client_requests_total{service=\"tucaken-app\"}[5m]))", "legendFormat": "{{path}} {{status_code}}" }
+      ]
+    },
+    {
+      "id": 302,
+      "type": "timeseries",
+      "title": "Outbound latency p95 by path",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, path) (rate(admin_api_client_request_duration_seconds_bucket{service=\"tucaken-app\"}[5m])))", "legendFormat": "{{path}}" }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 400,
+      "title": "FinOps — $/req (OpenCost-derived)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "collapsed": false
+    },
+    {
+      "id": 401,
+      "type": "stat",
+      "title": "admin-api $/req",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 6 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "cost:admin-api:usd_per_request" }
+      ]
+    },
+    {
+      "id": 402,
+      "type": "stat",
+      "title": "tucaken-app $/req",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 6 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "cost:tucaken-app:usd_per_request" }
+      ]
+    },
+    {
+      "id": 403,
+      "type": "stat",
+      "title": "admin-api $/hour",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "cost:admin-api:usd_per_hour" }
+      ]
+    },
+    {
+      "id": 404,
+      "type": "stat",
+      "title": "tucaken-app $/hour",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "cost:tucaken-app:usd_per_hour" }
+      ]
+    },
+    {
+      "id": 405,
+      "type": "timeseries",
+      "title": "$/req trend (5m rolling)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 37 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "cost:admin-api:usd_per_request",  "legendFormat": "admin-api" },
+        { "refId": "B", "expr": "cost:tucaken-app:usd_per_request", "legendFormat": "tucaken-app" }
+      ]
+    }
+  ]
+}

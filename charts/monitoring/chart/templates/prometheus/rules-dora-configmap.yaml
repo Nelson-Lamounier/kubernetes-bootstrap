@@ -1,0 +1,189 @@
+{{- if .Values.slo.enabled }}
+# ---------------------------------------------------------------------------
+# DORA recording rules — Four Keys derived metrics.
+#
+# Source signals (already collected upstream):
+#   deployment_event_total{service, env, outcome}    pushed by GH Actions
+#   deployment_lead_time_seconds{service, env}       pushed by GH Actions
+#   slo:<svc>:errors_ratio:rate30m                   from SLO recording rules
+#
+# Output (rates over 28 days = DORA recommended window):
+#   dora:deployment_frequency:per_day{service, env}
+#   dora:lead_time_seconds:p50{service, env}     from gauge — last value, not p50
+#   dora:change_failure_rate:28d{service, env}
+#   dora:cluster_etcd_rto_seconds                from etcd-restore-rto-test
+#
+# MTTR is intentionally NOT computed here — needs Alertmanager firing→
+# resolved deltas which require a webhook receiver. Tracked as deferred.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-dora
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+data:
+  dora.yml: |
+    groups:
+      - name: dora:recording
+        interval: 1m
+        rules:
+          # Deployment frequency — successful deploys per day, 28d window.
+          # Counter increments are honour_labels'd from Pushgateway so
+          # service/env labels survive the scrape.
+          - record: dora:deployment_frequency:per_day
+            expr: |
+              sum by (service, env) (
+                increase(deployment_event_total{outcome="succeeded"}[28d])
+              ) / 28
+
+          # Lead time — last reported gauge value per service. Use
+          # `last_over_time` so a service with no recent deploy keeps its
+          # last value rather than going to NaN.
+          - record: dora:lead_time_seconds:last
+            expr: |
+              last_over_time(deployment_lead_time_seconds[28d])
+
+          # Change failure rate — denominator is total deploys, numerator
+          # is failed-event deploys PLUS deploys followed within 30m by an
+          # SLO burn-rate alert for the same service.
+          #
+          # The "burn followed by deploy" join uses on(service) so any
+          # service-level SLO breach within the window counts.
+          - record: dora:change_failure_rate:28d
+            expr: |
+              (
+                sum by (service, env) (increase(deployment_event_total{outcome="failed"}[28d]))
+                +
+                sum by (service, env) (
+                  (
+                    increase(deployment_event_total{outcome="succeeded"}[28d])
+                  )
+                  and on (service)
+                  (
+                    max_over_time(
+                      ALERTS{alertstate="firing", slo!=""}[30m] offset -30m
+                    ) > 0
+                  )
+                )
+              )
+              / clamp_min(
+                sum by (service, env) (increase(deployment_event_total[28d])),
+                1
+              )
+
+          # SLO attainment — the 5th DORA key (Reliability). For each
+          # service, what fraction of the last 28d was the error ratio
+          # within the SLO budget? 1.0 = elite, < 0.99 = breach.
+          - record: dora:slo_attainment:28d
+            expr: |
+              avg_over_time(
+                (
+                  slo:admin-api:errors_ratio:rate30m < bool (1 - 0.999)
+                )[28d:30m]
+              )
+            labels:
+              service: admin-api
+
+          - record: dora:cluster_etcd_rto_seconds
+            expr: |
+              max(etcd_restore_rto_seconds)
+
+          # ── Google SRE incident timeline ───────────────────────────────
+          # Failure → Detected → Mitigated.
+          # The mttr-webhook sink emits three histograms per resolved
+          # alert; we reduce each to per-service p50 / p95 over 28d.
+          #
+          #   MTTD = Mean Time To Detect (alert `for:` duration)
+          #   MTTM = Mean Time To Mitigate (alert.endsAt - alert.startsAt)
+          #   MTTR = Mean Time To Restore = TTD + TTM (Google SRE definition)
+          #
+          # The DORA dashboard pre-2024 used "MTTR" loosely to mean MTTM.
+          # Modern SRE doctrine (DORA report 2023+) clarifies this — we
+          # surface all three so the team can interpret correctly.
+
+          # MTTD — detection latency, p50 + p95
+          - record: dora:mttd_seconds:p50:28d
+            expr: |
+              histogram_quantile(
+                0.50,
+                sum by (le, service) (
+                  rate(incident_detection_seconds_bucket[28d])
+                )
+              )
+          - record: dora:mttd_seconds:p95:28d
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le, service) (
+                  rate(incident_detection_seconds_bucket[28d])
+                )
+              )
+
+          # MTTA — engagement gap (alert fired → operator acknowledged).
+          # Populated only when a paging tool POSTs to /ack on the
+          # mttr-webhook sink. If you don't run a pager, these rules
+          # stay empty and the dashboard shows "no data" — harmless.
+          - record: dora:mtta_seconds:p50:28d
+            expr: |
+              histogram_quantile(
+                0.50,
+                sum by (le, service) (
+                  rate(incident_acknowledgement_seconds_bucket[28d])
+                )
+              )
+          - record: dora:mtta_seconds:p95:28d
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le, service) (
+                  rate(incident_acknowledgement_seconds_bucket[28d])
+                )
+              )
+
+          # MTTM — mitigation duration, p50 + p95 (was previously labelled MTTR)
+          - record: dora:mttm_seconds:p50:28d
+            expr: |
+              histogram_quantile(
+                0.50,
+                sum by (le, service) (
+                  rate(incident_resolution_seconds_bucket[28d])
+                )
+              )
+          - record: dora:mttm_seconds:p95:28d
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le, service) (
+                  rate(incident_resolution_seconds_bucket[28d])
+                )
+              )
+
+          # MTTR — full SRE Time To Restore (TTD + TTM)
+          - record: dora:mttr_seconds:p50:28d
+            expr: |
+              histogram_quantile(
+                0.50,
+                sum by (le, service) (
+                  rate(incident_total_seconds_bucket[28d])
+                )
+              )
+          - record: dora:mttr_seconds:p95:28d
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le, service) (
+                  rate(incident_total_seconds_bucket[28d])
+                )
+              )
+
+          # Incidents per day per service — counter increments on every
+          # alert event, regardless of resolution. Rate gives operational
+          # frequency to pair with MTTR (low MTTR + high frequency = noisy
+          # alerting; low MTTR + low frequency = healthy system).
+          - record: dora:incidents:per_day
+            expr: |
+              sum by (service) (
+                increase(incident_total{status="firing"}[28d])
+              ) / 28
+{{- end }}

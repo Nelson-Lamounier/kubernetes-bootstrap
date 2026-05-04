@@ -1,0 +1,244 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "name": "Deploys",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "enable": true,
+        "expr": "{job=\"github-actions\", event=~\"deploy_succeeded|deploy_failed\"} | json",
+        "iconColor": "blue",
+        "titleFormat": "{{event}} {{service}} {{git_sha}}",
+        "textFormat": "{{run_url}}"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["applications", "platform-job-watcher", "resume-import-processor"],
+  "title": "AI Applications — RED + Job throughput",
+  "uid": "applications-red",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "row",
+      "id": 100,
+      "title": "platform-job-watcher (long-running)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "id": 101,
+      "type": "timeseries",
+      "title": "Job lifecycle events / sec by phase",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (namespace, phase) (rate(platform_job_watcher_events_total[5m]))", "legendFormat": "{{namespace}} / {{phase}}" }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "Reconciliation success ratio (1h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.95 }, { "color": "green", "value": 0.99 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(platform_job_watcher_reconcile_runs_total{outcome=\"ok\"}[1h])) / clamp_min(sum(rate(platform_job_watcher_reconcile_runs_total[1h])), 0.001)" }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "Watcher event-loop p99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.05 }, { "color": "red", "value": 0.2 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "max(nodejs_eventloop_lag_p99_seconds{service=\"platform-job-watcher\"})" }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 200,
+      "title": "resume-import-processor (batch — Pushgateway-backed)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "collapsed": false
+    },
+    {
+      "id": 201,
+      "type": "stat",
+      "title": "Imports completed (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(resume_import_runs_total{outcome=\"success\"}[24h]))" }
+      ]
+    },
+    {
+      "id": 202,
+      "type": "stat",
+      "title": "Imports failed (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(resume_import_runs_total{outcome=\"failed\"}[24h]))" }
+      ]
+    },
+    {
+      "id": 203,
+      "type": "stat",
+      "title": "Failure ratio (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.05 }, { "color": "red", "value": 0.20 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(resume_import_runs_total{outcome=\"failed\"}[24h])) / clamp_min(sum(increase(resume_import_runs_total[24h])), 1)" }
+      ]
+    },
+    {
+      "id": 204,
+      "type": "stat",
+      "title": "p95 duration (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(resume_import_duration_seconds_bucket{outcome=\"success\"}[24h])))" }
+      ]
+    },
+    {
+      "id": 205,
+      "type": "timeseries",
+      "title": "Per-step latency p95",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, step) (rate(resume_import_step_duration_seconds_bucket[1h])))", "legendFormat": "{{step}}" }
+      ]
+    },
+    {
+      "id": 206,
+      "type": "timeseries",
+      "title": "Enrichment outcomes / hour",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (outcome) (increase(resume_import_enrichment_entries_total[1h]))", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    { "type": "row", "id": 300, "title": "ingestion (K8s Job — Pushgateway)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 } },
+    {
+      "id": 301, "type": "stat", "title": "Repos ingested (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "expr": "sum(increase(ingestion_runs_total{outcome=\"success\"}[24h]))" }]
+    },
+    {
+      "id": 302, "type": "stat", "title": "Failures (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "sum(increase(ingestion_runs_total{outcome=\"failed\"}[24h]))" }]
+    },
+    {
+      "id": 303, "type": "stat", "title": "Embedded chunks (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "expr": "sum(increase(ingestion_chunks_total{phase=\"embedded\"}[24h]))" }]
+    },
+    {
+      "id": 304, "type": "stat", "title": "p95 duration (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_duration_seconds_bucket{outcome=\"success\"}[24h])))" }]
+    },
+    { "type": "row", "id": 400, "title": "article-pipeline (K8s Job)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 } },
+    {
+      "id": 401, "type": "stat", "title": "Articles published (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "expr": "sum(increase(article_pipeline_runs_total{outcome=\"success\"}[24h]))" }]
+    },
+    {
+      "id": 402, "type": "stat", "title": "Pipeline failures (24h)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "sum(increase(article_pipeline_runs_total{outcome=\"failed\"}[24h]))" }]
+    },
+    {
+      "id": 403, "type": "timeseries", "title": "Per-stage latency p95 (research / writing / qa)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, step) (rate(article_pipeline_step_duration_seconds_bucket[1h])))", "legendFormat": "{{step}}" }
+      ]
+    },
+    { "type": "row", "id": 500, "title": "job-strategist (analyse + coach)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 } },
+    {
+      "id": 501, "type": "timeseries", "title": "Runs / hour by operation + outcome",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (operation, outcome) (increase(job_strategist_runs_total[1h]))", "legendFormat": "{{operation}} / {{outcome}}" }
+      ]
+    },
+    {
+      "id": 502, "type": "timeseries", "title": "Duration p95 by operation",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(job_strategist_duration_seconds_bucket{outcome=\"success\"}[1h])))", "legendFormat": "{{operation}}" }
+      ]
+    },
+    { "type": "row", "id": 600, "title": "kube-state Job lifecycle (all 4 + bootstrap)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 49 } },
+    {
+      "id": 601, "type": "timeseries", "title": "Active / failed / succeeded Jobs by namespace",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 50 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (namespace) (kube_job_status_active)",    "legendFormat": "{{namespace}} active" },
+        { "refId": "B", "expr": "sum by (namespace) (kube_job_status_failed)",    "legendFormat": "{{namespace}} failed" },
+        { "refId": "C", "expr": "sum by (namespace) (kube_job_status_succeeded)", "legendFormat": "{{namespace}} succeeded" }
+      ]
+    }
+  ]
+}

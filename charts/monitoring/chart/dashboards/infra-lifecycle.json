@@ -1,0 +1,147 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "name": "ASG instance refresh",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "enable": true,
+        "expr": "{job=\"cloudtrail\"} |~ \"StartInstanceRefresh|TerminateInstanceInAutoScalingGroup|LaunchInstance\"",
+        "iconColor": "yellow",
+        "titleFormat": "{{eventName}}"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["infra", "asg", "ssm", "lifecycle", "bootstrap"],
+  "title": "Infra Lifecycle — ASG / SM-A / EC2",
+  "uid": "infra-lifecycle",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    { "type": "row", "id": 100, "title": "ASG — instance refresh & scaling", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    {
+      "id": 101, "type": "stat", "title": "In-service instances (now)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "namespace": "AWS/AutoScaling", "metricName": "GroupInServiceInstances", "statistic": "Average" }]
+    },
+    {
+      "id": 102, "type": "stat", "title": "Desired capacity",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "namespace": "AWS/AutoScaling", "metricName": "GroupDesiredCapacity", "statistic": "Average" }]
+    },
+    {
+      "id": 103, "type": "stat", "title": "Pending instances",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "namespace": "AWS/AutoScaling", "metricName": "GroupPendingInstances", "statistic": "Average" }]
+    },
+    {
+      "id": 104, "type": "stat", "title": "Terminating instances",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "namespace": "AWS/AutoScaling", "metricName": "GroupTerminatingInstances", "statistic": "Average" }]
+    },
+    {
+      "id": 105, "type": "logs", "title": "ASG lifecycle events (CloudTrail → Loki)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 5 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none" },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"cloudtrail\"} |~ \"StartInstanceRefresh|CancelInstanceRefresh|TerminateInstanceInAutoScalingGroup|UpdateAutoScalingGroup|SetDesiredCapacity\"" }
+      ]
+    },
+    { "type": "row", "id": 200, "title": "SM-A — bootstrap orchestration", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 } },
+    {
+      "id": 201, "type": "table", "title": "Recent SSM Automation executions",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 16 },
+      "options": { "showHeader": true },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"cloudtrail\"} |~ \"StartAutomationExecution|StopAutomationExecution\" | json | line_format \"{{.eventTime}}  {{.eventName}}  {{.requestParameters_documentName}}  {{.responseElements_automationExecutionId}}\"" }
+      ]
+    },
+    {
+      "id": 202, "type": "logs", "title": "Boot script log stream (control_plane / worker)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 12, "w": 12, "x": 0, "y": 25 },
+      "options": { "showTime": true, "wrapLogMessage": true },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"ssm-automation\"} |~ \"\\\\[boot\\\\]|kubeadm join|control_plane|worker\"" }
+      ]
+    },
+    {
+      "id": 203, "type": "logs", "title": "Boot failures",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 25 },
+      "options": { "showTime": true, "wrapLogMessage": true },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"ssm-automation\"} |~ \"FAILED|Error|Traceback|exit 1\"" }
+      ]
+    },
+    { "type": "row", "id": 300, "title": "EC2 — instance state + EBS health", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 } },
+    {
+      "id": 301, "type": "timeseries", "title": "Per-instance CPU credit balance (t-class)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 38 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/EC2", "metricName": "CPUCreditBalance", "statistic": "Average" }
+      ]
+    },
+    {
+      "id": 302, "type": "timeseries", "title": "EBS volume queue length",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 38 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/EBS", "metricName": "VolumeQueueLength", "statistic": "Average" }
+      ]
+    },
+    {
+      "id": 303, "type": "logs", "title": "EC2 state-change events",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 46 },
+      "options": { "showTime": true, "wrapLogMessage": true },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"cloudtrail\"} |~ \"RunInstances|TerminateInstances|StartInstances|StopInstances\"" }
+      ]
+    },
+    { "type": "row", "id": 400, "title": "Cluster joins (kubeadm)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 54 } },
+    {
+      "id": 401, "type": "timeseries", "title": "Node count by role",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 55 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "targets": [
+        { "refId": "A", "expr": "count by (label_node_role_kubernetes_io) (kube_node_labels)", "legendFormat": "{{label_node_role_kubernetes_io}}" }
+      ]
+    },
+    {
+      "id": 402, "type": "stat", "title": "NotReady nodes",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 55 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"false\"})" }
+      ]
+    }
+  ]
+}

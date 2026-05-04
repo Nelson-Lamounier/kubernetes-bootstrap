@@ -13,6 +13,23 @@ data:
         cluster: {{ .Values.clusterName | default "portfolio-development" }}
         environment: {{ .Values.environment | default "development" }}
 
+    # SLO recording + alerting rules live in a sibling ConfigMap mounted
+    # at /etc/prometheus/rules; see rules-configmap.yaml.
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
+    {{- if .Values.alertmanager.enabled }}
+    # Forward alerts to Alertmanager. The /alertmanager prefix matches
+    # --web.external-url on the Alertmanager pod so URLs in SNS messages
+    # are clickable behind a future ingress without rewriting paths.
+    alerting:
+      alertmanagers:
+        - scheme: http
+          static_configs:
+            - targets:
+                - alertmanager.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.alertmanager.service.port }}
+    {{- end }}
+
     scrape_configs:
       - job_name: prometheus
         metrics_path: /prometheus/metrics
@@ -134,6 +151,16 @@ data:
         metrics_path: /metrics
         static_configs:
           - targets: ["alloy.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.alloy.service.httpPort }}"]
+
+      # Pushgateway — dedicated job because honor_labels is a per-job
+      # setting (not relabel-able). Pushed Job counters carry their own
+      # {service, instance} labels which MUST survive scraping.
+      - job_name: pushgateway
+        honor_labels: true
+        scrape_interval: 30s
+        metrics_path: /metrics
+        static_configs:
+          - targets: ["pushgateway.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.pushgateway.service.port }}"]
 
       - job_name: opencost
         honor_labels: true

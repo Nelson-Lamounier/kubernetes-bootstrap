@@ -1,0 +1,162 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["lambda", "chatbot", "self-healing", "x-ray"],
+  "title": "Lambda Services — chatbot + self-healing",
+  "uid": "lambda-services",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "function", "type": "query", "datasource": { "type": "cloudwatch", "uid": "cloudwatch" }, "query": { "namespace": "AWS/Lambda", "metricName": "Invocations", "dimensionKey": "FunctionName" }, "refresh": 2, "multi": true, "includeAll": true, "current": { "text": "All", "value": "$__all" } }
+    ]
+  },
+  "panels": [
+    { "type": "row", "id": 100, "title": "Lambda RED — chatbot + self-healing", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    {
+      "id": 101, "type": "timeseries", "title": "Invocations / minute",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/Lambda", "metricName": "Invocations", "statistic": "Sum", "dimensions": { "FunctionName": "$function" }, "label": "{{FunctionName}}" }
+      ]
+    },
+    {
+      "id": 102, "type": "timeseries", "title": "Duration p95",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "ms", "min": 0 } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/Lambda", "metricName": "Duration", "statistic": "p95", "dimensions": { "FunctionName": "$function" }, "label": "{{FunctionName}}" }
+      ]
+    },
+    {
+      "id": 103, "type": "stat", "title": "Errors (1h)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/Lambda", "metricName": "Errors", "statistic": "Sum", "dimensions": { "FunctionName": "$function" }, "period": "3600" }
+      ]
+    },
+    {
+      "id": 104, "type": "stat", "title": "Throttles (1h)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/Lambda", "metricName": "Throttles", "statistic": "Sum", "dimensions": { "FunctionName": "$function" }, "period": "3600" }
+      ]
+    },
+    {
+      "id": 105, "type": "stat", "title": "Cold starts ratio (1h)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 0.3 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/Lambda", "metricName": "InitDuration", "statistic": "SampleCount", "dimensions": { "FunctionName": "$function" } },
+        { "refId": "B", "namespace": "AWS/Lambda", "metricName": "Invocations", "statistic": "Sum", "dimensions": { "FunctionName": "$function" } }
+      ]
+    },
+    {
+      "id": 106, "type": "stat", "title": "Concurrent executions (max)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["max"] } },
+      "targets": [
+        { "refId": "A", "namespace": "AWS/Lambda", "metricName": "ConcurrentExecutions", "statistic": "Maximum", "dimensions": { "FunctionName": "$function" } }
+      ]
+    },
+    { "type": "row", "id": 200, "title": "chatbot — EMF custom metrics", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 } },
+    {
+      "id": 201, "type": "timeseries", "title": "Invocation outcomes",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "namespace": "BedrockChatbot", "metricName": "InvocationCount", "statistic": "Sum", "label": "ok" },
+        { "refId": "B", "namespace": "BedrockChatbot", "metricName": "InvocationErrors", "statistic": "Sum", "label": "error" },
+        { "refId": "C", "namespace": "BedrockChatbot", "metricName": "BlockedInputs", "statistic": "Sum", "label": "input_blocked" },
+        { "refId": "D", "namespace": "BedrockChatbot", "metricName": "RedactedOutputs", "statistic": "Sum", "label": "output_redacted" }
+      ]
+    },
+    {
+      "id": 202, "type": "timeseries", "title": "Prompt + response length (avg)",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "targets": [
+        { "refId": "A", "namespace": "BedrockChatbot", "metricName": "PromptLength",   "statistic": "Average", "label": "prompt" },
+        { "refId": "B", "namespace": "BedrockChatbot", "metricName": "ResponseLength", "statistic": "Average", "label": "response" }
+      ]
+    },
+    { "type": "row", "id": 300, "title": "self-healing — remediation lifecycle", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 } },
+    {
+      "id": 301, "type": "logs", "title": "Latest remediation runs (correlationId, alarm)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 24 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none" },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"cloudwatch\"} |~ \"self-healing\" | json | line_format \"{{.timestamp}}  {{.correlationId}}  {{.message}}  alarm={{.alarmName}}\"" }
+      ]
+    },
+    {
+      "id": 302, "type": "stat", "title": "Remediations succeeded (24h)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 34 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({job=\"cloudwatch\"} |~ \"self-healing\" |~ \"remediation_succeeded\" [24h]))" }
+      ]
+    },
+    {
+      "id": 303, "type": "stat", "title": "Remediations failed (24h)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 34 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({job=\"cloudwatch\"} |~ \"self-healing\" |~ \"remediation_failed\" [24h]))" }
+      ]
+    },
+    {
+      "id": 304, "type": "stat", "title": "DryRun blocked (24h)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 34 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({job=\"cloudwatch\"} |~ \"self-healing\" |~ \"dry_run_blocked\" [24h]))" }
+      ]
+    },
+    {
+      "id": 305, "type": "stat", "title": "Idempotency hits (24h)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 34 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({job=\"cloudwatch\"} |~ \"self-healing\" |~ \"idempotent_skip\" [24h]))" }
+      ]
+    },
+    { "type": "row", "id": 400, "title": "Distributed traces (X-Ray)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 } },
+    {
+      "id": 401, "type": "text", "title": "X-Ray trace search",
+      "datasource": null,
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 40 },
+      "options": { "mode": "markdown", "content": "Use Grafana **Explore → X-Ray data source** to search traces by service name (`chatbot` / `self-healing`) or by `correlationId`. After ADOT is deployed, traces flow with W3C `traceparent` from upstream callers (admin-api, EventBridge alarms) — the full waterfall lands in X-Ray.\n\nSwitch the data source to **Tempo** to see traces from K8s workloads and pivot via `trace_id` from log lines below." }
+    }
+  ]
+}

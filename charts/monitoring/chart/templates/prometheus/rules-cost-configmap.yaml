@@ -1,0 +1,66 @@
+{{- if .Values.slo.enabled }}
+# ---------------------------------------------------------------------------
+# Cost-per-request recording rules — joins OpenCost with our request rate.
+#
+# OpenCost emits cumulative pod cost (USD) via `opencost_pod_total_cost` and
+# breaks it down to CPU + memory components. We join on (namespace, pod) so
+# the cost lines up with the same pod's HTTP request rate, then divide.
+# Result: USD spent per request — actionable FinOps signal that survives
+# pod scaling because it normalises by load.
+#
+# Rendered into /etc/prometheus/rules/cost.yml inside the prometheus pod.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-cost
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+data:
+  cost.yml: |
+    groups:
+{{- range $svc := .Values.slo.services }}
+      - name: cost:{{ $svc.name }}:recording
+        interval: 1m
+        rules:
+          # Pod-level cost rate (USD/sec) — combines CPU + memory pool
+          # share from the underlying node pricing OpenCost has cached.
+          - record: cost:{{ $svc.name }}:pod_usd_per_second
+            expr: |
+              sum(rate(opencost_pod_total_cost{namespace="{{ $svc.namespace }}"}[5m]))
+
+          # Request rate across all pods of the service.
+          - record: cost:{{ $svc.name }}:requests_per_second
+            expr: |
+              sum(rate({{ $svc.requestMetric }}{service="{{ $svc.name }}"}[5m]))
+
+          # USD per request — the headline FinOps number. Use clamp_min so
+          # zero-traffic windows yield 0 instead of NaN; alerts and panels
+          # handle 0 cleanly.
+          - record: cost:{{ $svc.name }}:usd_per_request
+            expr: |
+              cost:{{ $svc.name }}:pod_usd_per_second
+              /
+              clamp_min(cost:{{ $svc.name }}:requests_per_second, 0.001)
+
+          # Hourly burn rate — what this service costs to run for 1h at
+          # current load. Easier to reason about for budget conversations
+          # than the per-second number.
+          - record: cost:{{ $svc.name }}:usd_per_hour
+            expr: |
+              cost:{{ $svc.name }}:pod_usd_per_second * 3600
+{{- end }}
+
+      # ---- Cluster-wide compactor ----------------------------------------
+      # Total pod cost across the cluster, useful as a denominator and as
+      # the headline number for the FinOps dashboard.
+      - name: cost:cluster:recording
+        interval: 1m
+        rules:
+          - record: cost:cluster:total_usd_per_hour
+            expr: |
+              sum(rate(opencost_pod_total_cost[5m])) * 3600
+          - record: cost:cluster:by_namespace_usd_per_hour
+            expr: |
+              sum by (namespace) (rate(opencost_pod_total_cost[5m])) * 3600
+{{- end }}

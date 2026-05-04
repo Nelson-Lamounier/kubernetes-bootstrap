@@ -1,0 +1,207 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "name": "Deploys (succeeded)",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "enable": true,
+        "expr": "{job=\"github-actions\", event=\"deploy_succeeded\", env=\"$env\"} | json",
+        "iconColor": "green",
+        "titleFormat": "deploy ✓ {{service}} {{git_sha}}",
+        "textFormat": "{{message}} — {{run_url}}"
+      },
+      {
+        "name": "Deploys (failed)",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "enable": true,
+        "expr": "{job=\"github-actions\", event=~\"deploy_failed|deploy_cancelled\", env=\"$env\"} | json",
+        "iconColor": "red",
+        "titleFormat": "deploy ✗ {{service}} {{git_sha}}",
+        "textFormat": "{{message}} — {{run_url}}"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["dev", "triage", "errors", "instrumentation"],
+  "title": "Dev Triage — errors + instrumentation health",
+  "uid": "dev-triage",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "env", "type": "custom", "query": "development,production", "current": { "text": "development", "value": "development" } },
+      { "name": "service", "type": "query", "datasource": { "type": "prometheus", "uid": "prometheus" }, "query": "label_values(up, service)", "refresh": 2, "multi": true, "includeAll": true, "current": { "text": "All", "value": "$__all" } }
+    ]
+  },
+  "panels": [
+    { "type": "row", "id": 100, "title": "Errors — every 4xx/5xx is suspect in dev", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    {
+      "id": 101, "type": "timeseries", "title": "5xx / sec by service",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (service) (rate(http_requests_total{env=\"$env\",service=~\"$service\",status_code=~\"5..\"}[5m])) + sum by (service) (rate(ssr_requests_total{env=\"$env\",service=~\"$service\",status_code=~\"5..\"}[5m]))", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 102, "type": "timeseries", "title": "4xx / sec by service",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (service) (rate(http_requests_total{env=\"$env\",service=~\"$service\",status_code=~\"4..\"}[5m])) + sum by (service) (rate(ssr_requests_total{env=\"$env\",service=~\"$service\",status_code=~\"4..\"}[5m]))", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 103, "type": "logs", "title": "Latest ERROR log lines (all services)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 9 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact" },
+      "targets": [
+        { "refId": "A", "expr": "{env=\"$env\"} | json | level=\"error\" | service =~ \"$service\"" }
+      ]
+    },
+    { "type": "row", "id": 200, "title": "Bedrock + Lambda exceptions (CW Logs → Loki)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 } },
+    {
+      "id": 201, "type": "logs", "title": "Bedrock ValidationException / ThrottlingException",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 22 },
+      "options": { "showTime": true, "wrapLogMessage": true },
+      "targets": [
+        { "refId": "A", "expr": "{job=\"cloudwatch\"} |~ \"ValidationException|ThrottlingException|ServiceQuotaExceededException|ResourceNotFoundException\"" }
+      ]
+    },
+    { "type": "row", "id": 300, "title": "Instrumentation health — is observability itself broken?", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 } },
+    {
+      "id": 301, "type": "stat", "title": "Services exposing /metrics",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "expr": "count(count by (service) (up{service!=\"\"} == 1))" }]
+    },
+    {
+      "id": 302, "type": "stat", "title": "Scrape failures (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [{ "refId": "A", "expr": "sum(up == 0)" }]
+    },
+    {
+      "id": 303, "type": "stat", "title": "Trace span rate (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "refId": "A", "expr": "sum(rate(traces_spanmetrics_calls_total[5m]))" }]
+    },
+    {
+      "id": 304, "type": "stat", "title": "Logs without trace_id (5m)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 50 }, { "color": "red", "value": 500 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(count_over_time({env=\"$env\"} | json | trace_id=\"\" [5m]))" }
+      ]
+    },
+    {
+      "id": 305, "type": "timeseries", "title": "Trace edge completeness — % of spans with parent",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 38 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "1 - (sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_SERVER\"}[5m])) / clamp_min(sum by (service_name) (rate(traces_service_graph_request_total[5m])), 0.001))", "legendFormat": "{{service_name}}" }
+      ]
+    },
+    { "type": "row", "id": 400, "title": "Bedrock token + cost (dev budget watcher)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 } },
+    {
+      "id": 401, "type": "stat", "title": "Bedrock $/hour (now)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 47 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(bedrock_cost_usd_total[5m])) * 3600" }
+      ]
+    },
+    {
+      "id": 402, "type": "stat", "title": "Bedrock calls / 5m",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 47 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(bedrock_calls_total[5m]))" }
+      ]
+    },
+    {
+      "id": 403, "type": "stat", "title": "Output tokens / 5m",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 47 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(bedrock_tokens_total{kind=\"output\"}[5m]))" }
+      ]
+    },
+    {
+      "id": 404, "type": "stat", "title": "Cache hit ratio (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 47 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.20 }, { "color": "green", "value": 0.50 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(bedrock_tokens_total{kind=\"cache_read\"}[5m])) / clamp_min(sum(increase(bedrock_tokens_total{kind=~\"input|cache_read\"}[5m])), 1)" }
+      ]
+    },
+    {
+      "id": 405, "type": "timeseries", "title": "Tokens / min by model + kind",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 52 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (model, kind) (rate(bedrock_tokens_total[5m])) * 60", "legendFormat": "{{model}} / {{kind}}" }
+      ]
+    },
+    {
+      "id": 406, "type": "timeseries", "title": "$/hour by service + route (top 10)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 60 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "topk(10, sum by (service, route) (rate(bedrock_cost_usd_total[5m])) * 3600)", "legendFormat": "{{service}} / {{route}}" }
+      ]
+    },
+    { "type": "row", "id": 500, "title": "RDS query budget (N+1 detector)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 68 } },
+    {
+      "id": 501, "type": "timeseries", "title": "DB queries per HTTP request (admin-api)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 69 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 20 }] } } },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(traces_spanmetrics_calls_total{service_name=\"admin-api\",span_kind=\"SPAN_KIND_CLIENT\",span_name=~\".*pg.*|.*postgres.*\"}[5m])) / clamp_min(sum(rate(http_requests_total{service=\"admin-api\"}[5m])), 0.001)", "legendFormat": "queries / req" }
+      ]
+    },
+    {
+      "id": 502, "type": "timeseries", "title": "PgBouncer waiting clients",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 69 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (database) (pgbouncer_pools_client_waiting_connections)", "legendFormat": "{{database}}" }
+      ]
+    }
+  ]
+}
