@@ -99,6 +99,11 @@ spec:
             exclude: true
           - path: charts/platform-rds
             exclude: true
+          # platform-job-watcher is managed by its own ApplicationSet
+          # (argocd-apps/platform-job-watcher.yaml). Excluded to prevent
+          # workload-generator from colliding on ApplicationSet ownership.
+          - path: charts/platform-job-watcher
+            exclude: true
 
   template:
     metadata:
