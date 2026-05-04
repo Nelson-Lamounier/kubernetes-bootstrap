@@ -40,7 +40,7 @@ inputs:
     description: Deploy environment (development | staging | production)
     required: true
   status:
-    description: Deploy outcome (succeeded | failed). Pass ${{ job.status }}.
+    description: "Deploy outcome: succeeded | failed"
     required: true
   git-sha:
     description: Commit SHA being deployed
