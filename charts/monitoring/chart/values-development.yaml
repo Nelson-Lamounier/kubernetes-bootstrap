@@ -40,17 +40,17 @@ alloy:
   awsLogs:
     region: eu-west-1
     cloudtrail:
-      enabled: true
+      enabled: false       # loki.source.cloudwatch not in standard grafana/alloy image
       logGroupName: /aws/cloudtrail/management-events
     ssmAutomation:
-      enabled: true
+      enabled: false       # same — needs alloy built with AWS SDK support
       logGroupName: /aws/ssm/automation
     cloudfrontLogs:
       enabled: false        # turn on once a CF logs S3 bucket is set up
       bucket:  ""
       prefix:  "AWSLogs/"
     lambdaLogs:
-      enabled: true
+      enabled: false       # same as above
       logGroupPrefix: /aws/lambda/
 
 prometheus:
