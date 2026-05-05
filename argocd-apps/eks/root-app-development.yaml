@@ -1,0 +1,49 @@
+# @format
+# ArgoCD root Application for the EKS development cluster.
+#
+# Apply once via `kubectl apply -f` after ArgoCD is installed on the EKS
+# cluster (see docs/runbooks/argocd-on-eks.md). Subsequent reconciliation
+# is git-driven — every manifest dropped into `argocd-apps/eks/development/`
+# becomes an Application automatically.
+#
+# The kubeadm cluster has its own root app (top-level argocd-apps/*.yaml),
+# which is unchanged by this manifest.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: eks-root-development
+  namespace: argocd
+  annotations:
+    kubernetes.io/description: "Root app - reconciles everything in argocd-apps/eks/development/"
+    argocd.argoproj.io/sync-wave: "-10"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    environment: development
+    cluster: eks
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: argocd-apps/eks/development
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: true
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
