@@ -4,6 +4,20 @@ Self-managed Kubernetes 1.35.1 on AWS EC2 — golden AMI pipeline, event-driven 
 
 [![CI](https://github.com/Nelson-Lamounier/kubernetes-bootstrap/actions/workflows/ci.yml/badge.svg)](https://github.com/Nelson-Lamounier/kubernetes-bootstrap/actions/workflows/ci.yml)
 
+## Dual-cluster layout (2026-05-05)
+
+This repo is reconciled by **two** ArgoCD instances during the kubeadm -> EKS migration:
+
+| Cluster | Tree | Status |
+|---|---|---|
+| Self-hosted kubeadm (current) | `argocd-apps/*.yaml` (top level) | Active. |
+| EKS (V1, dev only) | `argocd-apps/eks/<env>/` | Empty target — Plan 5 fills. |
+
+The EKS subtree was added as part of the kubeadm -> EKS migration. See:
+- Spec: `cdk-monitoring/docs/superpowers/specs/2026-05-05-eks-migration-design.md`
+- Plan 4: `cdk-monitoring/docs/superpowers/plans/2026-05-05-eks-migration-04-argocd-bootstrap.md`
+- Runbook: `docs/runbooks/argocd-on-eks.md`
+
 ## What it does
 
 This repository bootstraps and operates a kubeadm-based Kubernetes cluster on self-managed EC2 instances. It provisions golden AMIs via AWS EC2 Image Builder, orchestrates node bootstrap (control-plane init and worker join) through an AWS Step Functions state machine triggered by EC2 launch events, and seeds ArgoCD to take over all day-2 operations via GitOps. Once bootstrap completes, ArgoCD manages 40 platform and workload applications from this Git repository.
