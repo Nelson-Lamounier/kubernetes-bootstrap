@@ -1,0 +1,55 @@
+# @format
+# ArgoCD Application: tucaken-app (EKS — Plan 5b Phase 6)
+#
+# SaaS frontend served at tucaken.io (canonical), www.tucaken.io,
+# tucaken.com, www.tucaken.com — all on the shared `public` ALB.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tucaken-app-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    kubernetes.io/description: "tucaken-app SaaS frontend on EKS (Plan 5b)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/tucaken-app/chart
+    helm:
+      releaseName: tucaken-app
+      valueFiles:
+        - ../tucaken-app-values.yaml
+        - ../tucaken-app-values-eks.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tucaken-app
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/template/metadata/annotations
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

@@ -104,10 +104,14 @@ observability:
 # an ArgoCD sync — ESO refreshes the Secret within 5m, the Job re-patches
 # with the new value, no IngressRoute recreation required.
 ingress:
-  enabled: true
-  host: tucaken.io               # Canonical domain (.com → .io redirect at CloudFront)
-  matchRule: "PathPrefix(`/`)"   # Tucaken serves at root — no path prefix
-  entryPoint: web
+  enabled: false
+  # Canonical domain. `.com` (+ www) and `www.tucaken.io` are added as
+  # extra rules via `extraHosts` and served from the same backend.
+  host: ""
+  extraHosts: []
+  groupName: public
+  groupOrder: 300
+  healthcheckPath: /readyz
 
 # ---------------------------------------------------------------------------
 # Secrets (synced via ExternalSecret from SSM/Secrets Manager)
