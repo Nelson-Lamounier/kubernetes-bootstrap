@@ -1,0 +1,64 @@
+# @format
+# ArgoCD Application: admin-api (EKS canary for Plan 5b Phase 3)
+#
+# Deploys the admin-api Helm chart with the EKS overlay enabled. The
+# overlay flips `ingress.enabled: true` and supplies the host
+# `admin.nelsonlamounier.com`; everything else (Rollout, Service,
+# probes, ESO secrets) is shared with the kubeadm-era values.
+#
+# Image Updater annotations are intentionally absent on this canary —
+# the image tag stays whatever the kubeadm App last wrote until a
+# write-enabled deploy key for image-updater is provisioned in a later
+# phase. Workload deploys via this App use the static tag in
+# `admin-api-values.yaml` until then.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: admin-api-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    kubernetes.io/description: "admin-api on EKS (canary for Plan 5b ALB+ACM ingress)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/admin-api/chart
+    helm:
+      releaseName: admin-api
+      valueFiles:
+        - ../admin-api-values.yaml
+        - ../admin-api-values-eks.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: admin-api
+  # Match kubeadm App's Reloader-friendly drift tolerance.
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/template/metadata/annotations
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
