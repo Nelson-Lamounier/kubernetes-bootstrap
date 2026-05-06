@@ -63,8 +63,7 @@ replicas: 1
 port: 3002
 
 # ── Node scheduling ───────────────────────────────────────────────────────────
-nodeSelector:
-  node-pool: general
+nodeSelector: {}
 
 # ── Resources ─────────────────────────────────────────────────────────────────
 resources:

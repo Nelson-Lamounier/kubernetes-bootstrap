@@ -1,8 +1,6 @@
 # @format
 # monitoring — EKS overlay.
 #
-# Plan 5b § 0.6 puts monitoring components on Karpenter-provisioned
-# workload nodes. The kubeadm-era values pin Deployments to the
 # `node-pool=monitoring` selector with a `dedicated=monitoring:NoSchedule`
 # tolerance — neither exists on EKS. Both are blanked so Karpenter
 # admits the pods naturally.
@@ -18,9 +16,6 @@
 # is the expected behaviour; dashboards-as-code in git carry over.
 # `null` (not `{}`) so Helm's deep-merge actually replaces the chart's
 # top-level nodeSelector. An empty map merges-into rather than overrides.
-nodeSelector: null
-tolerations: []
-
 prometheus:
   pvc:
     storageClass: gp2
