@@ -8,6 +8,12 @@
 #
 # Phase 4 of Plan 5b will add a WAF IP-allowlist scoped to this Host
 # header so admin-api is reachable only from the operator's allowlist.
+# Workloads land on Karpenter-provisioned nodes — no node-pool label,
+# no taint. Clear the kubeadm-era selector + toleration that pin to
+# the dedicated `general` ASG.
+nodeSelector: null
+tolerations: []
+
 ingress:
   enabled: true
   host: admin.nelsonlamounier.com
