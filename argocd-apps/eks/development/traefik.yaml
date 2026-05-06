@@ -1,0 +1,46 @@
+# @format
+# ArgoCD Application: Traefik v3 (EKS development)
+#
+# Multi-source: upstream Traefik chart + values file from this repo.
+# Service of type LoadBalancer triggers the AWS Load Balancer Controller
+# (installed by EksAddonsStack) to provision an NLB in IP target mode.
+#
+# After first sync, capture the NLB hostname for CloudFront wiring:
+#   kubectl --context eks-dev -n traefik get svc traefik \
+#     -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+      targetRevision: main
+      ref: values
+    - repoURL: https://traefik.github.io/charts
+      chart: traefik
+      targetRevision: "36.*"
+      helm:
+        releaseName: traefik
+        valueFiles:
+          - $values/charts/traefik/traefik-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
