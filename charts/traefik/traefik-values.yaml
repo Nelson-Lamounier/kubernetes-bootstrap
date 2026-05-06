@@ -42,9 +42,13 @@ affinity:
               app.kubernetes.io/name: traefik
           topologyKey: topology.kubernetes.io/zone
 
-# Workloads (and Traefik) land on Karpenter-provisioned nodes; no taint
-# tolerations needed. System MNG is reserved for platform-only pods.
-tolerations: []
+# Traefik is platform-tier ingress — schedule on the system MNG so it
+# stays up regardless of Karpenter NodePool state. (Pure workloads
+# stay tolerationless and land on Karpenter-provisioned nodes.)
+tolerations:
+  - key: dedicated
+    value: system
+    effect: NoSchedule
 
 # Entry points exposed via the NLB Service.
 ports:
