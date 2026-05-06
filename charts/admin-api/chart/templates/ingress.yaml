@@ -29,6 +29,9 @@ metadata:
     alb.ingress.kubernetes.io/group.order: {{ .Values.ingress.groupOrder | quote }}
     alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.ingress.healthcheckPath | quote }}
     external-dns.alpha.kubernetes.io/hostname: {{ .Values.ingress.host | quote }}
+    {{- with .Values.ingress.wafAclArn }}
+    alb.ingress.kubernetes.io/wafv2-acl-arn: {{ . | quote }}
+    {{- end }}
 spec:
   ingressClassName: alb
   rules:

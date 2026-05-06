@@ -84,9 +84,10 @@ probes:
 # ArgoCD never touches it.
 ingress:
   enabled: false
-  host: ""          # Populated by deploy.py from NEXTAUTH_URL SSM value
-  pathPrefix: "/api" # Routes /api/* to this service (excluding /api/admin)
-  entryPoint: web
+  host: ""
+  groupName: public
+  groupOrder: 200
+  healthcheckPath: /healthz
 
 # ---------------------------------------------------------------------------
 # Config (injected via deploy.py → Kubernetes ConfigMap)

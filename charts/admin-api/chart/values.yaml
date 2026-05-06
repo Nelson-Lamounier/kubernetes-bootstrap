@@ -164,6 +164,12 @@ ingress:
   groupName: public
   groupOrder: 100
   healthcheckPath: /readyz
+  # WAFv2 WebACL ARN attached to the shared ALB. Set on exactly ONE
+  # Ingress in the IngressGroup (admin-api by convention since it
+  # carries the most security-sensitive paths). The ALB controller
+  # treats this as an ALB-level setting; conflicting values across
+  # Ingresses in the same group cause the controller to error.
+  wafAclArn: ""
 
 # ── Service ───────────────────────────────────────────────────────────────────
 service:
