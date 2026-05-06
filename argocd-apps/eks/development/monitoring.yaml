@@ -1,0 +1,51 @@
+# @format
+# ArgoCD Application: monitoring (EKS — Plan 5b Phase 7)
+#
+# LGTM stack (Loki, Grafana, Tempo, Mimir surrogate via Prometheus) +
+# Alertmanager + Alloy + Pyroscope + node-exporter + kube-state-metrics
+# + GitHub Actions exporter + Steampipe.
+#
+# Sync wave 20: lands AFTER workload Apps (wave 10) so Prometheus has
+# Service endpoints to scrape on first reconciliation. Workloads gain a
+# few minutes of unscraped lag — acceptable per spec § 8.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+    kubernetes.io/description: "monitoring LGTM stack on EKS (Plan 5b)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/monitoring/chart
+    helm:
+      releaseName: monitoring
+      valueFiles:
+        - ../monitoring-values-eks.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 10m
