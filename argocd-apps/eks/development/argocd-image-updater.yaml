@@ -1,0 +1,57 @@
+# @format
+# ArgoCD Application: Image Updater (EKS development)
+#
+# Watches ECR for new container image tags and writes updated tags
+# back to git via SSH. Required by every workload using Blue/Green or
+# Canary Rollouts whose chart annotates with `argocd-image-updater.argoproj.io/*`.
+#
+# Auth model:
+#   - ECR pull: docker-registry K8s secret `ecr-credentials` refreshed
+#     by ecr-token-refresh CronJob (configured per workload, not here).
+#   - Git write: SSH deploy key — write-enabled — provisioned in the
+#     argocd namespace via ExternalSecret (out of scope for V1
+#     foundation; image-updater is installed but inactive without
+#     write creds — which is fine for the initial workload bring-up
+#     since the first deploy uses static tags).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-image-updater-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    chart: argocd-image-updater
+    repoURL: https://argoproj.github.io/argo-helm
+    targetRevision: 0.11.0
+    helm:
+      releaseName: argocd-image-updater
+      valuesObject:
+        config:
+          argocd:
+            grpcWeb: true
+            insecure: true
+            plaintext: true
+            serverAddress: argocd-server.argocd.svc.cluster.local
+        # Image Updater itself runs on the system MNG.
+        tolerations:
+          - key: dedicated
+            value: system
+            effect: NoSchedule
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

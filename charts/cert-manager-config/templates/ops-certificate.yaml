@@ -1,0 +1,24 @@
+{{- if .Values.opsCertificate.enabled }}
+# cert-manager Certificate for the admin services domain.
+# Stored in etcd as a Secret (`{{ .Values.opsCertificate.name }}`) and
+# referenced by Traefik for TLS termination on EKS V1.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Values.opsCertificate.name | quote }}
+  namespace: {{ .Values.opsCertificate.namespace | quote }}
+  annotations:
+    kubernetes.io/description: "TLS certificate for the admin services domain"
+spec:
+  secretName: {{ .Values.opsCertificate.name | quote }}
+  duration: {{ .Values.opsCertificate.duration | quote }}
+  renewBefore: {{ .Values.opsCertificate.renewBefore | quote }}
+  dnsNames:
+{{- range .Values.opsCertificate.dnsNames }}
+    - {{ . | quote }}
+{{- end }}
+  issuerRef:
+    name: {{ $.Values.clusterIssuer.name | quote }}
+    kind: ClusterIssuer
+    group: cert-manager.io
+{{- end }}

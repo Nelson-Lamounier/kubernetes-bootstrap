@@ -1,0 +1,89 @@
+# @format
+# ArgoCD Applications: cert-manager controller + ClusterIssuer/Certificates.
+#
+# Two Apps split by sync wave so the controller's CRDs exist before the
+# ClusterIssuer/Certificate resources reference them.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    chart: cert-manager
+    repoURL: https://charts.jetstack.io
+    targetRevision: v1.16.1
+    helm:
+      releaseName: cert-manager
+      valuesObject:
+        installCRDs: true
+        # Controller + helpers run on the system MNG (tainted dedicated=system).
+        tolerations:
+          - key: dedicated
+            value: system
+            effect: NoSchedule
+        webhook:
+          tolerations:
+            - key: dedicated
+              value: system
+              effect: NoSchedule
+        cainjector:
+          tolerations:
+            - key: dedicated
+              value: system
+              effect: NoSchedule
+        startupapicheck:
+          tolerations:
+            - key: dedicated
+              value: system
+              effect: NoSchedule
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/cert-manager-config
+    helm:
+      releaseName: cert-manager-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
