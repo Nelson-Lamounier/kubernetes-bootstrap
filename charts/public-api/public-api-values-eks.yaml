@@ -1,0 +1,15 @@
+# @format
+# public-api — EKS overlay.
+#
+# Activates the ALB Ingress at api.nelsonlamounier.com (group.order 200
+# per Plan 5b § 0.6). Sits on the shared `public` ALB; the WAF
+# annotation lives on admin-api's Ingress (single owner per group).
+#
+# AWS Managed Rule Sets + 2000 req/5min/IP rate limit on this Host
+# come from the WebACL provisioned in EksPublicWafStack.
+ingress:
+  enabled: true
+  host: api.nelsonlamounier.com
+  groupName: public
+  groupOrder: 200
+  healthcheckPath: /healthz
