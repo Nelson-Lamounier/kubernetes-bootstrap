@@ -152,9 +152,18 @@ observability:
   # runtime — useful when iterating locally with `helm upgrade --set`.
   pyroscopeServer: http://pyroscope.monitoring.svc.cluster.local:4040
 
-# ── Ingress (disabled — owned by deploy.py) ───────────────────────────────────
+# ── Ingress ───────────────────────────────────────────────────────────────────
+# Disabled by default; the EKS overlay (admin-api-values-eks.yaml) flips
+# `enabled: true` and supplies the host. Renders an `Ingress` resource the
+# AWS Load Balancer Controller folds into the shared `public` ALB via
+# IngressGroup. ACM cert is auto-discovered in the ALB's region by Host SAN
+# match (Plan 5b § 0.2) — no certificate-arn annotation needed.
 ingress:
   enabled: false
+  host: ""
+  groupName: public
+  groupOrder: 100
+  healthcheckPath: /readyz
 
 # ── Service ───────────────────────────────────────────────────────────────────
 service:
