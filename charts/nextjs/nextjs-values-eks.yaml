@@ -1,0 +1,14 @@
+# @format
+# nextjs — EKS overlay.
+#
+# Activates the ALB Ingress at nelsonlamounier.com (group.order 900 —
+# catch-all last). Other workload Hosts (admin / api / tucaken / ops)
+# match earlier in the IngressGroup; nextjs receives apex traffic.
+#
+# Plan 5b § 0.6.
+ingress:
+  enabled: true
+  host: nelsonlamounier.com
+  groupName: public
+  groupOrder: 900
+  healthcheckPath: /api/health

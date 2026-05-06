@@ -1,0 +1,37 @@
+# @format
+# ArgoCD Application: resume-import (EKS — Plan 5b Phase 6)
+#
+# Job-only chart: namespace + SA + RBAC for resume-import Jobs.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: resume-import-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    kubernetes.io/description: "resume-import namespace + RBAC on EKS (Plan 5b)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/resume-import/chart
+    helm:
+      releaseName: resume-import
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: resume-import
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

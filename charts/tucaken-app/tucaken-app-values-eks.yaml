@@ -1,0 +1,20 @@
+# @format
+# tucaken-app — EKS overlay.
+#
+# Activates the ALB Ingress with all 4 hostnames pointing at the same
+# backend (Plan 5b § 0.6 — group.order 300). The ALB serves the right
+# ACM cert per Host via SNI (wildcards in EksAlbCertsStack).
+#
+# Future enhancement: 301 redirect from .com / www to canonical
+# tucaken.io via `alb.ingress.kubernetes.io/actions.*` annotations.
+# V1 just serves all four equally.
+ingress:
+  enabled: true
+  host: tucaken.io
+  extraHosts:
+    - www.tucaken.io
+    - tucaken.com
+    - www.tucaken.com
+  groupName: public
+  groupOrder: 300
+  healthcheckPath: /readyz

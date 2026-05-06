@@ -1,0 +1,46 @@
+# @format
+# ArgoCD Application: platform-rds (EKS — Plan 5b Phase 6)
+#
+# PgBouncer connection pooler in front of the platform RDS instance.
+# Internal-only — workloads in other namespaces resolve
+# `pgbouncer.platform-rds.svc.cluster.local` and never touch the RDS
+# endpoint directly.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-rds-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    kubernetes.io/description: "platform-rds (PgBouncer) on EKS (Plan 5b)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/platform-rds/chart
+    helm:
+      releaseName: platform-rds
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform-rds
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
