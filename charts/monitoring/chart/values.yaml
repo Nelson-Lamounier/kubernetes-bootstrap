@@ -16,8 +16,7 @@ adminAccess:
 # ---------------------------------------------------------------------------
 # Node Placement (applies to Deployments, NOT DaemonSets)
 # ---------------------------------------------------------------------------
-nodeSelector:
-  node-pool: monitoring
+nodeSelector: {}
 
 # ---------------------------------------------------------------------------
 # Tolerations (applies to Deployments — NOT DaemonSets)
@@ -25,11 +24,7 @@ nodeSelector:
 # bootstrap script. All Deployment workloads must tolerate this taint.
 # DaemonSet pods (Promtail, node-exporter) tolerate all taints by default.
 # ---------------------------------------------------------------------------
-tolerations:
-  - key: dedicated
-    operator: Equal
-    value: monitoring
-    effect: NoSchedule
+tolerations: []
 
 # ---------------------------------------------------------------------------
 # Prometheus

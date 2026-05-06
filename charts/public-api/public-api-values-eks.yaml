@@ -7,9 +7,6 @@
 #
 # AWS Managed Rule Sets + 2000 req/5min/IP rate limit on this Host
 # come from the WebACL provisioned in EksPublicWafStack.
-nodeSelector: null
-tolerations: []
-
 ingress:
   enabled: true
   host: api.nelsonlamounier.com
