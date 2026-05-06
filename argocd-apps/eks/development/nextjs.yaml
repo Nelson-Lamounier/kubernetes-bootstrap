@@ -1,0 +1,56 @@
+# @format
+# ArgoCD Application: nextjs (EKS — Plan 5b Phase 6)
+#
+# Portfolio frontend. Catch-all on the shared `public` ALB at
+# nelsonlamounier.com. Argo Rollouts blueGreen on a single active
+# Service; ALB targets the active Service — preview stays internal.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nextjs-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    kubernetes.io/description: "nextjs portfolio frontend on EKS (Plan 5b)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/nextjs/chart
+    helm:
+      releaseName: nextjs
+      valueFiles:
+        - ../nextjs-values.yaml
+        - ../nextjs-values-eks.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nextjs
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/template/metadata/annotations
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
