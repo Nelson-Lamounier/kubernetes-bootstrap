@@ -1,7 +1,0 @@
-# @format
-apiVersion: v2
-name: argocd-ingress
-description: Traefik IngressRoutes and IP allowlist middleware for ArgoCD (ops.nelsonlamounier.com/argocd)
-type: application
-version: 0.1.0
-appVersion: "1.0.0"
