@@ -4,7 +4,9 @@ kind: ClusterIssuer
 metadata:
   name: {{ .Values.clusterIssuer.name | quote }}
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    # ClusterIssuer applies BEFORE the Certificate in the same chart so the
+    # Certificate's issuerRef resolves on first reconciliation.
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   acme:
     server: {{ .Values.clusterIssuer.acmeServer | quote }}

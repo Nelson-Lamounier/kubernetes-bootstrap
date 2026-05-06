@@ -9,6 +9,8 @@ metadata:
   namespace: {{ .Values.opsCertificate.namespace | quote }}
   annotations:
     kubernetes.io/description: "TLS certificate for the admin services domain"
+    # Apply after the ClusterIssuer (wave 0) so issuerRef resolves.
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   secretName: {{ .Values.opsCertificate.name | quote }}
   duration: {{ .Values.opsCertificate.duration | quote }}
