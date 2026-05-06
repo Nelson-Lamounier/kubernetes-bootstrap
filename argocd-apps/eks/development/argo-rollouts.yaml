@@ -1,0 +1,48 @@
+# @format
+# ArgoCD Application: Argo Rollouts controller (EKS development)
+#
+# Installs CRDs (Rollout, AnalysisTemplate, AnalysisRun, Experiment)
+# and the controller. Workload charts that use Rollout instead of
+# Deployment depend on these CRDs being live before they sync.
+#
+# Schedules on the system MNG (taint dedicated=system); workload nodes
+# (Karpenter) host the Rollout-managed pods, not the controller.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: 2.40.6
+    helm:
+      releaseName: argo-rollouts
+      valuesObject:
+        installCRDs: true
+        controller:
+          replicas: 1
+          tolerations:
+            - key: dedicated
+              value: system
+              effect: NoSchedule
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
