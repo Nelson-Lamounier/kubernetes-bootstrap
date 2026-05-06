@@ -1,14 +1,12 @@
 {{- if .Values.ingress.enabled }}
-# public-api ALB Ingress — folded into the shared `public` IngressGroup
-# (Plan 5b § 0.6). Public traffic from the frontend BFF reaches the
-# service via api.nelsonlamounier.com; AWS Managed Rules + per-IP rate
-# limit are applied at the WebACL attached to the shared ALB by the
-# admin-api Ingress (single owner of the `wafv2-acl-arn` annotation in
-# the IngressGroup).
+# tucaken-app ALB Ingress — folded into the shared `public`
+# IngressGroup (Plan 5b § 0.6). Multiple hosts (tucaken.io,
+# www.tucaken.io, tucaken.com, www.tucaken.com) map to the same
+# backend Service via separate rule entries; the ALB serves the
+# matching ACM cert per Host via SNI.
 #
-# Cert auto-discovered by Host-SAN match against the eu-west-1 ACM
-# wildcard provisioned in `EksAlbCertsStack`. ExternalDNS upserts the
-# Route53 alias from the hostname annotation.
+# Argo Rollouts blueGreen: ALB targets the active Service. Preview
+# stays internal.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -25,7 +23,8 @@ metadata:
     alb.ingress.kubernetes.io/group.name: {{ .Values.ingress.groupName | quote }}
     alb.ingress.kubernetes.io/group.order: {{ .Values.ingress.groupOrder | quote }}
     alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.ingress.healthcheckPath | quote }}
-    external-dns.alpha.kubernetes.io/hostname: {{ .Values.ingress.host | quote }}
+    # ExternalDNS picks up every host listed (canonical + extras).
+    external-dns.alpha.kubernetes.io/hostname: {{ printf "%s,%s" .Values.ingress.host (join "," .Values.ingress.extraHosts) | trimSuffix "," | quote }}
 spec:
   ingressClassName: alb
   rules:
@@ -39,4 +38,16 @@ spec:
                 name: {{ .Release.Name }}
                 port:
                   number: {{ .Values.service.port }}
+{{- range .Values.ingress.extraHosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $.Release.Name }}
+                port:
+                  number: {{ $.Values.service.port }}
+{{- end }}
 {{- end }}

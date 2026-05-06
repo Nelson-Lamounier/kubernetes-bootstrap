@@ -97,16 +97,12 @@ pdb:
 # The CloudFront origin secret (HeaderRegexp value) is NOT rendered into
 # the IngressRoute by Helm — the chart ships a never-matching placeholder
 # (cloudfront.originSecret) so the manifest is self-contained in git.
-# argocd-apps/nextjs.yaml uses ignoreDifferences + RespectIgnoreDifferences
-# so selfHeal does not revert the patched matchRule.
 ingress:
-  enabled: true
-  # Override per-environment in charts/nextjs/nextjs-values.yaml.
+  enabled: false
   host: ""
-  # Path scope of the rule. Combined with Host() and HeaderRegexp() at
-  # patch time. Must use Traefik v3 / Go regex syntax inside HeaderRegexp.
-  matchRule: "PathPrefix(`/`)"
-  entryPoint: web
+  groupName: public
+  groupOrder: 900
+  healthcheckPath: /api/health
 
 # ---------------------------------------------------------------------------
 # Secrets (synced by ESO from SSM into a Kubernetes Secret)

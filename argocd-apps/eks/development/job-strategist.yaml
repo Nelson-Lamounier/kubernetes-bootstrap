@@ -1,0 +1,40 @@
+# @format
+# ArgoCD Application: job-strategist (EKS — Plan 5b Phase 6)
+#
+# Job-only chart: namespace + SA + RBAC for the strategist pipeline
+# Jobs admin-api creates at runtime.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: job-strategist-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    kubernetes.io/description: "job-strategist namespace + RBAC on EKS (Plan 5b)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/job-strategist/chart
+    helm:
+      releaseName: job-strategist
+      valueFiles:
+        - ../job-strategist-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: job-strategist
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

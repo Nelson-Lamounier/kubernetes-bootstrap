@@ -1,0 +1,41 @@
+# @format
+# ArgoCD Application: article-pipeline (EKS — Plan 5b Phase 6)
+#
+# Job-only chart: provisions the namespace, ServiceAccount, and RBAC
+# admin-api uses to create Bedrock article-generation Jobs at runtime.
+# No Deployment, no Service, no Ingress.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: article-pipeline-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    kubernetes.io/description: "article-pipeline namespace + RBAC on EKS (Plan 5b)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/article-pipeline/chart
+    helm:
+      releaseName: article-pipeline
+      valueFiles:
+        - ../article-pipeline-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: article-pipeline
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

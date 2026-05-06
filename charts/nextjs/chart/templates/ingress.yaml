@@ -1,25 +1,21 @@
 {{- if .Values.ingress.enabled }}
-# admin-api ALB Ingress — folded into the shared `public` IngressGroup
-# (Plan 5b § 0.6). The AWS Load Balancer Controller merges this with
-# every other workload Ingress sharing `group.name: public` into one
-# ALB; per-host listener rules are ordered by `group.order`.
+# nextjs ALB Ingress — folded into the shared `public` IngressGroup
+# (Plan 5b § 0.6). Catch-all order 900 so workload Hosts (admin/api/
+# tucaken/ops) match earlier rules first; everything else falls
+# through to nextjs.
 #
-# Cert handling: TLS terminates at the ALB. The controller auto-discovers
-# the matching ACM certificate in eu-west-1 by Host-SAN match against
-# the wildcards provisioned in `EksAlbCertsStack`. No certificate-arn
-# annotation needed.
-#
-# DNS: ExternalDNS reads `external-dns.alpha.kubernetes.io/hostname` and
-# upserts the corresponding A/AAAA alias record in the relevant Route53
-# zone (cross-account assume into `Route53DnsValidationRole` per Plan 5b
-# § 0.3).
+# Argo Rollouts blueGreen: the Ingress targets the active Service
+# (Release.Name). The preview Service stays internal — no preview
+# host. Promotion swings the active Service selector; the Ingress
+# follows automatically.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: admin-api
+  name: {{ .Release.Name }}
   namespace: {{ .Values.namespace }}
   labels:
-    {{- include "admin-api.fullLabels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
@@ -29,9 +25,6 @@ metadata:
     alb.ingress.kubernetes.io/group.order: {{ .Values.ingress.groupOrder | quote }}
     alb.ingress.kubernetes.io/healthcheck-path: {{ .Values.ingress.healthcheckPath | quote }}
     external-dns.alpha.kubernetes.io/hostname: {{ .Values.ingress.host | quote }}
-    {{- with .Values.ingress.wafAclArn }}
-    alb.ingress.kubernetes.io/wafv2-acl-arn: {{ . | quote }}
-    {{- end }}
 spec:
   ingressClassName: alb
   rules:
@@ -42,7 +35,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: admin-api
+                name: {{ .Release.Name }}
                 port:
                   number: {{ .Values.service.port }}
 {{- end }}

@@ -1,0 +1,51 @@
+# @format
+# ArgoCD Application: public-api (EKS — Plan 5b Phase 6)
+#
+# Deploys the public-api Helm chart with the EKS overlay enabled.
+# Frontend ↔ backend communication target. Lives on the shared `public`
+# ALB; managed-rules + rate-limit hardening applied via the WebACL
+# attached by admin-api's Ingress.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: public-api-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    kubernetes.io/description: "public-api on EKS (Plan 5b)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/public-api/chart
+    helm:
+      releaseName: public-api
+      valueFiles:
+        - ../public-api-values.yaml
+        - ../public-api-values-eks.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: public-api
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
