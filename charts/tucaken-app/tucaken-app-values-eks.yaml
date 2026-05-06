@@ -8,6 +8,9 @@
 # Future enhancement: 301 redirect from .com / www to canonical
 # tucaken.io via `alb.ingress.kubernetes.io/actions.*` annotations.
 # V1 just serves all four equally.
+nodeSelector: null
+tolerations: []
+
 ingress:
   enabled: true
   host: tucaken.io

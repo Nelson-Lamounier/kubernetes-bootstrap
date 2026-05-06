@@ -31,7 +31,7 @@ spec:
         - ../nextjs-values-eks.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: nextjs
+    namespace: nextjs-app
   ignoreDifferences:
     - group: argoproj.io
       kind: Rollout

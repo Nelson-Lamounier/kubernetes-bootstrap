@@ -29,7 +29,7 @@ spec:
       releaseName: platform-rds
   destination:
     server: https://kubernetes.default.svc
-    namespace: platform-rds
+    namespace: platform
   syncPolicy:
     automated:
       prune: true
