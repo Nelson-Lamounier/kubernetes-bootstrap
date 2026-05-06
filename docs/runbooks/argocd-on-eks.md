@@ -1,128 +1,99 @@
 # Runbook — Install ArgoCD on the EKS Cluster
 
-**When to run:** Once, after `Deploy EKS to Development` workflow reports
-success and `kubectl get nodes` shows 3 system nodes Ready.
+**When to run:** Once per environment, after `Deploy EKS to <env>`
+workflow reports success and `kubectl get nodes` shows 3 system nodes
+Ready.
 
-**Why:** ArgoCD is the entry point for everything else. We install it
-manually one time so subsequent changes are git-driven via the root app
-created in `argocd-apps/eks/root-app-development.yaml`.
+**How:** Trigger the **Bootstrap ArgoCD on EKS** GitHub Actions workflow
+(`cdk-monitoring/.github/workflows/bootstrap-argocd.yml`). Re-running on
+a healthy cluster is a no-op — every step is idempotent.
 
-**Why not via `EksAddonsStack`?** Mixing ArgoCD with the CDK-managed Helm
-charts in the addons stack creates a chicken-and-egg: ArgoCD would need
-to exist before it can reconcile its own configuration. Cleaner to
-install once via Helm CLI and hand off to git.
+**Why a workflow:** ArgoCD is the entry point for everything else. The
+workflow keeps the install reproducible, observable in the Actions UI,
+and safe to re-run after CDK or Helm version bumps. The runbook is now
+"click the button"; the manual `helm`/`kubectl` flow below is kept only
+for break-glass.
 
-## Prerequisites
+**Why not via `EksAddonsStack`?** Mixing ArgoCD with the CDK-managed
+Helm charts in the addons stack creates a chicken-and-egg: ArgoCD would
+need to exist before it can reconcile its own configuration. Cleaner to
+install via a one-shot workflow and hand off to git.
 
-- AWS CLI configured with the dev account.
-- `kubectl` and `helm` installed.
-- EKS cluster `k8s-eks-development` exists and is ACTIVE.
-- An EKS Access Entry exists for your IAM principal with the
-  `AmazonEKSClusterAdminPolicy` access policy attached.
+## Trigger the workflow
 
-## Steps
+1. Open Actions → **Bootstrap ArgoCD on EKS** in the `cdk-monitoring`
+   repo.
+2. **Run workflow** with:
+   - `environment`: `development` (or `staging` / `production`)
+   - `kubernetes-bootstrap-ref`: `main` (default)
+   - `argocd-chart-version`: `7.7.5` (default)
 
-### 1. Configure kubectl
+The workflow:
 
-```bash
-aws eks update-kubeconfig \
-  --name k8s-eks-development \
-  --region eu-west-1 \
-  --alias eks-dev
-kubectl --context eks-dev get nodes
-# Expected: 3 t3.medium nodes, taint dedicated=system:NoSchedule
-```
+1. Assumes the GH OIDC role with EKS Access Entry cluster-admin.
+2. `aws eks update-kubeconfig` against `k8s-eks-<env>`.
+3. Installs Helm 3, kubectl, and the `argocd` CLI on the runner.
+4. `helm upgrade --install argocd argo/argo-cd` using
+   `charts/argocd-eks/values.yaml` from this repo.
+5. Waits for every argocd Deployment to become Available.
+6. `kubectl apply -f argocd-apps/eks/root-app-<env>.yaml`.
+7. Prints pods + Applications for diagnostic visibility.
 
-### 2. Install ArgoCD via Helm
-
-```bash
-helm repo add argo https://argoproj.github.io/argo-helm
-helm repo update
-helm upgrade --install argocd argo/argo-cd \
-  --namespace argocd \
-  --create-namespace \
-  --version 7.7.5 \
-  --set 'server.service.type=ClusterIP' \
-  --set 'configs.params."server.insecure"=true' \
-  --set 'controller.tolerations[0].key=dedicated' \
-  --set 'controller.tolerations[0].value=system' \
-  --set 'controller.tolerations[0].effect=NoSchedule' \
-  --set 'repoServer.tolerations[0].key=dedicated' \
-  --set 'repoServer.tolerations[0].value=system' \
-  --set 'repoServer.tolerations[0].effect=NoSchedule' \
-  --set 'server.tolerations[0].key=dedicated' \
-  --set 'server.tolerations[0].value=system' \
-  --set 'server.tolerations[0].effect=NoSchedule' \
-  --set 'redis.tolerations[0].key=dedicated' \
-  --set 'redis.tolerations[0].value=system' \
-  --set 'redis.tolerations[0].effect=NoSchedule' \
-  --set 'applicationSet.tolerations[0].key=dedicated' \
-  --set 'applicationSet.tolerations[0].value=system' \
-  --set 'applicationSet.tolerations[0].effect=NoSchedule' \
-  --set 'notifications.tolerations[0].key=dedicated' \
-  --set 'notifications.tolerations[0].value=system' \
-  --set 'notifications.tolerations[0].effect=NoSchedule' \
-  --kube-context eks-dev
-```
-
-The system MNG taint forces ArgoCD's components onto the system nodes
-(where the SQS-receiving Karpenter controller also runs); workload pods
-land on Karpenter-provisioned nodes once Plan 5 begins.
-
-### 3. Wait for ArgoCD to be Ready
+## Verify after the workflow finishes
 
 ```bash
-kubectl --context eks-dev -n argocd wait \
-  --for=condition=available deployment --all --timeout=5m
-```
-
-### 4. Add the SSH deploy key (read-only)
-
-The root app's `source.repoURL` is SSH. ArgoCD needs a private key to
-clone the repo:
-
-```bash
-DEPLOY_KEY=$(aws ssm get-parameter \
-  --name /shared/development/argocd-deploy-key \
-  --with-decryption --query 'Parameter.Value' --output text)
-
-kubectl --context eks-dev -n argocd create secret generic argocd-repo-creds \
-  --from-literal=type=git \
-  --from-literal=url=git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git \
-  --from-literal=sshPrivateKey="$DEPLOY_KEY"
-kubectl --context eks-dev -n argocd label secret argocd-repo-creds \
-  argocd.argoproj.io/secret-type=repository
-```
-
-### 5. Apply the root app
-
-```bash
-kubectl --context eks-dev apply \
-  -f https://raw.githubusercontent.com/Nelson-Lamounier/kubernetes-bootstrap/main/argocd-apps/eks/root-app-development.yaml
-```
-
-### 6. Verify
-
-```bash
+aws eks update-kubeconfig --name k8s-eks-development --region eu-west-1 --alias eks-dev
 kubectl --context eks-dev -n argocd get application eks-root-development
 # Expected: SYNC STATUS=Synced, HEALTH STATUS=Healthy
 ```
 
-The app reconciles an empty directory, so `Synced` + `Healthy` is the
-target state for V1. Plan 5 fills the directory and watches individual
-workload Apps appear.
+The root app reconciles `argocd-apps/eks/development/`, which is empty
+in V1, so `Synced` + `Healthy` is the target state. Plan 5 fills the
+directory and watches individual workload Apps appear.
+
+## Why HTTPS for the root app's repoURL
+
+The repo is public, so ArgoCD's read-side reconciliation needs no
+credentials. This removes the deploy-key bootstrap dependency from the
+install workflow. ArgoCD Image Updater (write side) is wired with its
+own SSH deploy key inside its workload chart, not here.
 
 ## Troubleshooting
 
-- **OutOfSync, "directory is empty":** the root app is missing
-  `syncPolicy.automated.allowEmpty: true`. Re-apply the manifest from
-  the latest main.
-- **ComparisonError, "repository not accessible":** the deploy-key
-  secret is missing the `argocd.argoproj.io/secret-type=repository`
-  label. ArgoCD ignores secrets without it.
-- **Application controller pod Pending:** the system MNG isn't tolerated
-  in the Helm values above — re-run step 2 with the toleration flags
-  for every component.
+- **Workflow fails at `update-kubeconfig`:** the EKS Access Entry for
+  the GH OIDC role is missing. Apply the `EksAccess-<env>` stack first
+  (part of `Deploy EKS to <env>`).
+- **`helm upgrade` times out waiting for pods:** check that the system
+  MNG nodes are Ready and that the `dedicated=system:NoSchedule` taint
+  is in place — `charts/argocd-eks/values.yaml` tolerates exactly that
+  taint, so a different taint blocks scheduling.
+- **Root app `OutOfSync`, "directory is empty":** the manifest is
+  missing `syncPolicy.automated.allowEmpty: true`. The committed
+  manifest already has it; re-apply from main.
+- **Root app `ComparisonError`, "repository not accessible":** ensure
+  `repoURL` is HTTPS (`https://github.com/...`). SSH would require a
+  deploy-key secret.
+
+## Break-glass: install ArgoCD manually
+
+If the workflow is blocked (e.g. GH Actions outage), reproduce its
+behaviour locally:
+
+```bash
+aws eks update-kubeconfig --name k8s-eks-development --region eu-west-1 --alias eks-dev
+
+helm repo add argo https://argoproj.github.io/argo-helm && helm repo update
+helm upgrade --install argocd argo/argo-cd \
+  --namespace argocd --create-namespace --version 7.7.5 \
+  --values charts/argocd-eks/values.yaml \
+  --kube-context eks-dev --wait --timeout 10m
+
+kubectl --context eks-dev -n argocd wait \
+  --for=condition=available deployment --all --timeout=5m
+
+kubectl --context eks-dev apply \
+  -f argocd-apps/eks/root-app-development.yaml
+```
 
 ## Spec
 

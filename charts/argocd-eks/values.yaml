@@ -1,0 +1,45 @@
+# @format
+# Helm values for ArgoCD on EKS (consumed by
+# cdk-monitoring/.github/workflows/_install-argocd.yml).
+#
+# Pinned to argo-cd chart 7.7.5 (matches docs/runbooks/argocd-on-eks.md).
+#
+# Why this file lives in kubernetes-bootstrap, not cdk-monitoring:
+# kubernetes-bootstrap owns everything that runs *inside* the cluster.
+# The CDK repo runs Helm against this file; updating the file is a
+# pure-git change reviewed alongside other Kubernetes manifests.
+#
+# Every component carries a system-MNG toleration so ArgoCD pins to
+# the dedicated system nodes (taint dedicated=system:NoSchedule). The
+# Karpenter-provisioned workload pool stays free of platform pods.
+
+global:
+  tolerations: &systemTol
+    - key: dedicated
+      value: system
+      effect: NoSchedule
+
+configs:
+  params:
+    # ALB controller terminates TLS upstream; ArgoCD server runs HTTP-only.
+    server.insecure: true
+
+server:
+  service:
+    type: ClusterIP
+  tolerations: *systemTol
+
+controller:
+  tolerations: *systemTol
+
+repoServer:
+  tolerations: *systemTol
+
+redis:
+  tolerations: *systemTol
+
+applicationSet:
+  tolerations: *systemTol
+
+notifications:
+  tolerations: *systemTol

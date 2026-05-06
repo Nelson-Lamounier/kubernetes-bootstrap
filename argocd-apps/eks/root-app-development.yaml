@@ -1,10 +1,14 @@
 # @format
 # ArgoCD root Application for the EKS development cluster.
 #
-# Apply once via `kubectl apply -f` after ArgoCD is installed on the EKS
-# cluster (see docs/runbooks/argocd-on-eks.md). Subsequent reconciliation
-# is git-driven — every manifest dropped into `argocd-apps/eks/development/`
-# becomes an Application automatically.
+# Applied automatically by the `Bootstrap ArgoCD on EKS` workflow
+# (cdk-monitoring/.github/workflows/bootstrap-argocd.yml). After the
+# first successful run, every manifest dropped into
+# `argocd-apps/eks/development/` becomes an Application automatically.
+#
+# repoURL is HTTPS — the repo is public so ArgoCD's read side needs
+# no credentials. ArgoCD Image Updater (write side) configures its
+# own SSH deploy key separately.
 #
 # The kubeadm cluster has its own root app (top-level argocd-apps/*.yaml),
 # which is unchanged by this manifest.
@@ -25,7 +29,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
     targetRevision: main
     path: argocd-apps/eks/development
     directory:
