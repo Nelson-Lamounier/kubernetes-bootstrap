@@ -1,0 +1,44 @@
+# @format
+# monitoring — EKS overlay.
+#
+# Plan 5b § 0.6 puts monitoring components on Karpenter-provisioned
+# workload nodes. The kubeadm-era values pin Deployments to the
+# `node-pool=monitoring` selector with a `dedicated=monitoring:NoSchedule`
+# tolerance — neither exists on EKS. Both are blanked so Karpenter
+# admits the pods naturally.
+#
+# Storage: kubeadm runs the EBS in-tree provisioner with a `ebs-sc`
+# StorageClass. EKS uses the EBS CSI driver — `gp2` is the default
+# class on the dev cluster. Each component's `pvc.storageClass` is
+# overridden one-by-one because the chart doesn't expose a global
+# storage default.
+#
+# Per Plan 5 spec § 8 (and 5b carryover): cluster-local TSDB (Prometheus,
+# Loki, Tempo) is treated as ephemeral on cluster bring-up. Fresh PVCs
+# is the expected behaviour; dashboards-as-code in git carry over.
+nodeSelector: {}
+tolerations: []
+
+prometheus:
+  pvc:
+    storageClass: gp2
+
+grafana:
+  pvc:
+    storageClass: gp2
+
+loki:
+  pvc:
+    storageClass: gp2
+
+tempo:
+  pvc:
+    storageClass: gp2
+
+pyroscope:
+  pvc:
+    storageClass: gp2
+
+alertmanager:
+  pvc:
+    storageClass: gp2
