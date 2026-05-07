@@ -79,3 +79,13 @@ alloy:
       enabled: false
     lambdaLogs:
       enabled: false
+
+# Raise CPU request quota to fit all pods incl. Pyroscope.
+# Default values.yaml has 1000m which is exhausted at ~955m leaving no
+# headroom for Pyroscope (100m) or Alloy restarts.
+resourceQuota:
+  hard:
+    requests.cpu: "1500m"
+    requests.memory: 3Gi
+    limits.cpu: "6"
+    limits.memory: 8Gi
