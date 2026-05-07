@@ -2,10 +2,11 @@
 # ExternalSecret: prometheus-basic-auth-secret
 #
 # Resolves the htpasswd-formatted string from SSM.
-# The value in SSM must be in Traefik basicAuth format: "user:bcrypt_hash"
+# Value format: "user:bcrypt_hash" (htpasswd / nginx auth_basic_user_file compatible).
 #
-# Referenced by: charts/monitoring/chart/templates/traefik/basicauth-middleware.yaml
-# SSM path: /k8s/{env}/prometheus-basic-auth
+# Referenced by: charts/monitoring/chart/templates/prometheus/auth-proxy.yaml
+#   (nginx auth_basic_user_file — replaces kubeadm-era Traefik basicauth-middleware)
+# SSM path: /k8s/{env}/monitoring/prometheus-basic-auth
 
 apiVersion: external-secrets.io/v1beta1
 kind: ExternalSecret
