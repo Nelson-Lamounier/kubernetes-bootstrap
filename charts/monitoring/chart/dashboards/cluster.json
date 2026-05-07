@@ -595,8 +595,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\",job=\"kube-state-metrics\"} * on(node) group_left(label_workload, label_node_role_kubernetes_io_control_plane) kube_node_labels{job=\"kube-state-metrics\"}",
-          "legendFormat": "{{label_workload}}",
+          "expr": "kube_node_status_condition{condition=\"Ready\",status=\"true\",job=\"kube-state-metrics\"} * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels{job=\"kube-state-metrics\"}",
+          "legendFormat": "{{node}} ({{label_node_role}}{{label_karpenter_sh_nodepool}} / {{label_node_kubernetes_io_instance_type}})",
           "refId": "A"
         }
       ],
@@ -673,8 +673,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (label_workload) ((1 - avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(node) group_left(label_workload) kube_node_labels * 100)",
-          "legendFormat": "{{label_workload}}",
+          "expr": "sum by (label_node_role) ((1 - avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels * 100)",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}}",
           "refId": "A"
         }
       ],
@@ -751,8 +751,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(node) group_left(label_workload) kube_node_labels * 100",
-          "legendFormat": "{{label_workload}}",
+          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels * 100",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}}",
           "refId": "A"
         }
       ],
@@ -1157,8 +1157,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}) * on(node) group_left(label_workload) kube_node_labels * 100",
-          "legendFormat": "{{label_workload}} — root (/)",
+          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels * 100",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}} \u2014 root (/)",
           "refId": "A"
         },
         {
@@ -1166,8 +1166,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"}) * on(node) group_left(label_workload) kube_node_labels * 100",
-          "legendFormat": "{{label_workload}} — data (/data)",
+          "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/data\",fstype!=\"tmpfs\"}) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels * 100",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}} \u2014 data (/data)",
           "refId": "B"
         }
       ],
@@ -1235,8 +1235,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (node) (rate(node_disk_read_bytes_total[5m])) * on(node) group_left(label_workload) kube_node_labels",
-          "legendFormat": "{{label_workload}} — Read",
+          "expr": "sum by (node) (rate(node_disk_read_bytes_total[5m])) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}} \u2014 Read",
           "refId": "A"
         },
         {
@@ -1244,12 +1244,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (node) (rate(node_disk_written_bytes_total[5m])) * on(node) group_left(label_workload) kube_node_labels * -1",
-          "legendFormat": "{{label_workload}} — Write",
+          "expr": "sum by (node) (rate(node_disk_written_bytes_total[5m])) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels * -1",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}} \u2014 Write",
           "refId": "B"
         }
       ],
-      "title": "Disk I/O (Read ▲ / Write ▼)",
+      "title": "Disk I/O (Read \u25b2 / Write \u25bc)",
       "type": "timeseries"
     },
     {
@@ -1325,8 +1325,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (node) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(node) group_left(label_workload) kube_node_labels",
-          "legendFormat": "{{label_workload}} — Receive ▲",
+          "expr": "sum by (node) (rate(node_network_receive_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}} \u2014 Receive \u25b2",
           "refId": "A"
         },
         {
@@ -1334,8 +1334,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (node) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(node) group_left(label_workload) kube_node_labels * -1",
-          "legendFormat": "{{label_workload}} — Transmit ▼",
+          "expr": "sum by (node) (rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|cali.*|flannel.*|cni.*\"}[5m])) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels * -1",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}} \u2014 Transmit \u25bc",
           "refId": "B"
         }
       ],
@@ -1630,8 +1630,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (label_workload) (sum by (node) (kube_pod_info{job=\"kube-state-metrics\"}) * on(node) group_left(label_workload) kube_node_labels{job=\"kube-state-metrics\"})",
-          "legendFormat": "{{label_workload}}",
+          "expr": "sum by (label_node_role) (sum by (node) (kube_pod_info{job=\"kube-state-metrics\"}) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels{job=\"kube-state-metrics\"})",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}}",
           "refId": "A"
         }
       ],
@@ -1713,8 +1713,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(1 - avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(node) group_left(label_workload) kube_node_labels * 100",
-          "legendFormat": "{{label_workload}}",
+          "expr": "(1 - avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels * 100",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}}",
           "refId": "A"
         }
       ],
@@ -1784,12 +1784,752 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(node) group_left(label_workload) kube_node_labels * 100",
-          "legendFormat": "{{label_workload}}",
+          "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * on(node) group_left(label_node_role, label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone) kube_node_labels * 100",
+          "legendFormat": "{{label_node_role}}{{label_karpenter_sh_nodepool}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}}",
           "refId": "A"
         }
       ],
       "title": "Memory Usage Over Time",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "id": 750,
+      "title": "Node Distribution",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 59
+      },
+      "id": 751,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (label_topology_kubernetes_io_zone) (\n  kube_node_info\n  * on(node) group_left(label_topology_kubernetes_io_zone)\n  kube_node_labels\n)",
+          "legendFormat": "{{label_topology_kubernetes_io_zone}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Nodes by AZ",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 59
+      },
+      "id": 752,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (label_node_kubernetes_io_instance_type) (\n  kube_node_info\n  * on(node) group_left(label_node_kubernetes_io_instance_type)\n  kube_node_labels\n)",
+          "legendFormat": "{{label_node_kubernetes_io_instance_type}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Nodes by Instance Type",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 59
+      },
+      "id": 753,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (label_node_role) (\n  kube_node_info\n  * on(node) group_left(label_node_role)\n  kube_node_labels{label_node_role!=\"\"}\n)",
+          "legendFormat": "MNG: {{label_node_role}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (label_karpenter_sh_nodepool) (\n  kube_node_info\n  * on(node) group_left(label_karpenter_sh_nodepool)\n  kube_node_labels{label_karpenter_sh_nodepool!=\"\"}\n)",
+          "legendFormat": "Karpenter: {{label_karpenter_sh_nodepool}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Nodes by Pool",
+      "type": "bargauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      },
+      "id": 800,
+      "title": "Karpenter",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 67
+      },
+      "id": 801,
+      "options": {
+        "colorMode": "background_gradient",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count(kube_node_labels{label_karpenter_sh_nodepool!=\"\"})",
+          "legendFormat": "Karpenter Nodes",
+          "refId": "A"
+        }
+      ],
+      "title": "Karpenter Nodes",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 67
+      },
+      "id": 802,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (label_karpenter_sh_capacity_type) (\n  kube_node_info\n  * on(node) group_left(label_karpenter_sh_capacity_type)\n  kube_node_labels{label_karpenter_sh_nodepool!=\"\"}\n)",
+          "legendFormat": "{{label_karpenter_sh_capacity_type}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Karpenter: Capacity Type",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          },
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 67
+      },
+      "id": 803,
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(1 - avg by (node) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))\n* on(node) group_left(label_karpenter_sh_nodepool, label_node_kubernetes_io_instance_type, label_topology_kubernetes_io_zone)\nkube_node_labels{label_karpenter_sh_nodepool!=\"\"}\n* 100",
+          "legendFormat": "{{node}} \u00b7 {{label_node_kubernetes_io_instance_type}} \u00b7 {{label_topology_kubernetes_io_zone}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Karpenter: CPU per Node",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 71
+      },
+      "id": 804,
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (consolidation) (increase(karpenter_voluntary_disruption_decisions_total[1h]))",
+          "legendFormat": "{{consolidation}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(karpenter_voluntary_disruption_decisions_total[1h]))",
+          "legendFormat": "total / 1h",
+          "refId": "B"
+        }
+      ],
+      "title": "Karpenter: Disruption Decisions",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 80
+      },
+      "id": 850,
+      "title": "Scheduling Headroom & Reliability",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "green",
+                "value": 0.3
+              }
+            ]
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 81
+      },
+      "id": 851,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - (\n  sum by (node) (kube_pod_container_resource_requests{resource=\"cpu\"})\n  / on(node)\n  sum by (node) (kube_node_status_allocatable{resource=\"cpu\"})\n)",
+          "legendFormat": "{{node}}",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU Scheduling Headroom per Node",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "green",
+                "value": 0.3
+              }
+            ]
+          },
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 81
+      },
+      "id": 852,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - (\n  sum by (node) (kube_pod_container_resource_requests{resource=\"memory\"})\n  / on(node)\n  sum by (node) (kube_node_status_allocatable{resource=\"memory\"})\n)",
+          "legendFormat": "{{node}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Memory Scheduling Headroom per Node",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 81
+      },
+      "id": 853,
+      "options": {
+        "colorMode": "background_gradient",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(kube_poddisruptionbudget_status_current_healthy < kube_poddisruptionbudget_status_desired_healthy)",
+          "legendFormat": "PDBs violated",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count(kube_poddisruptionbudget_status_observed_generation)",
+          "legendFormat": "Total PDBs",
+          "refId": "B"
+        }
+      ],
+      "title": "Pod Disruption Budgets",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          },
+          "unit": "cores"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 87
+      },
+      "id": 854,
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(kube_node_status_allocatable{resource=\"cpu\"})",
+          "legendFormat": "Allocatable CPU (cores)",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\"})",
+          "legendFormat": "Requested CPU (cores)",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(kube_pod_container_resource_limits{resource=\"cpu\"})",
+          "legendFormat": "Limit CPU (cores)",
+          "refId": "C"
+        }
+      ],
+      "title": "Cluster CPU: Allocatable vs Requested vs Limit",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 87
+      },
+      "id": 855,
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(kube_node_status_allocatable{resource=\"memory\"})",
+          "legendFormat": "Allocatable Memory",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"memory\"})",
+          "legendFormat": "Requested Memory",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(kube_pod_container_resource_limits{resource=\"memory\"})",
+          "legendFormat": "Limit Memory",
+          "refId": "C"
+        }
+      ],
+      "title": "Cluster Memory: Allocatable vs Requested vs Limit",
       "type": "timeseries"
     }
   ],
@@ -1803,15 +2543,15 @@
   "templating": {
     "list": [
       {
-        "name": "role",
-        "label": "Workload",
+        "name": "pool",
+        "label": "Pool / Role",
         "type": "query",
         "datasource": {
           "type": "prometheus",
           "uid": ""
         },
-        "definition": "label_values(kube_node_labels, label_workload)",
-        "query": "label_values(kube_node_labels, label_workload)",
+        "definition": "label_values(kube_node_labels, label_node_role)",
+        "query": "label_values(kube_node_labels, label_node_role)",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
@@ -1839,6 +2579,44 @@
           "value": "$__all"
         },
         "sort": 1
+      },
+      {
+        "name": "nodepool",
+        "label": "Karpenter Pool",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": ""
+        },
+        "definition": "label_values(kube_node_labels, label_karpenter_sh_nodepool)",
+        "query": "label_values(kube_node_labels, label_karpenter_sh_nodepool)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "sort": 1
+      },
+      {
+        "name": "instance_type",
+        "label": "Instance Type",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": ""
+        },
+        "definition": "label_values(kube_node_labels, label_node_kubernetes_io_instance_type)",
+        "query": "label_values(kube_node_labels, label_node_kubernetes_io_instance_type)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "sort": 1
       }
     ]
   },
@@ -1850,5 +2628,6 @@
   "timezone": "browser",
   "title": "Cluster & Nodes",
   "uid": "cluster-nodes",
-  "version": 1
+  "version": 1,
+  "description": "EKS: k8s-eks-development | eu-west-1 | K8s 1.34 | MNG: system (3\u00d7t3.medium ON_DEMAND) | Karpenter: workloads-default (t3.small/medium ON_DEMAND, expiry 720h)"
 }
