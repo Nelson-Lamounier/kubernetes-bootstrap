@@ -71,6 +71,11 @@ alertmanager:
 # in the ConfigMap, which caused CrashLoopBackOff ("component not found").
 # Re-enable once a PodIdentityAssociation + CloudWatch policy is added for
 # the alloy service account.
+grafana:
+  alerting:
+    snsTopicArn: "arn:aws:sns:eu-west-1:771826808455:k8s-bootstrap-alarm"
+    awsRegion: eu-west-1
+
 alloy:
   awsLogs:
     cloudtrail:

@@ -18,6 +18,7 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/grafana/configmap.yaml") . | sha256sum }}
       labels: {{- include "monitoring.fullLabels" "grafana" | nindent 8}}
     spec:
+      serviceAccountName: grafana
       securityContext:
         fsGroup: 472
         runAsUser: 472
