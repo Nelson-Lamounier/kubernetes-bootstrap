@@ -33,7 +33,7 @@ spec:
         - name: kube-state-metrics
           image: {{ .Values.kubeStateMetrics.image }}
           args:
-            - --metric-labels-allowlist=nodes=[workload]
+            - --metric-labels-allowlist=nodes=[node-role,karpenter.sh/nodepool,node.kubernetes.io/instance-type,topology.kubernetes.io/zone]
           ports:
             - containerPort: {{ .Values.kubeStateMetrics.service.port }}
               name: metrics
