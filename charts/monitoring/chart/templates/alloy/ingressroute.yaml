@@ -1,57 +1,103 @@
 {{- if .Values.alloy.ingress.enabled }}
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
+# ALB cannot strip path prefixes natively. A small nginx proxy sits between
+# the ALB and Alloy, rewriting /faro/* → /* before forwarding to the Faro
+# receiver port. CORS is handled by Alloy's own cors_allowed_origins config.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: faro-proxy-nginx
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+data:
+  nginx.conf: |
+    events {}
+    http {
+      server {
+        listen 8080;
+        location /faro/ {
+          proxy_pass http://alloy.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.alloy.service.faroPort }}/;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: faro-proxy
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: faro-proxy
+  template:
+    metadata:
+      labels:
+        app: faro-proxy
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: faro-proxy-nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: faro-proxy
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+spec:
+  selector:
+    app: faro-proxy
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
   name: alloy-faro-ingress
   namespace: {{ .Values.namespace }}
   labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+  annotations:
+    alb.ingress.kubernetes.io/group.name: public
+    alb.ingress.kubernetes.io/group.order: "202"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/healthcheck-path: /faro/
+    alb.ingress.kubernetes.io/healthcheck-matcher: "200,404"
 spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: {{ .Values.alloy.ingress.matchRule }}
-      kind: Rule
-      priority: 110
-      services:
-        - name: alloy
-          port: {{ .Values.alloy.service.faroPort }}
-      middlewares:
-        - name: faro-stripprefix
-        - name: faro-cors
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: faro-stripprefix
-  namespace: {{ .Values.namespace }}
-  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
-spec:
-  stripPrefix:
-    prefixes:
-      - /faro
----
-# CORS middleware — required because Traefik handles browser preflight
-# OPTIONS requests before they reach Alloy's own cors_allowed_origins.
-# Without this, cross-origin Faro SDK requests from the main domain to
-# ops.{domain} are blocked by the browser.
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: faro-cors
-  namespace: {{ .Values.namespace }}
-  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
-spec:
-  headers:
-    accessControlAllowOriginList:
-      {{- range .Values.alloy.ingress.corsAllowedOrigins }}
-      - {{ . | quote }}
-      {{- end }}
-    accessControlAllowMethods:
-      - "GET"
-      - "POST"
-      - "OPTIONS"
-    accessControlAllowHeaders:
-      - "Content-Type"
-      - "X-Faro-Session-Id"
-    accessControlMaxAge: 3600
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /faro
+            pathType: Prefix
+            backend:
+              service:
+                name: faro-proxy
+                port:
+                  number: 8080
 {{- end }}
