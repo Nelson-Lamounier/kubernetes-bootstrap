@@ -42,3 +42,20 @@ pyroscope:
 alertmanager:
   pvc:
     storageClass: gp2
+
+# Alloy — disable CloudWatch scrapers on EKS.
+#
+# On kubeadm the EC2 instance profile granted logs:FilterLogEvents etc.
+# On EKS pods need an explicit Pod Identity association; none is wired for
+# Alloy yet. Disabling prevents loki.source.cloudwatch from being rendered
+# in the ConfigMap, which caused CrashLoopBackOff ("component not found").
+# Re-enable once a PodIdentityAssociation + CloudWatch policy is added for
+# the alloy service account.
+alloy:
+  awsLogs:
+    cloudtrail:
+      enabled: false
+    ssmAutomation:
+      enabled: false
+    lambdaLogs:
+      enabled: false
