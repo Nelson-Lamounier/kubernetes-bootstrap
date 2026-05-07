@@ -64,6 +64,10 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       nodeSelector:
         {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: admin-api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

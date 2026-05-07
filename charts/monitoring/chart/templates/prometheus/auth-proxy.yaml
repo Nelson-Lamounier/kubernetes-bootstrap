@@ -1,0 +1,100 @@
+{{- if .Values.prometheus.ingress.enabled }}
+# nginx auth proxy — sits between the ALB and Prometheus.
+#
+# The ALB Ingress (ingressroute.yaml) points to this proxy on port 8080.
+# All /prometheus/* requests require HTTP Basic Auth via the
+# prometheus-basic-auth-secret (htpasswd-format value from SSM).
+# The /-/healthy path is passed through unauthenticated so the ALB
+# target health check succeeds without credentials.
+#
+# Internal cluster traffic (Grafana datasource, Prometheus self-scrape)
+# continues to hit prometheus:9090 directly — no auth required there.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-auth-proxy-nginx
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+data:
+  nginx.conf: |
+    events {}
+    http {
+      server {
+        listen 8080;
+
+        # ALB health check — unauthenticated passthrough
+        location = /-/healthy {
+          proxy_pass http://prometheus.{{ .Values.namespace }}.svc.cluster.local:9090/prometheus/-/healthy;
+        }
+
+        # All Prometheus UI + API paths — basic auth required
+        location /prometheus/ {
+          auth_basic           "Prometheus";
+          auth_basic_user_file /etc/nginx/htpasswd;
+          proxy_pass           http://prometheus.{{ .Values.namespace }}.svc.cluster.local:9090;
+          proxy_set_header     Host             $host;
+          proxy_set_header     X-Real-IP        $remote_addr;
+          proxy_set_header     X-Forwarded-For  $proxy_add_x_forwarded_for;
+          proxy_set_header     X-Forwarded-Proto https;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-auth-proxy
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-auth-proxy
+  template:
+    metadata:
+      labels:
+        app: prometheus-auth-proxy
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: htpasswd
+              mountPath: /etc/nginx/htpasswd
+              subPath: users
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: prometheus-auth-proxy-nginx
+        - name: htpasswd
+          secret:
+            secretName: prometheus-basic-auth-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-auth-proxy
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+spec:
+  selector:
+    app: prometheus-auth-proxy
+  ports:
+    - port: 8080
+      targetPort: 8080
+{{- end }}

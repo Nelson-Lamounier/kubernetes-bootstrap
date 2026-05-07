@@ -1,0 +1,69 @@
+# @format
+# ArgoCD Application: metrics-server (EKS development)
+#
+# Installs metrics-server from the upstream Helm chart. Required for
+# Horizontal Pod Autoscaler (HPA) to function.
+#
+# Scheduled on the system MNG (tainted dedicated=system:NoSchedule) to avoid
+# idle Karpenter workload nodes at rest.
+#
+# Note: --kubelet-insecure-tls removed for EKS — EKS kubelet certificates are
+# signed by the cluster CA, so TLS verification is valid.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    kubernetes.io/description: "metrics-server for HPA on EKS development"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/metrics-server/
+    chart: metrics-server
+    targetRevision: "3.*"
+    helm:
+      releaseName: metrics-server
+      valuesObject:
+        tolerations:
+          - key: dedicated
+            operator: Equal
+            value: system
+            effect: NoSchedule
+
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: node-role
+                      operator: In
+                      values: [system]
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

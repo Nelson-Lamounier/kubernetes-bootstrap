@@ -2,9 +2,9 @@
 # ---------------------------------------------------------------
 # PodDisruptionBudget — protects availability during node drains
 #
-# Ensures at least {{ .Values.pdb.minAvailable }} pod(s) remain
-# available during voluntary disruptions (node maintenance,
-# cluster upgrades, spot instance reclamation).
+# maxUnavailable: 1 — allows Karpenter to evict one pod at a time for
+# bin-packing. For replicas: 1, this permits brief eviction+reschedule;
+# for replicas > 1, it guarantees at least one pod remains available.
 # ---------------------------------------------------------------
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -14,7 +14,7 @@ metadata:
   labels:
     {{- include "nextjs.fullLabels" . | nindent 4 }}
 spec:
-  minAvailable: {{ .Values.pdb.minAvailable }}
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
   selector:
     matchLabels:
       {{- include "nextjs.selectorLabels" . | nindent 6 }}

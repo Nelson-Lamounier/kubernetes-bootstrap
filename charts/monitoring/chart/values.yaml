@@ -27,6 +27,13 @@ nodeSelector: {}
 tolerations: []
 
 # ---------------------------------------------------------------------------
+# Affinity (applies to Deployments — NOT DaemonSets)
+# Use preferredDuringSchedulingIgnoredDuringExecution to soft-prefer system
+# nodes (node-role=system) while allowing fallback to workload nodes.
+# ---------------------------------------------------------------------------
+affinity: {}
+
+# ---------------------------------------------------------------------------
 # Prometheus
 # ---------------------------------------------------------------------------
 prometheus:

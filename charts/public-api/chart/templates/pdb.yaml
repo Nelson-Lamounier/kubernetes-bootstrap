@@ -3,8 +3,9 @@
 # PodDisruptionBudget — protects public-api availability during
 # voluntary disruptions (CA scale-down, spot reclamation, drain).
 #
-# minAvailable: 1 prevents the sole replica from being evicted
-# before a replacement is scheduled on another node.
+# maxUnavailable: 1 — allows Karpenter to evict one pod at a time for
+# bin-packing. For replicas: 1, this permits brief eviction+reschedule;
+# for replicas > 1, it guarantees at least one pod remains available.
 # ---------------------------------------------------------------
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -16,7 +17,7 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     platform.engineering/layer: bff
 spec:
-  minAvailable: {{ .Values.pdb.minAvailable }}
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ .Release.Name }}

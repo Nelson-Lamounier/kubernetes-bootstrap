@@ -12,3 +12,28 @@ ingress:
   groupName: public
   groupOrder: 900
   healthcheckPath: /api/health
+
+# ---------------------------------------------------------------------------
+# Topology Spread Constraints — AZ resilience (EKS multi-AZ)
+# ---------------------------------------------------------------------------
+# Overrides the chart default (hostname-level) with zone-level spread so
+# Karpenter places replicas across AZs, not just across nodes.
+# ScheduleAnyway prevents scheduling stalls when replicas: 1 in dev.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app: nextjs
+
+# ---------------------------------------------------------------------------
+# Resource requests/limits — EKS baseline for accurate Karpenter bin-packing
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

@@ -1,0 +1,113 @@
+# @format
+# ArgoCD Application: cert-manager (EKS development)
+#
+# Installs cert-manager from the Jetstack Helm chart. Handles ACME certificate
+# issuance and stores TLS certs as Kubernetes Secrets.
+#
+# All components (controller, webhook, cainjector) are scheduled on the system
+# MNG (tainted dedicated=system:NoSchedule) to avoid idle Karpenter workload
+# nodes at rest.
+#
+# Chart: https://artifacthub.io/packages/helm/cert-manager/cert-manager
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    kubernetes.io/description: "cert-manager TLS certificate management on EKS (Let's Encrypt)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: "v1.*"
+    helm:
+      releaseName: cert-manager
+      valuesObject:
+        crds:
+          enabled: true
+
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 64Mi
+
+        tolerations:
+          - key: dedicated
+            operator: Equal
+            value: system
+            effect: NoSchedule
+
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: node-role
+                      operator: In
+                      values: [system]
+
+        webhook:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: system
+              effect: NoSchedule
+
+        cainjector:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: system
+              effect: NoSchedule
+
+        startupapicheck:
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: system
+              effect: NoSchedule
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

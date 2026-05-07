@@ -19,3 +19,27 @@ ingress:
   # (written by EksPublicWafStack). Leave empty until the WAF is
   # deployed; the conditional annotation simply omits when blank.
   wafAclArn: ""
+
+# ---------------------------------------------------------------------------
+# Topology Spread Constraints — AZ resilience
+# ---------------------------------------------------------------------------
+# Active when replicas > 1. ScheduleAnyway prevents scheduling stalls on
+# a single-AZ dev cluster while still nudging the scheduler toward balance.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: admin-api
+
+# ---------------------------------------------------------------------------
+# Resource requests/limits — EKS baseline for accurate Karpenter bin-packing
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

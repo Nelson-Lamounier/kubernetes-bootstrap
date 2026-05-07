@@ -35,6 +35,15 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
+  # nodeSelector was set before ArgoCD SSA era — the node-pool:monitoring key
+  # is owned by the before-first-apply legacy manager, which SSA (even with
+  # Force=true) does not clear when the desired value is null. Ignore it so
+  # selfHeal never re-applies the Pending-inducing kubeadm label.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/spec/nodeSelector
   syncPolicy:
     automated:
       prune: true
@@ -43,6 +52,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:

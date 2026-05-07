@@ -16,6 +16,29 @@
 # is the expected behaviour; dashboards-as-code in git carry over.
 # `null` (not `{}`) so Helm's deep-merge actually replaces the chart's
 # top-level nodeSelector. An empty map merges-into rather than overrides.
+nodeSelector: null
+
+# Tolerate the system node taint so monitoring pods can land on system nodes.
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: system
+    effect: NoSchedule
+
+# Prefer system nodes (node-role=system) — falls back to workload nodes when
+# system nodes are at capacity. Eliminates idle Karpenter workload nodes kept
+# alive solely by monitoring pods.
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - system
+
 prometheus:
   pvc:
     storageClass: gp2
@@ -39,3 +62,20 @@ pyroscope:
 alertmanager:
   pvc:
     storageClass: gp2
+
+# Alloy — disable CloudWatch scrapers on EKS.
+#
+# On kubeadm the EC2 instance profile granted logs:FilterLogEvents etc.
+# On EKS pods need an explicit Pod Identity association; none is wired for
+# Alloy yet. Disabling prevents loki.source.cloudwatch from being rendered
+# in the ConfigMap, which caused CrashLoopBackOff ("component not found").
+# Re-enable once a PodIdentityAssociation + CloudWatch policy is added for
+# the alloy service account.
+alloy:
+  awsLogs:
+    cloudtrail:
+      enabled: false
+    ssmAutomation:
+      enabled: false
+    lambdaLogs:
+      enabled: false

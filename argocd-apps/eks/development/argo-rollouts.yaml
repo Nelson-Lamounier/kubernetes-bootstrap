@@ -34,6 +34,22 @@ spec:
           replicas: 1
           tolerations:
             - key: dedicated
+              operator: Equal
+              value: system
+              effect: NoSchedule
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values: [system]
+        dashboard:
+          tolerations:
+            - key: dedicated
+              operator: Equal
               value: system
               effect: NoSchedule
   destination:
