@@ -1,0 +1,66 @@
+# @format
+# ArgoCD Application: Traefik Ingress Controller (EKS development)
+#
+# Installs Traefik as a Deployment (not DaemonSet) behind an AWS NLB in IP
+# target mode. This is the V1 EKS ingress design per architecture spec:
+#   - Deployment (replicas: 2) — no hostNetwork, no EIP dependency
+#   - NLB provisioned by aws-load-balancer-controller via Service annotations
+#   - cert-manager + Let's Encrypt retained (same as kubeadm era)
+#   - OTLP tracing to Tempo + Prometheus metrics (monitoring parity)
+#
+# System node scheduling: all Traefik pods land on dedicated=system MNG
+# to avoid idle Karpenter workload nodes at rest.
+#
+# Multi-source: EKS values from git, chart from upstream registry.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    kubernetes.io/description: "Traefik ingress controller on EKS (Deployment, NLB IP mode)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  sources:
+    # Source 1: EKS-specific Traefik values from git
+    - repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+      targetRevision: main
+      ref: values
+
+    # Source 2: Traefik Helm chart from official repo
+    - repoURL: https://traefik.github.io/charts
+      chart: traefik
+      targetRevision: "36.*"
+      helm:
+        releaseName: traefik
+        valueFiles:
+          - $values/charts/traefik/traefik-values-eks.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

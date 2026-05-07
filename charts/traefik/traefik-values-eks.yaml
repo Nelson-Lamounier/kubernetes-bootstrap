@@ -1,0 +1,127 @@
+# @format
+# Traefik Helm Values — EKS development
+#
+# Traefik runs as a Deployment (not DaemonSet) behind an AWS NLB in IP target
+# mode. This replaces the kubeadm DaemonSet+hostNetwork design which is
+# incompatible with EKS managed node groups.
+#
+# Key differences from gitops/traefik/traefik-values.yaml (kubeadm):
+#   - Deployment (not DaemonSet) — NLB routes to pod IPs directly
+#   - hostNetwork: false — EKS VPC CNI assigns pod IPs from the VPC
+#   - NLB provisioned by aws-load-balancer-controller via Service annotations
+#   - System node scheduling: toleration + affinity for dedicated=system MNG
+#
+# Chart: https://traefik.github.io/charts (traefik/traefik)
+
+deployment:
+  kind: Deployment
+  replicas: 2
+
+# Entry points — NLB terminates at port 80/443 → forwards to pod ports
+ports:
+  web:
+    port: 8000
+    expose:
+      default: true
+    exposedPort: 80
+    protocol: TCP
+  websecure:
+    port: 8443
+    expose:
+      default: true
+    exposedPort: 443
+    protocol: TCP
+    tls:
+      enabled: true
+  metrics:
+    port: 9100
+    expose:
+      default: false
+    exposedPort: 9100
+    protocol: TCP
+
+# NLB provisioned by aws-load-balancer-controller (IP target mode)
+service:
+  enabled: true
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+
+# System node scheduling — tolerate taint, prefer system MNG
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: system
+    effect: NoSchedule
+
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: node-role
+              operator: In
+              values: [system]
+
+# TLS certificate via cert-manager
+tlsStore:
+  default:
+    defaultCertificate:
+      secretName: ops-tls-cert
+
+# Prometheus metrics
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+
+# OTLP tracing → Tempo (in-cluster)
+tracing:
+  otlp:
+    grpc:
+      endpoint: "tempo.monitoring.svc.cluster.local:4317"
+      insecure: true
+
+additionalArguments:
+  - "--tracing.otlp.grpc.endpoint=tempo.monitoring.svc.cluster.local:4317"
+  - "--tracing.otlp.grpc.insecure=true"
+  - "--metrics.prometheus=true"
+  - "--metrics.prometheus.entryPoint=metrics"
+  - "--metrics.prometheus.addEntryPointsLabels=true"
+  - "--metrics.prometheus.addRoutersLabels=true"
+  - "--metrics.prometheus.addServicesLabels=true"
+
+logs:
+  general:
+    level: INFO
+  access:
+    enabled: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+    add: [NET_BIND_SERVICE]
+  readOnlyRootFilesystem: true
+
+podSecurityContext:
+  runAsGroup: 65532
+  runAsNonRoot: true
+  runAsUser: 65532
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
