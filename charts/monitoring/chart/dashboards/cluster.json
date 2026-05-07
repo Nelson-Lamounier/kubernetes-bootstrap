@@ -2550,8 +2550,8 @@
           "type": "prometheus",
           "uid": ""
         },
-        "definition": "label_values(kube_node_labels, label_node_role)",
-        "query": "label_values(kube_node_labels, label_node_role)",
+        "definition": "query_result(count by (label_node_role) (kube_node_labels and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1))",
+        "query": "query_result(count by (label_node_role) (kube_node_labels and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1))",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
@@ -2559,7 +2559,8 @@
           "text": "All",
           "value": "$__all"
         },
-        "sort": 1
+        "sort": 1,
+        "regex": ".*label_node_role=\"([^\"]+)\".*"
       },
       {
         "name": "node",
@@ -2569,8 +2570,8 @@
           "type": "prometheus",
           "uid": ""
         },
-        "definition": "label_values(kube_node_info, node)",
-        "query": "label_values(kube_node_info, node)",
+        "definition": "query_result(kube_node_info and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1)",
+        "query": "query_result(kube_node_info and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1)",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
@@ -2578,7 +2579,8 @@
           "text": "All",
           "value": "$__all"
         },
-        "sort": 1
+        "sort": 1,
+        "regex": ".*node=\"([^\"]+)\".*"
       },
       {
         "name": "nodepool",
@@ -2588,8 +2590,8 @@
           "type": "prometheus",
           "uid": ""
         },
-        "definition": "label_values(kube_node_labels, label_karpenter_sh_nodepool)",
-        "query": "label_values(kube_node_labels, label_karpenter_sh_nodepool)",
+        "definition": "query_result(count by (label_karpenter_sh_nodepool) (kube_node_labels and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1))",
+        "query": "query_result(count by (label_karpenter_sh_nodepool) (kube_node_labels and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1))",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
@@ -2597,7 +2599,8 @@
           "text": "All",
           "value": "$__all"
         },
-        "sort": 1
+        "sort": 1,
+        "regex": ".*label_karpenter_sh_nodepool=\"([^\"]+)\".*"
       },
       {
         "name": "instance_type",
@@ -2607,8 +2610,8 @@
           "type": "prometheus",
           "uid": ""
         },
-        "definition": "label_values(kube_node_labels, label_node_kubernetes_io_instance_type)",
-        "query": "label_values(kube_node_labels, label_node_kubernetes_io_instance_type)",
+        "definition": "query_result(count by (label_node_kubernetes_io_instance_type) (kube_node_labels and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1))",
+        "query": "query_result(count by (label_node_kubernetes_io_instance_type) (kube_node_labels and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1))",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
@@ -2616,7 +2619,8 @@
           "text": "All",
           "value": "$__all"
         },
-        "sort": 1
+        "sort": 1,
+        "regex": ".*label_node_kubernetes_io_instance_type=\"([^\"]+)\".*"
       }
     ]
   },
