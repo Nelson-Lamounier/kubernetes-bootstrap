@@ -42,3 +42,14 @@ topologySpreadConstraints:
     labelSelector:
       matchLabels:
         app: tucaken-app
+
+# ---------------------------------------------------------------------------
+# Resource requests/limits — EKS baseline for accurate Karpenter bin-packing
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

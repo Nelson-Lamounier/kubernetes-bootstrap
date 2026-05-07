@@ -32,3 +32,14 @@ topologySpreadConstraints:
     labelSelector:
       matchLabels:
         app.kubernetes.io/name: admin-api
+
+# ---------------------------------------------------------------------------
+# Resource requests/limits — EKS baseline for accurate Karpenter bin-packing
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

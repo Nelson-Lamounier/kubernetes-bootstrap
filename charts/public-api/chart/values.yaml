@@ -135,7 +135,7 @@ resourceQuota:
 # during CA scale-down or node drain events.
 pdb:
   enabled: true
-  minAvailable: 1
+  maxUnavailable: 1
 
 # ---------------------------------------------------------------------------
 # Topology Spread Constraints
