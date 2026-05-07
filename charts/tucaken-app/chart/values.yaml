@@ -111,6 +111,17 @@ ingress:
   groupName: public
   groupOrder: 300
   healthcheckPath: /readyz
+  # wafv2AclArn is intentionally absent from default values.
+  # A PostSync Job (templates/waf-annotator-job.yaml) reads the ARN from
+  # SSM at /k8s/<env>/eks/waf-acl-arn and annotates the Ingress directly.
+
+# SSM path to read WAF ACL ARN at PostSync time.
+# Must match the ssmPrefix used in EksPublicWafStack.
+wafAnnotator:
+  ssmPath: "/k8s/development/eks/waf-acl-arn"
+  # IRSA / Pod Identity role that has ssm:GetParameter + eks:DescribeCluster
+  # on the path above. Populated by the cluster bootstrap pipeline.
+  roleArn: ""
 
 # ---------------------------------------------------------------------------
 # Secrets (synced via ExternalSecret from SSM/Secrets Manager)

@@ -18,8 +18,14 @@ ingress:
   groupName: public
   groupOrder: 300
   healthcheckPath: /readyz
-  # WAF ACL ARN — keeps the eks-public-development WebACL attached to the
-  # shared ALB through every LBC reconciliation. The ACL blocks all traffic
-  # to tucaken.io/tucaken.com that does not originate from the allowed CIDR
-  # (pre-launch IP gate). Drop the wafv2AclArn entry when going public.
-  wafv2AclArn: "arn:aws:wafv2:eu-west-1:771826808455:regional/webacl/eks-public-development/f0f356dd-d955-4688-93c4-a4b4abba90bc"
+  # WAF ACL ARN — set at deploy time by the waf-annotator PostSync Job,
+  # which reads /k8s/<env>/eks/waf-acl-arn from SSM. Not stored here to
+  # avoid hardcoding infrastructure ARNs in git. ArgoCD ignoreDifferences
+  # prevents selfHeal from stripping the annotation between syncs.
+
+wafAnnotator:
+  ssmPath: "/k8s/development/eks/waf-acl-arn"
+  # Pod Identity role ARN published to SSM by EksPublicWafStack.
+  # Read via: aws ssm get-parameter --name /k8s/development/eks/waf-annotator-role-arn
+  # Populated by deploy pipeline after EksPublicWafStack runs; not hardcoded here.
+  roleArn: ""  # set by pipeline
