@@ -2254,7 +2254,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "1 - (\n  sum by (node) (kube_pod_container_resource_requests{resource=\"cpu\"})\n  / on(node)\n  sum by (node) (kube_node_status_allocatable{resource=\"cpu\"})\n)",
+          "expr": "1 - (\n  sum by (node) (kube_pod_container_resource_requests{resource=\"cpu\"})\n  / on(node)\n  sum by (node) (kube_node_status_allocatable{resource=\"cpu\"})\n) and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1",
           "legendFormat": "{{node}}",
           "refId": "A"
         }
@@ -2321,7 +2321,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "1 - (\n  sum by (node) (kube_pod_container_resource_requests{resource=\"memory\"})\n  / on(node)\n  sum by (node) (kube_node_status_allocatable{resource=\"memory\"})\n)",
+          "expr": "1 - (\n  sum by (node) (kube_pod_container_resource_requests{resource=\"memory\"})\n  / on(node)\n  sum by (node) (kube_node_status_allocatable{resource=\"memory\"})\n) and on(node) kube_node_status_condition{condition=\"Ready\",status=\"true\"} == 1",
           "legendFormat": "{{node}}",
           "refId": "A"
         }
