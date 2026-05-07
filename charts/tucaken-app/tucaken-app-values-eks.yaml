@@ -18,3 +18,14 @@ ingress:
   groupName: public
   groupOrder: 300
   healthcheckPath: /readyz
+  # WAF ACL ARN — set at deploy time by the waf-annotator PostSync Job,
+  # which reads /k8s/<env>/eks/waf-acl-arn from SSM. Not stored here to
+  # avoid hardcoding infrastructure ARNs in git. ArgoCD ignoreDifferences
+  # prevents selfHeal from stripping the annotation between syncs.
+
+wafAnnotator:
+  ssmPath: "/k8s/development/eks/waf-acl-arn"
+  # Pod Identity role ARN published to SSM by EksPublicWafStack.
+  # Read via: aws ssm get-parameter --name /k8s/development/eks/waf-annotator-role-arn
+  # Populated by deploy pipeline after EksPublicWafStack runs; not hardcoded here.
+  roleArn: ""  # set by pipeline

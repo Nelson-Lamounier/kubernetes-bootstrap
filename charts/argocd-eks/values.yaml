@@ -23,12 +23,12 @@ configs:
   params:
     # ALB controller terminates TLS upstream; ArgoCD server runs HTTP-only.
     server.insecure: true
-    # Serve under https://ops.nelsonlamounier.com/argocd/ — the public ALB
-    # IngressGroup routes the /argocd path prefix to argocd-server. basehref
-    # makes Angular emit asset URLs prefixed with /argocd; rootpath strips
-    # the prefix from incoming requests so server-side routing keeps working.
-    server.basehref: /argocd
-    server.rootpath: /argocd
+    # ALB routes ops.nelsonlamounier.com/argocd → argocd-server without stripping
+    # the prefix. rootpath tells ArgoCD to strip /argocd from incoming paths and
+    # prepend it to generated redirect URLs. Do NOT also set server.basehref —
+    # ArgoCD derives it from rootpath automatically. Setting both causes the
+    # double-prefix redirect bug (/argocd/argocd/applications).
+    server.rootpath: "/argocd"
 
 server:
   service:
