@@ -1,0 +1,43 @@
+# @format
+# ArgoCD Application: argocd-ingress (EKS — Plan 5b Phase 6 admin paths)
+#
+# Wraps the raw Ingress manifest under
+# argocd-apps/eks/development/argocd-ingress/ so it gets a separate
+# health/sync surface. The Ingress folds into the shared `public`
+# IngressGroup at order 500 (Plan 5b § 0.6).
+#
+# Prerequisite: charts/argocd-eks/values.yaml configures the ArgoCD
+# server with server.rootpath=/argocd + server.basehref=/argocd. Apply
+# via the Bootstrap ArgoCD on EKS workflow re-run.
+#
+# Future siblings (deferred until monitoring is up): grafana + prometheus
+# Ingresses in the monitoring namespace, same Host, same group.name.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-ingress
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+    kubernetes.io/description: "ArgoCD UI Ingress at ops.nelsonlamounier.com/argocd"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: argocd-apps/eks/development/argocd-ingress
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

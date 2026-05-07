@@ -1,0 +1,42 @@
+# @format
+# ArgoCD UI Ingress — folded into the shared `public` IngressGroup
+# (Plan 5b § 0.6, group.order 500). Same Host as future grafana/
+# prometheus paths so a single ALB rule list covers admin tooling.
+#
+# WAF: the wafv2-acl-arn annotation is intentionally absent here.
+# admin-api's Ingress is the single owner of that annotation across
+# the IngressGroup (Plan 5b convention to avoid conflict). The WebACL
+# applies to every Host on the ALB once admin-api carries the ARN.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+    app.kubernetes.io/component: server
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/group.name: public
+    alb.ingress.kubernetes.io/group.order: "500"
+    # ArgoCD's healthz endpoint at the rootpath returns 200 only when
+    # the server is ready; the trailing /argocd matches the basehref
+    # configured in charts/argocd-eks/values.yaml.
+    alb.ingress.kubernetes.io/healthcheck-path: /argocd/healthz
+    external-dns.alpha.kubernetes.io/hostname: ops.nelsonlamounier.com
+spec:
+  ingressClassName: alb
+  rules:
+    - host: ops.nelsonlamounier.com
+      http:
+        paths:
+          - path: /argocd
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80
