@@ -29,3 +29,16 @@ wafAnnotator:
   # Read via: aws ssm get-parameter --name /k8s/development/eks/waf-annotator-role-arn
   # Populated by deploy pipeline after EksPublicWafStack runs; not hardcoded here.
   roleArn: ""  # set by pipeline
+
+# ---------------------------------------------------------------------------
+# Topology Spread Constraints — AZ resilience
+# ---------------------------------------------------------------------------
+# Active when replicas > 1. ScheduleAnyway prevents scheduling stalls on
+# a single-AZ dev cluster while still nudging the scheduler toward balance.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app: tucaken-app

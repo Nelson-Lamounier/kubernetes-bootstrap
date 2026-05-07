@@ -141,5 +141,6 @@ pdb:
 # Topology Spread Constraints
 # ---------------------------------------------------------------------------
 # Empty by default (replicas: 1 — no spread needed).
-# Set when scaling to replicas > 1 to enforce maxSkew: 1 across nodes.
+# Enable when scaling to replicas > 1 to enforce maxSkew: 1 across AZs.
+# The public-api-values-eks.yaml overlay sets this for EKS deployments.
 topologySpreadConstraints: []
