@@ -23,6 +23,12 @@ configs:
   params:
     # ALB controller terminates TLS upstream; ArgoCD server runs HTTP-only.
     server.insecure: true
+    # ALB routes ops.nelsonlamounier.com/argocd → argocd-server without stripping
+    # the prefix. rootpath tells ArgoCD to strip /argocd from incoming paths and
+    # prepend it to generated redirect URLs. Do NOT also set server.basehref —
+    # ArgoCD derives it from rootpath automatically. Setting both causes the
+    # double-prefix redirect bug (/argocd/argocd/applications).
+    server.rootpath: "/argocd"
 
 server:
   service:
