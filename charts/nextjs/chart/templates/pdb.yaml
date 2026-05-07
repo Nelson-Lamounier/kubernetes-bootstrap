@@ -2,8 +2,9 @@
 # ---------------------------------------------------------------
 # PodDisruptionBudget — protects availability during node drains
 #
-# maxUnavailable: 1 allows Karpenter to evict pods for bin-packing
-# while ensuring at most 1 disruption at a time.
+# maxUnavailable: 1 — allows Karpenter to evict one pod at a time for
+# bin-packing. For replicas: 1, this permits brief eviction+reschedule;
+# for replicas > 1, it guarantees at least one pod remains available.
 # ---------------------------------------------------------------
 apiVersion: policy/v1
 kind: PodDisruptionBudget
