@@ -16,6 +16,9 @@
 # is the expected behaviour; dashboards-as-code in git carry over.
 # `null` (not `{}`) so Helm's deep-merge actually replaces the chart's
 # top-level nodeSelector. An empty map merges-into rather than overrides.
+nodeSelector: null
+tolerations: []
+
 prometheus:
   pvc:
     storageClass: gp2
