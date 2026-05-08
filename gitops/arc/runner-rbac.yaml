@@ -46,17 +46,36 @@ rules:
     resources: ["configmaps"]
     verbs: ["get", "create", "update", "patch", "replace"]
 
+  # Promote job: pod listing + log streaming for diagnostics
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+
+  # Promote job: event inspection for rollout diagnostics
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+
   # admin-api + public-api: Traefik IngressRoutes
   # deploy.py is the sole owner — ArgoCD never manages these resources.
   - apiGroups: ["traefik.io"]
     resources: ["ingressroutes"]
     verbs: ["get", "create", "update", "patch", "replace"]
 
-  # ArgoCD sync trigger — runner annotates Application to force immediate refresh.
-  # This replaces the 60-line SSM polling loop that ran argocd app sync on the CP node.
+  # ArgoCD sync trigger + promote job ArgoCD app inspection
   - apiGroups: ["argoproj.io"]
     resources: ["applications"]
-    verbs: ["get", "patch", "update"]
+    verbs: ["get", "list", "patch", "update"]
+
+  # Promote job: Argo Rollouts — get/watch rollout state, issue promote
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts", "rollouts/status"]
+    verbs: ["get", "list", "patch", "update"]
+
+  # Promote job: AnalysisRun inspection for pre-promotion diagnostics
+  - apiGroups: ["argoproj.io"]
+    resources: ["analysisruns"]
+    verbs: ["get", "list"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
