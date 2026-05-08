@@ -3,7 +3,7 @@
 #
 # Deploys OpenCost into the monitoring namespace for workload-level
 # cost attribution. Uses the Helm chart from opencost.io with
-# custom values for self-hosted K8s on EC2 (not EKS).
+# custom values for EKS on EC2 (Karpenter-managed spot nodes).
 #
 # OpenCost provides:
 #   - Cost per namespace, deployment, pod
@@ -37,7 +37,7 @@ spec:
       releaseName: opencost
       valuesObject:
         # ---------------------------------------------------------------
-        # OpenCost Core Configuration for Self-Hosted K8s on EC2
+        # OpenCost Core Configuration for EKS on EC2
         # ---------------------------------------------------------------
         opencost:
           exporter:
@@ -77,15 +77,11 @@ spec:
           ui:
             enabled: false  # Use Grafana dashboards instead
 
-        # Node selector — run on monitoring pool (new ASG tier)
-        nodeSelector:
-          node-pool: monitoring
-
-        # Tolerate the dedicated=monitoring:NoSchedule taint on the monitoring pool
+        # Tolerate system node taint so OpenCost can land on any node
         tolerations:
           - key: dedicated
             operator: Equal
-            value: monitoring
+            value: system
             effect: NoSchedule
 
         # ServiceMonitor for Prometheus scraping
