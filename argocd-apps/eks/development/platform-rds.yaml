@@ -27,6 +27,8 @@ spec:
     path: charts/platform-rds/chart
     helm:
       releaseName: platform-rds
+      valueFiles:
+        - ../values-development.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: platform
