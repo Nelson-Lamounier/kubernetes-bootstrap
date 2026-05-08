@@ -6,13 +6,11 @@
 # Canary Rollouts whose chart annotates with `argocd-image-updater.argoproj.io/*`.
 #
 # Auth model:
-#   - ECR pull: docker-registry K8s secret `ecr-credentials` refreshed
-#     by ecr-token-refresh CronJob (configured per workload, not here).
-#   - Git write: SSH deploy key — write-enabled — provisioned in the
-#     argocd namespace via ExternalSecret (out of scope for V1
-#     foundation; image-updater is installed but inactive without
-#     write creds — which is fine for the initial workload bring-up
-#     since the first deploy uses static tags).
+#   - ECR pull: docker-registry K8s secret `ecr-credentials` in argocd namespace.
+#     Refreshed every 10h by the ecr-token-refresh CronJob below (ECR tokens
+#     expire after 12h). registries.conf in config.registriesConf points to it.
+#   - Git write: SSH deploy key in argocd/argocd-image-updater-writeback-key
+#     (sshPrivateKey field). Pulled from SSM /k8s/development/argocd/image-updater-deploy-key.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -41,6 +39,15 @@ spec:
             insecure: true
             plaintext: true
             serverAddress: argocd-server.argocd.svc.cluster.local
+          registriesConf: |
+            registries:
+              - name: AWS ECR
+                api_url: https://771826808455.dkr.ecr.eu-west-1.amazonaws.com
+                prefix: 771826808455.dkr.ecr.eu-west-1.amazonaws.com
+                ping: false
+                insecure: false
+                credentials: pullsecret:argocd/ecr-credentials
+                credsexpire: 10h
         # Image Updater itself runs on the system MNG.
         tolerations:
           - key: dedicated

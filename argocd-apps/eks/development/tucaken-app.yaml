@@ -18,6 +18,7 @@ metadata:
     argocd-image-updater.argoproj.io/tucaken-app.helm.image-tag: image.tag
     argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
     argocd-image-updater.argoproj.io/git-branch: main
+    argocd-image-updater.argoproj.io/git-repository: "git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git"
   labels:
     app.kubernetes.io/part-of: argocd
     cluster: eks
