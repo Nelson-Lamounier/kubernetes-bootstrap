@@ -203,7 +203,7 @@ rollout:
     failureLimit: 1
     consecutiveErrorLimit: 5
     errorRateThreshold: 0.05
-    latencyThresholdMs: 2000
+    latencyBadRatioThreshold: 0.05   # max fraction of requests allowed to exceed the 1 s SLO bucket
 
 # ---------------------------------------------------------------------------
 # Topology Spread Constraints
