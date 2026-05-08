@@ -147,19 +147,13 @@ config:
   name: tucaken-app-config
 
 # ---------------------------------------------------------------------------
-# CloudFront Security
+# HorizontalPodAutoscaler
 # ---------------------------------------------------------------------------
-# Placeholder regex — never matches, so until the PostSync hook patches
-# /spec/routes/0/match with the real value from the
-# tucaken-cloudfront-origin-secret K8s Secret, the IngressRoute rejects
-# every request. This is the safe default: a misconfigured chart can't
-# accidentally expose tucaken-app to direct origin traffic.
-#
-# Rotation: update SSM /k8s/{env}/tucaken-cloudfront-origin-secret, then
-# trigger an ArgoCD sync of the tucaken-app Application. ESO refreshes
-# the Secret within 5m and the PostSync Job patches the new value in.
-cloudfront:
-  originSecret: "^PLACEHOLDER_NEVER_MATCHES$"
+hpa:
+  enabled: false   # enabled in tucaken-app-values-eks.yaml
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilization: 70
 
 # ---------------------------------------------------------------------------
 # PodDisruptionBudget

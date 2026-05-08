@@ -1,0 +1,58 @@
+{{- if .Values.infra.alertsEnabled }}
+# ---------------------------------------------------------------------------
+# Infrastructure alerting rules — pod readiness, health probes, secrets.
+#
+# These alerts complement SLO burn-rate alerts (rules-configmap.yaml) with
+# lower-level signals: unhealthy pods, sustained probe failures, etc.
+# Rendered into /etc/prometheus/rules/infra.yml inside the prometheus pod.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-infra
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+data:
+  infra.yml: |
+    groups:
+      - name: infra:readiness
+        rules:
+          # admin-api sustained readyz failure — indicates DB (pgbouncer → RDS)
+          # connectivity loss. /livez passes but /readyz returns 503.
+          # Fires after 5 minutes to avoid alerting on transient probe failures.
+          - alert: AdminApiNotReady
+            expr: |
+              kube_pod_container_status_ready{
+                namespace="admin-api",
+                container="admin-api"
+              } == 0
+            for: 5m
+            labels:
+              severity: critical
+              service:  admin-api
+              team:     platform
+            annotations:
+              summary: "admin-api pod not ready for > 5 minutes"
+              description: >
+                admin-api /readyz is returning non-2xx. The pod is alive (livez OK)
+                but its DB readiness check is failing. Check pgbouncer connectivity:
+                kubectl logs -n platform -l app=pgbouncer --tail=100
+
+          # tucaken-app readyz failure — SSR pod unhealthy
+          - alert: TucakenAppNotReady
+            expr: |
+              kube_pod_container_status_ready{
+                namespace="tucaken-app",
+                container="tucaken-app"
+              } == 0
+            for: 5m
+            labels:
+              severity: critical
+              service:  tucaken-app
+              team:     platform
+            annotations:
+              summary: "tucaken-app pod not ready for > 5 minutes"
+              description: >
+                tucaken-app /readyz is returning non-2xx. Check pod logs:
+                kubectl logs -n tucaken-app -l app.kubernetes.io/name=tucaken-app --tail=100
+{{- end }}

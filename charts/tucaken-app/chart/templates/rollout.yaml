@@ -64,6 +64,11 @@ spec:
               name: http
               protocol: TCP
           env:
+            # ── Service wiring ────────────────────────────────────────────
+            # Explicit cluster-internal URL for the admin-api BFF.
+            # Matches the ClusterIP Service: admin-api.admin-api.svc.cluster.local:3002.
+            - name: ADMIN_API_URL
+              value: "http://admin-api.admin-api:3002"
             # ── Observability (OTel SDK + pino + prom-client) ─────────────
             # The image preloads telemetry.js via `node --import` so the
             # SDK monkey-patches http/undici before server.js evaluates;

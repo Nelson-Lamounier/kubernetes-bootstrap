@@ -175,6 +175,14 @@ service:
   type: ClusterIP
   port: 3002
 
+# ── HorizontalPodAutoscaler ───────────────────────────────────────────────────
+# Disabled by default; the EKS overlay (admin-api-values-eks.yaml) enables it.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilization: 70
+
 # ── PodDisruptionBudget ───────────────────────────────────────────────────────
 # Prevents the sole admin-api replica from being evicted simultaneously
 # during CA scale-down or node drain events.
