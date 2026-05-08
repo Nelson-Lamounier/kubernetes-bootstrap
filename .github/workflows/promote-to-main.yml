@@ -1,0 +1,191 @@
+# @format
+# ============================================================================
+# promote-to-main.yml — Promote develop → main
+# ============================================================================
+#
+# Merges develop into main after confirming CI passes on the develop HEAD.
+# Triggers an ArgoCD sync verification after merge so any failing sync is
+# caught before the operator considers the promotion done.
+#
+# Inputs:
+#   skip_ci_check  — bypass the CI gate (e.g. hotfix already verified manually)
+#   dry_run        — validate and report diff without merging
+#
+# Concurrency: only one promotion runs at a time; a second dispatch queues
+# rather than cancels (cancel-in-progress: false) to avoid a partial merge.
+
+name: "Promote develop → main"
+
+on:
+  workflow_dispatch:
+    inputs:
+      skip_ci_check:
+        description: "Skip CI status gate on develop HEAD"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Dry run — report diff only, do not merge"
+        type: boolean
+        default: false
+
+concurrency:
+  group: promote-to-main
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Promote — gate + merge
+  # ---------------------------------------------------------------------------
+  promote:
+    name: "Gate & merge develop → main"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      develop_sha: ${{ steps.refs.outputs.develop_sha }}
+      commits_ahead: ${{ steps.refs.outputs.commits_ahead }}
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve refs
+        id: refs
+        run: |
+          git fetch origin main develop
+          DEVELOP_SHA=$(git rev-parse origin/develop)
+          MAIN_SHA=$(git rev-parse origin/main)
+          AHEAD=$(git rev-list --count origin/main..origin/develop)
+          echo "develop_sha=$DEVELOP_SHA"  >> "$GITHUB_OUTPUT"
+          echo "commits_ahead=$AHEAD"      >> "$GITHUB_OUTPUT"
+
+          echo "### Promotion summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "| | SHA |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| develop | \`${DEVELOP_SHA:0:7}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| main    | \`${MAIN_SHA:0:7}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| commits ahead | $AHEAD |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "::notice::develop is already at main — nothing to promote."
+          fi
+
+      - name: CI gate — verify checks pass on develop HEAD
+        if: ${{ !inputs.skip_ci_check }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.refs.outputs.develop_sha }}
+        run: |
+          echo "Checking CI status on develop @ $SHA ..."
+          # Retry up to 60 s in case checks are still queuing
+          for i in $(seq 1 6); do
+            RESULT=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs" \
+              --jq '
+                .check_runs
+                | map(select(.name | test("Promote"; "i") | not))
+                | if length == 0 then "no_checks"
+                  elif all(.status == "completed" and .conclusion == "success") then "success"
+                  elif any(.conclusion == "failure" or .conclusion == "cancelled") then "failure"
+                  else "pending"
+                  end
+              ')
+            echo "  attempt $i/6: $RESULT"
+            [ "$RESULT" = "success" ] && break
+            [ "$RESULT" = "failure" ] && {
+              echo "::error::CI failing on develop HEAD — cannot promote."
+              exit 1
+            }
+            [ "$i" -lt 6 ] && sleep 10
+          done
+          if [ "$RESULT" != "success" ]; then
+            echo "::error::CI checks on develop HEAD did not complete. Rerun with skip_ci_check=true to override."
+            exit 1
+          fi
+          echo "CI gate passed."
+
+      - name: Diff develop → main
+        run: |
+          echo "#### Files changed (develop → main)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          git diff --stat origin/main..origin/develop >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop on dry run
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "::notice::Dry run — diff logged above. No merge performed."
+
+      - name: Merge develop → main
+        if: ${{ !inputs.dry_run && steps.refs.outputs.commits_ahead != '0' }}
+        env:
+          DEVELOP_SHA: ${{ steps.refs.outputs.develop_sha }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git merge --no-ff origin/develop \
+            -m "chore: promote develop → main (${DEVELOP_SHA:0:7}) — triggered by @${ACTOR}"
+          git push origin main
+          echo "::notice::develop @ ${DEVELOP_SHA:0:7} merged to main."
+
+  # ---------------------------------------------------------------------------
+  # 2. Verify ArgoCD sync post-merge
+  # ---------------------------------------------------------------------------
+  verify-argocd:
+    name: Verify ArgoCD Sync
+    needs: promote
+    if: ${{ !inputs.dry_run && needs.promote.outputs.commits_ahead != '0' }}
+    uses: ./.github/workflows/gitops-k8s.yml
+    secrets:
+      AWS_OIDC_ROLE: ${{ secrets.AWS_OIDC_ROLE }}
+
+  # ---------------------------------------------------------------------------
+  # 3. Loki deploy marker
+  # ---------------------------------------------------------------------------
+  deploy-marker:
+    name: Loki deploy marker
+    needs: [promote, verify-argocd]
+    if: always() && !inputs.dry_run && needs.promote.outputs.commits_ahead != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute aggregate status
+        id: agg
+        env:
+          STATUSES: ${{ toJSON(needs) }}
+        run: |
+          if echo "$STATUSES" | jq -e \
+            'to_entries | any(.value.result == "failure" or .value.result == "cancelled")' \
+            > /dev/null; then
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=succeeded" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: ./.github/actions/loki-deploy-marker
+        env:
+          LOKI_PUSH_URL:          ${{ secrets.LOKI_PUSH_URL }}
+          LOKI_PUSH_BASIC_AUTH:   ${{ secrets.LOKI_PUSH_BASIC_AUTH }}
+          PUSHGATEWAY_URL:        ${{ secrets.PUSHGATEWAY_URL }}
+          PUSHGATEWAY_BASIC_AUTH: ${{ secrets.PUSHGATEWAY_BASIC_AUTH }}
+        with:
+          service:     promote-to-main
+          environment: development
+          status:      ${{ steps.agg.outputs.status }}
+          git-sha:     ${{ needs.promote.outputs.develop_sha }}
+          notes:       "develop → main promotion"
