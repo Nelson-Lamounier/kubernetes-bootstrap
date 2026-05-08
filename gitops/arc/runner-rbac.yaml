@@ -46,15 +46,20 @@ rules:
     resources: ["configmaps"]
     verbs: ["get", "create", "update", "patch", "replace"]
 
-  # Promote job: pod listing + log streaming for diagnostics
+  # Promote job: pod listing, log streaming, and create (prom-preflight kubectl run)
   - apiGroups: [""]
     resources: ["pods", "pods/log"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "watch", "create", "delete"]
 
   # Promote job: event inspection for rollout diagnostics
   - apiGroups: [""]
     resources: ["events"]
-    verbs: ["get", "list"]
+    verbs: ["get", "list", "watch"]
+
+  # Promote job: Argo Rollouts plugin watches ReplicaSets and Deployments
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "deployments"]
+    verbs: ["get", "list", "watch"]
 
   # admin-api + public-api: Traefik IngressRoutes
   # deploy.py is the sole owner — ArgoCD never manages these resources.
@@ -65,17 +70,17 @@ rules:
   # ArgoCD sync trigger + promote job ArgoCD app inspection
   - apiGroups: ["argoproj.io"]
     resources: ["applications"]
-    verbs: ["get", "list", "patch", "update"]
+    verbs: ["get", "list", "watch", "patch", "update"]
 
   # Promote job: Argo Rollouts — get/watch rollout state, issue promote
   - apiGroups: ["argoproj.io"]
     resources: ["rollouts", "rollouts/status"]
-    verbs: ["get", "list", "patch", "update"]
+    verbs: ["get", "list", "watch", "patch", "update"]
 
-  # Promote job: AnalysisRun inspection for pre-promotion diagnostics
+  # Promote job: AnalysisRun + Experiment inspection
   - apiGroups: ["argoproj.io"]
-    resources: ["analysisruns"]
-    verbs: ["get", "list"]
+    resources: ["analysisruns", "experiments"]
+    verbs: ["get", "list", "watch"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
