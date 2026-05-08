@@ -71,6 +71,11 @@ alertmanager:
 # in the ConfigMap, which caused CrashLoopBackOff ("component not found").
 # Re-enable once a PodIdentityAssociation + CloudWatch policy is added for
 # the alloy service account.
+grafana:
+  alerting:
+    snsTopicArn: "arn:aws:sns:eu-west-1:771826808455:k8s-bootstrap-alarm"
+    awsRegion: eu-west-1
+
 alloy:
   awsLogs:
     cloudtrail:
@@ -79,3 +84,13 @@ alloy:
       enabled: false
     lambdaLogs:
       enabled: false
+
+# Raise CPU request quota to fit all pods incl. Pyroscope.
+# Default values.yaml has 1000m which is exhausted at ~955m leaving no
+# headroom for Pyroscope (100m) or Alloy restarts.
+resourceQuota:
+  hard:
+    requests.cpu: "1500m"
+    requests.memory: 3Gi
+    limits.cpu: "6"
+    limits.memory: 8Gi

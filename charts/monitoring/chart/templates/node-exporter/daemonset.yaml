@@ -20,6 +20,10 @@ spec:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
           effect: NoSchedule
+        - key: dedicated
+          operator: Equal
+          value: system
+          effect: NoSchedule
       containers:
         - name: node-exporter
           image: {{ .Values.nodeExporter.image }}
