@@ -1,0 +1,98 @@
+{{- if and .Values.ingress.enabled .Values.wafAnnotator.roleArn }}
+# PostSync Job: reads WAF ACL ARN from SSM and annotates the Ingress.
+# Runs after every ArgoCD sync so the alb.ingress.kubernetes.io/wafv2-acl-arn
+# annotation is always current, without hardcoding the ARN in git.
+# ArgoCD ignoreDifferences on the annotation prevents selfHeal from stripping it.
+#
+# admin-api carries the WAF annotation by design (values.yaml comment):
+# "Set on exactly ONE Ingress in the IngressGroup — admin-api by convention
+#  since it carries the most security-sensitive paths."
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: waf-annotator
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+  annotations:
+    eks.amazonaws.com/role-arn: {{ .Values.wafAnnotator.roleArn | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: waf-annotator
+  namespace: {{ .Values.namespace }}
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: waf-annotator
+  namespace: {{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: waf-annotator
+subjects:
+  - kind: ServiceAccount
+    name: waf-annotator
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: waf-annotator
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: waf-annotator
+      restartPolicy: OnFailure
+      containers:
+        - name: annotator
+          image: amazon/aws-cli:2.22.35
+          env:
+            - name: SSM_PATH
+              value: {{ .Values.wafAnnotator.ssmPath | quote }}
+            - name: INGRESS_NAME
+              value: {{ .Release.Name | quote }}
+            - name: NAMESPACE
+              value: {{ .Values.namespace | quote }}
+            - name: AWS_REGION
+              value: "eu-west-1"
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              WAF_ARN=$(aws ssm get-parameter \
+                --name "$SSM_PATH" \
+                --query 'Parameter.Value' \
+                --output text)
+              echo "Annotating $INGRESS_NAME with WAF ARN: $WAF_ARN"
+              TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              CA=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              curl -sf --cacert "$CA" \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/merge-patch+json" \
+                -X PATCH \
+                "https://kubernetes.default.svc/apis/networking.k8s.io/v1/namespaces/${NAMESPACE}/ingresses/${INGRESS_NAME}" \
+                -d "{\"metadata\":{\"annotations\":{\"alb.ingress.kubernetes.io/wafv2-acl-arn\":\"${WAF_ARN}\"}}}"
+              echo "Done."
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+{{- end }}
