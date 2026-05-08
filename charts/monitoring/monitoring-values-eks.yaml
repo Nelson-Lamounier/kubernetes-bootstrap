@@ -46,6 +46,9 @@ prometheus:
 grafana:
   pvc:
     storageClass: gp2
+  alerting:
+    snsTopicArn: "arn:aws:sns:eu-west-1:771826808455:k8s-bootstrap-alarm"
+    awsRegion: eu-west-1
 
 loki:
   pvc:
