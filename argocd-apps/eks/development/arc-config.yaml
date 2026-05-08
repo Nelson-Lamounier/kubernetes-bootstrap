@@ -1,0 +1,56 @@
+# @format
+# ArgoCD Application: ARC Config
+#
+# Manages the raw manifests in gitops/arc/ that ARC needs but which cannot
+# be bundled into the Helm-based arc-controller or arc-runners apps:
+#
+#   runner-rbac.yaml        — arc-runner ServiceAccount + ClusterRole + ClusterRoleBinding
+#                             Runner pods reference serviceAccountName: arc-runner.
+#                             Without this the EphemeralRunner fails with:
+#                             "error looking up service account arc-runners/arc-runner: not found"
+#
+#   webhook-ingressroute.yaml — Traefik IngressRoute for the ARC webhook server.
+#                               Routes runners.nelsonlamounier.com/webhook → arc-controller:9000
+#
+# sync-wave: 2 — same wave as arc-controller so RBAC exists before runner scale sets
+# register runners (wave 3).
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc-config
+  annotations:
+    kubernetes.io/description: "ARC RBAC and webhook IngressRoute — raw manifests required by ARC runner pods"
+    argocd.argoproj.io/sync-wave: "2"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: gitops/arc
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: arc-runners
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
