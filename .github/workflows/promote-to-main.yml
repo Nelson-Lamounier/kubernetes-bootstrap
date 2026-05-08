@@ -125,42 +125,19 @@ jobs:
         run: |
           echo "::notice::Dry run — diff logged above. No merge performed."
 
-      - name: Create PR develop → main (if none open)
+      - name: Merge develop → main
         if: ${{ !inputs.dry_run && steps.refs.outputs.commits_ahead != '0' }}
-        id: pr
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEVELOP_SHA: ${{ steps.refs.outputs.develop_sha }}
           ACTOR: ${{ github.actor }}
         run: |
-          EXISTING=$(gh pr list \
-            --base main --head develop --state open \
-            --json number --jq '.[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            echo "Using existing PR #$EXISTING"
-            echo "pr_number=$EXISTING" >> "$GITHUB_OUTPUT"
-          else
-            SHORT="${DEVELOP_SHA:0:7}"
-            PR_URL=$(gh pr create \
-              --base main \
-              --head develop \
-              --title "chore: promote develop → main (${SHORT})" \
-              --body "Automated promotion — develop @ \`${SHORT}\` → main. Triggered by @${ACTOR}.")
-            NEW="${PR_URL##*/}"
-            echo "Created PR #$NEW"
-            echo "pr_number=$NEW" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Merge PR
-        if: ${{ !inputs.dry_run && steps.refs.outputs.commits_ahead != '0' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR: ${{ steps.pr.outputs.pr_number }}
-        run: |
-          gh pr merge "$PR" \
-            --merge \
-            --delete-branch=false
-          echo "::notice::PR #$PR merged to main."
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          git merge --no-ff origin/develop \
+            -m "chore: promote develop → main (${DEVELOP_SHA:0:7}) — triggered by @${ACTOR}"
+          git push origin main
+          echo "::notice::develop @ ${DEVELOP_SHA:0:7} merged to main."
 
   # ---------------------------------------------------------------------------
   # 2. Verify ArgoCD sync post-merge
