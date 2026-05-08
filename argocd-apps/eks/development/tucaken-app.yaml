@@ -11,6 +11,13 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "10"
     kubernetes.io/description: "tucaken-app SaaS frontend on EKS (Plan 5b)"
+    argocd-image-updater.argoproj.io/image-list: "tucaken-app=771826808455.dkr.ecr.eu-west-1.amazonaws.com/tucaken-app"
+    argocd-image-updater.argoproj.io/tucaken-app.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/tucaken-app.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+    argocd-image-updater.argoproj.io/tucaken-app.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/tucaken-app.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
+    argocd-image-updater.argoproj.io/git-branch: main
   labels:
     app.kubernetes.io/part-of: argocd
     cluster: eks
