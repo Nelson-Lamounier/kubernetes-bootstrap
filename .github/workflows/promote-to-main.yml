@@ -141,12 +141,12 @@ jobs:
             echo "pr_number=$EXISTING" >> "$GITHUB_OUTPUT"
           else
             SHORT="${DEVELOP_SHA:0:7}"
-            NEW=$(gh pr create \
+            PR_URL=$(gh pr create \
               --base main \
               --head develop \
               --title "chore: promote develop → main (${SHORT})" \
-              --body "Automated promotion — develop @ \`${SHORT}\` → main. Triggered by @${ACTOR}." \
-              --json number --jq '.number')
+              --body "Automated promotion — develop @ \`${SHORT}\` → main. Triggered by @${ACTOR}.")
+            NEW="${PR_URL##*/}"
             echo "Created PR #$NEW"
             echo "pr_number=$NEW" >> "$GITHUB_OUTPUT"
           fi
