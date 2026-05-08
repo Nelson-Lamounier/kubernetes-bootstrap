@@ -1,16 +1,21 @@
 # ---------------------------------------------------------------
 # Pre-Promotion Analysis Template — Prometheus metric validation
 #
-# Runs during the blue/green pre-promotion phase. Queries Prometheus:
-#   1. Error rate (5xx / total requests) — must be below threshold
-#   2. P95 latency — must be below threshold
+# Runs during the blue/green pre-promotion phase. Queries the SLO
+# recording rules that are already computed from ssr_requests_total
+# and ssr_request_duration_seconds_bucket (prom-client, port 5001).
+#
+#   1. Error rate  — slo:tucaken-app:errors_ratio:rate5m < threshold
+#   2. Latency bad ratio — fraction of requests > 1 s (SLO bucket le=1)
+#                          must be below threshold
+#
+# Recording rules are defined in the monitoring chart
+# (charts/monitoring/chart/templates/prometheus/rules-configmap.yaml)
+# and are always available as long as Prometheus is up, even under
+# zero traffic — isNaN() guards handle the no-data case safely.
 #
 # If either metric breaches its threshold, the AnalysisRun fails
 # and the Rollout pauses — the preview is NOT promoted to active.
-#
-# Metrics source: Traefik request metrics (always available).
-# Service label pattern: tucaken-app-tucaken-app-<rs-hash>@kubernetes
-# (Argo Rollouts adds the ReplicaSet hash suffix for blue/green services.)
 # ---------------------------------------------------------------
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
@@ -20,10 +25,8 @@ metadata:
   labels:
     {{- include "tucaken-app.fullLabels" . | nindent 4 }}
 spec:
-  args:
-    - name: service-name
   metrics:
-    # ----- Error Rate: 5xx errors / total requests (via Traefik) -----
+    # ----- Error Rate: SLO recording rule (5xx / total, 5-min window) -----
     - name: error-rate
       interval: {{ .Values.rollout.analysis.interval }}
       count: {{ .Values.rollout.analysis.count }}
@@ -33,22 +36,10 @@ spec:
         prometheus:
           address: http://prometheus.monitoring.svc.cluster.local:9090/prometheus
           query: |
-            scalar(
-              sum(rate(
-                traefik_service_requests_total{
-                  service=~"tucaken-app-tucaken-app-.*@kubernetes",
-                  code=~"5.."
-                }[5m]
-              )) /
-              sum(rate(
-                traefik_service_requests_total{
-                  service=~"tucaken-app-tucaken-app-.*@kubernetes"
-                }[5m]
-              ))
-            )
+            scalar(slo:tucaken-app:errors_ratio:rate5m)
       successCondition: "isNaN(result) || result < {{ .Values.rollout.analysis.errorRateThreshold }}"
-    # ----- P95 Latency: 95th percentile response time (via Traefik) -----
-    - name: p95-latency
+    # ----- Latency bad ratio: fraction of requests exceeding the 1 s SLO bucket -----
+    - name: latency-bad-ratio
       interval: {{ .Values.rollout.analysis.interval }}
       count: {{ .Values.rollout.analysis.count }}
       failureLimit: {{ .Values.rollout.analysis.failureLimit }}
@@ -57,13 +48,5 @@ spec:
         prometheus:
           address: http://prometheus.monitoring.svc.cluster.local:9090/prometheus
           query: |
-            scalar(
-              histogram_quantile(0.95,
-                sum(rate(
-                  traefik_service_request_duration_seconds_bucket{
-                    service=~"tucaken-app-tucaken-app-.*@kubernetes"
-                  }[5m]
-                )) by (le)
-              ) * 1000
-            )
-      successCondition: "isNaN(result) || result < {{ .Values.rollout.analysis.latencyThresholdMs }}"
+            scalar(slo:tucaken-app:latency_bad_ratio:rate5m)
+      successCondition: "isNaN(result) || result < {{ .Values.rollout.analysis.latencyBadRatioThreshold }}"
