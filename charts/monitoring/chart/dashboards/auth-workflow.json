@@ -74,7 +74,7 @@
       },
       "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "area" },
       "targets": [
-        { "refId": "A", "expr": "increase(auth_provision_total{service=\"admin-api\",outcome=\"new_user\"}[24h])" }
+        { "refId": "A", "expr": "sum(increase(auth_provision_total{service=\"admin-api\",outcome=\"new_user\"}[24h]))", "legendFormat": "new users" }
       ]
     },
     {
@@ -96,7 +96,7 @@
       },
       "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "area" },
       "targets": [
-        { "refId": "A", "expr": "increase(auth_provision_total{service=\"admin-api\",outcome=\"returning\"}[24h])" }
+        { "refId": "A", "expr": "sum(increase(auth_provision_total{service=\"admin-api\",outcome=\"returning\"}[24h]))", "legendFormat": "returning" }
       ]
     },
     {
@@ -122,7 +122,7 @@
       },
       "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "expr": "increase(auth_provision_total{service=\"admin-api\",outcome=\"error\"}[24h])" }
+        { "refId": "A", "expr": "sum(increase(auth_provision_total{service=\"admin-api\",outcome=\"error\"}[24h]))", "legendFormat": "errors" }
       ]
     },
     {
@@ -148,7 +148,7 @@
       },
       "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "expr": "increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/me\",status_code=\"401\"}[24h])" }
+        { "refId": "A", "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/me\",status_code=\"401\"}[24h]))", "legendFormat": "401s" }
       ]
     },
 
