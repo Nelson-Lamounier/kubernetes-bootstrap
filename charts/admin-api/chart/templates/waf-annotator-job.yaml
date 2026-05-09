@@ -14,8 +14,6 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     app.kubernetes.io/part-of: {{ .Release.Name }}
-  annotations:
-    eks.amazonaws.com/role-arn: {{ .Values.wafAnnotator.roleArn | quote }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
