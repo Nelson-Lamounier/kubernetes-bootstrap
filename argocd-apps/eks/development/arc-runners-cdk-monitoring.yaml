@@ -41,7 +41,7 @@ spec:
         githubConfigUrl: "https://github.com/Nelson-Lamounier/cdk-monitoring"
         githubConfigSecret: arc-github-secret
 
-        runnerScaleSetName: k8s-runner
+        runnerScaleSetName: k8s-runner-cdk
 
         minRunners: 0
         maxRunners: 3
