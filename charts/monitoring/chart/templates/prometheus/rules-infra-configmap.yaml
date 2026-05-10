@@ -98,7 +98,7 @@ data:
               service:  karpenter
               team:     platform
             annotations:
-              summary: "{{ $value }} nodes stuck in Ready=Unknown for > 30 minutes"
+              summary: "{{`{{ $value }}`}} nodes stuck in Ready=Unknown for > 30 minutes"
               description: >
                 Multiple nodes have been in Ready=Unknown state for over 30 minutes.
                 This indicates Karpenter termination finalizers are not being cleared,
