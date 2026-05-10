@@ -23,6 +23,10 @@ spec:
         - key: node-role.kubernetes.io/master
           operator: Exists
           effect: NoSchedule
+        - key: dedicated
+          operator: Equal
+          value: system
+          effect: NoSchedule
       # hostPID required to see all PIDs on the node, not just our own.
       hostPID: true
       containers:
