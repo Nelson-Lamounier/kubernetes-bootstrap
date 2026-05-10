@@ -87,7 +87,7 @@ metadata:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/healthcheck-path: /faro/
-    alb.ingress.kubernetes.io/healthcheck-matcher: "200,404"
+    alb.ingress.kubernetes.io/success-codes: "200,404"
 spec:
   ingressClassName: alb
   rules:

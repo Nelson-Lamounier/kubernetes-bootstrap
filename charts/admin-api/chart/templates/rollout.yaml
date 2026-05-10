@@ -107,6 +107,10 @@ spec:
               value: {{ .Values.dynamodb.gsi2Name | quote }}
             - name: AWS_DEFAULT_REGION
               value: {{ .Values.awsRegion | quote }}
+            # Bedrock cross-region inference profile — passed into ingestion Jobs
+            # created by this pod. Override per-environment in argocd overlay values.
+            - name: ENRICHMENT_MODEL_ID
+              value: {{ .Values.enrichmentModelId | quote }}
             # ── Observability (OTel + pino + prom-client) ─────────────────
             # Telemetry preload uses --import in the Dockerfile; the SDK
             # reads these vars at start. Endpoint points at the Alloy
