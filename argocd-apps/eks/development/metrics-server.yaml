@@ -67,3 +67,10 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 5m
+  # EKS manages APIService/v1beta1.metrics.k8s.io natively and mutates its
+  # spec after Helm applies it. Ignore to prevent permanent OutOfSync.
+  ignoreDifferences:
+    - group: apiregistration.k8s.io
+      kind: APIService
+      jqPathExpressions:
+        - .spec
