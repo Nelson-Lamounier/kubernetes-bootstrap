@@ -112,6 +112,11 @@ dynamodb:
 
 awsRegion: "eu-west-1"
 
+# Bedrock cross-region inference profile ID used for chunk enrichment (skill/tech extraction).
+# In eu-west-1 direct on-demand Claude invocation is unsupported; must use an eu.* profile.
+# Passed as ENRICHMENT_MODEL_ID into every ingestion Job the admin-api creates.
+enrichmentModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+
 # ── ServiceAccount ────────────────────────────────────────────────────────────
 # Named SA so the cross-namespace RoleBinding in the ingestion namespace
 # (admin-api-job-creator) can grant Job CRUD + pod log read.
