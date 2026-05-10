@@ -77,3 +77,20 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 5m
+  # ARC controller creates AutoscalingListener, Role, and RoleBinding with
+  # hash-suffixed names at runtime. These are not owned by Helm and will
+  # always differ from the declared chart state.
+  ignoreDifferences:
+    - group: actions.github.com
+      kind: AutoscalingListener
+      jqPathExpressions:
+        - .spec
+    - group: rbac.authorization.k8s.io
+      kind: Role
+      jqPathExpressions:
+        - .rules
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+      jqPathExpressions:
+        - .roleRef
+        - .subjects
