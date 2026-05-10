@@ -1,16 +1,11 @@
 # @format
-# ArgoCD Application: admin-api (EKS canary for Plan 5b Phase 3)
+# ArgoCD Application: admin-api (EKS — Plan 5b Phase 3)
 #
-# Deploys the admin-api Helm chart with the EKS overlay enabled. The
-# overlay flips `ingress.enabled: true` and supplies the host
-# `admin.nelsonlamounier.com`; everything else (Rollout, Service,
-# probes, ESO secrets) is shared with the kubeadm-era values.
-#
-# Image Updater annotations are intentionally absent on this canary —
-# the image tag stays whatever the kubeadm App last wrote until a
-# write-enabled deploy key for image-updater is provisioned in a later
-# phase. Workload deploys via this App use the static tag in
-# `admin-api-values.yaml` until then.
+# Deploys the admin-api Helm chart with the EKS overlay (ALB ingress,
+# ACM TLS, WAF annotator PostSync job). Image Updater watches ECR and
+# writes the latest commit-sha tag back to
+# charts/admin-api/chart/.argocd-source-admin-api.yaml so every push
+# to cdk-monitoring:main auto-deploys without manual tag bumps.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -18,7 +13,16 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "10"
-    kubernetes.io/description: "admin-api on EKS (canary for Plan 5b ALB+ACM ingress)"
+    kubernetes.io/description: "admin-api on EKS (Plan 5b)"
+    # ── ArgoCD Image Updater ──────────────────────────────────────────
+    argocd-image-updater.argoproj.io/image-list: admin-api=771826808455.dkr.ecr.eu-west-1.amazonaws.com/admin-api
+    argocd-image-updater.argoproj.io/admin-api.allow-tags: regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$
+    argocd-image-updater.argoproj.io/admin-api.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/admin-api.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/admin-api.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/argocd-image-updater-writeback-key
+    argocd-image-updater.argoproj.io/git-branch: main
+    argocd-image-updater.argoproj.io/git-repository: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
   labels:
     app.kubernetes.io/part-of: argocd
     cluster: eks
@@ -45,6 +49,13 @@ spec:
       kind: Rollout
       jsonPointers:
         - /spec/template/metadata/annotations
+    # waf-annotator PostSync Job writes this annotation after every sync.
+    # Ignore it so selfHeal does not strip it between syncs.
+    - group: networking.k8s.io
+      kind: Ingress
+      name: admin-api
+      jqPathExpressions:
+        - .metadata.annotations["alb.ingress.kubernetes.io/wafv2-acl-arn"]
   syncPolicy:
     automated:
       prune: true

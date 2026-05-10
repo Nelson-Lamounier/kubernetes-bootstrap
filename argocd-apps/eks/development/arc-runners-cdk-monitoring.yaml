@@ -1,26 +1,23 @@
 # @format
-# ArgoCD Application: ARC Runner Scale Set — tucaken-app
+# ArgoCD Application: ARC Runner Scale Set — cdk-monitoring
 #
-# Second runner scale set targeting the tucaken-app repository.
-# Personal GitHub accounts cannot register org-level runners — each
-# repo that needs self-hosted runners requires its own scale set with
-# a distinct githubConfigUrl pointing at that repo.
+# Runner scale set for the cdk-monitoring repository.
+# Personal GitHub accounts scope runner discovery per-repo via githubConfigUrl —
+# a separate scale set is required for each repo that uses `runs-on: k8s-runner`.
 #
-# Uses the same arc-github-secret (GitHub App must be installed on
-# tucaken-app), runner image, and runnerScaleSetName as the
-# kubernetes-bootstrap scale set. GitHub scopes runner discovery
-# per-repo, so `runs-on: k8s-runner` in tucaken-app workflows picks
-# up runners from this scale set only.
+# Same GitHub App (arc-github-secret) as the tucaken-app scale set.
+# Prerequisite: GitHub App (ID 3418529) must be installed on cdk-monitoring.
+# If the app installation is already set to "All repositories", no action needed.
 #
 # IAM: Runner pods inherit the worker node EC2 instance profile.
-# No additional IRSA needed for SSM, ECR, or S3 access.
+# No additional Pod Identity needed for SSM, ECR, or EKS API access.
 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: arc-runners-tucaken
+  name: arc-runners-cdk-monitoring
   annotations:
-    kubernetes.io/description: "GitHub Actions self-hosted runner scale set for tucaken-app (0-3 pods, webhook mode)"
+    kubernetes.io/description: "GitHub Actions self-hosted runner scale set for cdk-monitoring (0-3 pods, webhook mode)"
     argocd.argoproj.io/sync-wave: "3"
   namespace: argocd
   labels:
@@ -35,16 +32,16 @@ spec:
     chart: gha-runner-scale-set
     targetRevision: "0.10.*"
     helm:
-      releaseName: arc-runners-tucaken
+      releaseName: arc-runners-cdk-monitoring
       values: |
         controllerServiceAccount:
           namespace: arc-systems
           name: arc-controller
 
-        githubConfigUrl: "https://github.com/Nelson-Lamounier/tucaken-app"
+        githubConfigUrl: "https://github.com/Nelson-Lamounier/cdk-monitoring"
         githubConfigSecret: arc-github-secret
 
-        runnerScaleSetName: k8s-runner
+        runnerScaleSetName: k8s-runner-cdk
 
         minRunners: 0
         maxRunners: 3

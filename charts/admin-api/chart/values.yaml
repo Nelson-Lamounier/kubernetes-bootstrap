@@ -151,6 +151,14 @@ observability:
   # runtime — useful when iterating locally with `helm upgrade --set`.
   pyroscopeServer: http://pyroscope.monitoring.svc.cluster.local:4040
 
+# ── WAF Annotator (PostSync Job) ──────────────────────────────────────────────
+# Reads the WAF ACL ARN from SSM and annotates the Ingress at sync time.
+# Mirrors the tucaken-app pattern — ARN never hardcoded in git.
+# Job only renders when wafAnnotator.roleArn is non-empty.
+wafAnnotator:
+  ssmPath: "/k8s/development/eks/waf-acl-arn"
+  roleArn: ""  # set in admin-api-values-eks.yaml
+
 # ── Ingress ───────────────────────────────────────────────────────────────────
 # Disabled by default; the EKS overlay (admin-api-values-eks.yaml) flips
 # `enabled: true` and supplies the host. Renders an `Ingress` resource the
@@ -174,6 +182,14 @@ ingress:
 service:
   type: ClusterIP
   port: 3002
+
+# ── HorizontalPodAutoscaler ───────────────────────────────────────────────────
+# Disabled by default; the EKS overlay (admin-api-values-eks.yaml) enables it.
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilization: 70
 
 # ── PodDisruptionBudget ───────────────────────────────────────────────────────
 # Prevents the sole admin-api replica from being evicted simultaneously

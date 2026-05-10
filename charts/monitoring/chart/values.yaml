@@ -421,6 +421,12 @@ alertmanager:
   # topic fans out to multiple email subscribers.
   subjectPrefix: "[portfolio-dev]"
 
+infra:
+  # Infrastructure-level alerts (pod readiness, probe failures).
+  # Unlike SLO burn-rate alerts these are environment-agnostic — a pod
+  # that can't pass /readyz for 5 minutes is always worth paging.
+  alertsEnabled: true
+
 slo:
   enabled: true
   # Recording rules always render — dashboards use them.

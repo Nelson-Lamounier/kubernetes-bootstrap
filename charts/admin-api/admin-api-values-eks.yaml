@@ -9,16 +9,25 @@
 # Phase 4 of Plan 5b will add a WAF IP-allowlist scoped to this Host
 # header so admin-api is reachable only from the operator's allowlist.
 # the dedicated `general` ASG.
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilization: 70
+
+wafAnnotator:
+  ssmPath: "/k8s/development/eks/waf-acl-arn"
+  # Pod Identity role that has ssm:GetParameter on the path above.
+  # Read via: aws ssm get-parameter --name /k8s/development/eks/waf-annotator-role-arn
+  roleArn: "arn:aws:iam::771826808455:role/eks-public-waf-annotator-development"
+
 ingress:
   enabled: true
   host: admin.nelsonlamounier.com
   groupName: public
   groupOrder: 100
   healthcheckPath: /readyz
-  # Populated post-deploy from SSM `/k8s/development/eks/waf-acl-arn`
-  # (written by EksPublicWafStack). Leave empty until the WAF is
-  # deployed; the conditional annotation simply omits when blank.
-  wafAclArn: ""
+  wafAclArn: ""  # populated at runtime by the waf-annotator PostSync Job
 
 # ---------------------------------------------------------------------------
 # Topology Spread Constraints — AZ resilience

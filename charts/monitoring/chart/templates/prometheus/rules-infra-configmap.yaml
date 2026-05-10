@@ -1,0 +1,108 @@
+{{- if .Values.infra.alertsEnabled }}
+# ---------------------------------------------------------------------------
+# Infrastructure alerting rules — pod readiness, health probes, secrets.
+#
+# These alerts complement SLO burn-rate alerts (rules-configmap.yaml) with
+# lower-level signals: unhealthy pods, sustained probe failures, etc.
+# Rendered into /etc/prometheus/rules/infra.yml inside the prometheus pod.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-infra
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+data:
+  infra.yml: |
+    groups:
+      - name: infra:readiness
+        rules:
+          # admin-api sustained readyz failure — indicates DB (pgbouncer → RDS)
+          # connectivity loss. /livez passes but /readyz returns 503.
+          # Fires after 5 minutes to avoid alerting on transient probe failures.
+          - alert: AdminApiNotReady
+            expr: |
+              kube_pod_container_status_ready{
+                namespace="admin-api",
+                container="admin-api"
+              } == 0
+            for: 5m
+            labels:
+              severity: critical
+              service:  admin-api
+              team:     platform
+            annotations:
+              summary: "admin-api pod not ready for > 5 minutes"
+              description: >
+                admin-api /readyz is returning non-2xx. The pod is alive (livez OK)
+                but its DB readiness check is failing. Check pgbouncer connectivity:
+                kubectl logs -n platform -l app=pgbouncer --tail=100
+
+          # tucaken-app readyz failure — SSR pod unhealthy
+          - alert: TucakenAppNotReady
+            expr: |
+              kube_pod_container_status_ready{
+                namespace="tucaken-app",
+                container="tucaken-app"
+              } == 0
+            for: 5m
+            labels:
+              severity: critical
+              service:  tucaken-app
+              team:     platform
+            annotations:
+              summary: "tucaken-app pod not ready for > 5 minutes"
+              description: >
+                tucaken-app /readyz is returning non-2xx. Check pod logs:
+                kubectl logs -n tucaken-app -l app.kubernetes.io/name=tucaken-app --tail=100
+
+      - name: infra:karpenter
+        rules:
+          # Karpenter controller completely down — node provisioning and termination
+          # are paused. NodeClaims with karpenter.sh/termination finalizers will
+          # accumulate as etcd ghosts until the controller is restored.
+          # Root cause pattern: dev-shutdown scaled karpenter namespace;
+          # dev-start did not restore replicas.
+          - alert: KarpenterControllerDown
+            expr: |
+              kube_deployment_status_replicas_ready{
+                namespace="karpenter",
+                deployment="karpenter"
+              } == 0
+            for: 2m
+            labels:
+              severity: critical
+              service:  karpenter
+              team:     platform
+            annotations:
+              summary: "Karpenter controller has 0 ready replicas"
+              description: >
+                Karpenter deployment has no ready pods for > 2 minutes.
+                Node provisioning and termination are completely paused.
+                NodeClaims with pending finalizers will accumulate in etcd.
+                Fix: kubectl scale deploy karpenter -n karpenter --replicas=2
+                Or run: just dev-start (which now restores replicas automatically).
+
+          # Multiple nodes stuck in Unknown for > 30 minutes — proxy signal for
+          # Karpenter termination finalizers not being cleared. One Unknown node
+          # is tolerated (transient during rolling updates); >1 sustained is
+          # always a Karpenter controller availability problem.
+          - alert: KarpenterZombieNodesAccumulating
+            expr: |
+              count(
+                kube_node_status_condition{condition="Ready",status="unknown"} == 1
+              ) > 1
+            for: 30m
+            labels:
+              severity: warning
+              service:  karpenter
+              team:     platform
+            annotations:
+              summary: "{{ $value }} nodes stuck in Ready=Unknown for > 30 minutes"
+              description: >
+                Multiple nodes have been in Ready=Unknown state for over 30 minutes.
+                This indicates Karpenter termination finalizers are not being cleared,
+                typically because the Karpenter controller is down or has no AWS credentials.
+                Check: kubectl get nodeclaims -o wide
+                Check: kubectl get pods -n karpenter
+{{- end }}
