@@ -227,11 +227,11 @@ steampipe:
   replicas: 1
   resources:
     requests:
-      cpu: 250m
-      memory: 512Mi
+      cpu: 20m
+      memory: 256Mi
     limits:
-      cpu: 500m
-      memory: 1024Mi
+      cpu: 200m
+      memory: 512Mi
   service:
     port: 9193
   databasePassword: steampipe
@@ -460,8 +460,8 @@ resourceQuota:
     requests.cpu: "1000m"  # prometheus(50m) + grafana(15m) + loki(25m) + tempo(20m)
                            # + promtail×2(100m) + node-exporter×2(100m)
                            # + kube-state-metrics(50m) + alloy(50m)
-                           # + steampipe(250m) + github-actions-exporter(50m)
-                           # = 710m actual + ~290m headroom
+                           # + steampipe(20m) + github-actions-exporter(50m)
+                           # = 480m actual + ~520m headroom
     requests.memory: 3Gi   # prometheus(384Mi) + grafana(128Mi) + loki(256Mi) + tempo(320Mi) + others
     limits.cpu: "4"
     limits.memory: 8Gi
