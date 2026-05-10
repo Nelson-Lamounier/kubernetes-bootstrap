@@ -5,11 +5,12 @@
 # tolerance — neither exists on EKS. Both are blanked so Karpenter
 # admits the pods naturally.
 #
-# Storage: kubeadm runs the EBS in-tree provisioner with a `ebs-sc`
-# StorageClass. EKS uses the EBS CSI driver — `gp2` is the default
-# class on the dev cluster. Each component's `pvc.storageClass` is
-# overridden one-by-one because the chart doesn't expose a global
-# storage default.
+# Storage: EKS uses the EBS CSI driver (aws-ebs-csi-driver managed addon).
+# `ebs-sc` StorageClass (ebs.csi.aws.com, gp3) is defined in the monitoring
+# chart templates and provisioned before PVCs. `gp2` (in-tree provisioner)
+# was the dev cluster default before the EBS CSI migration; all components
+# have been updated to use ebs-sc. Each component's `pvc.storageClass` is
+# set one-by-one because the chart doesn't expose a global storage default.
 #
 # Per Plan 5 spec § 8 (and 5b carryover): cluster-local TSDB (Prometheus,
 # Loki, Tempo) is treated as ephemeral on cluster bring-up. Fresh PVCs
@@ -41,30 +42,30 @@ affinity:
 
 prometheus:
   pvc:
-    storageClass: gp2
+    storageClass: ebs-sc
 
 grafana:
   pvc:
-    storageClass: gp2
+    storageClass: ebs-sc
   alerting:
     snsTopicArn: "arn:aws:sns:eu-west-1:771826808455:k8s-bootstrap-alarm"
     awsRegion: eu-west-1
 
 loki:
   pvc:
-    storageClass: gp2
+    storageClass: ebs-sc
 
 tempo:
   pvc:
-    storageClass: gp2
+    storageClass: ebs-sc
 
 pyroscope:
   pvc:
-    storageClass: gp2
+    storageClass: ebs-sc
 
 alertmanager:
   pvc:
-    storageClass: gp2
+    storageClass: ebs-sc
 
 # Alloy — disable CloudWatch scrapers on EKS.
 #
