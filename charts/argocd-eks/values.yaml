@@ -29,6 +29,9 @@ configs:
     # ArgoCD derives it from rootpath automatically. Setting both causes the
     # double-prefix redirect bug (/argocd/argocd/applications).
     server.rootpath: "/argocd"
+    # Explicitly override the Helm chart default (server.basehref: "/").
+    # Empty string signals ArgoCD to derive basehref from rootpath above.
+    server.basehref: ""
 
 server:
   service:
