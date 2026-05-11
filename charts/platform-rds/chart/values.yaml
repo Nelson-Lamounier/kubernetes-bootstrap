@@ -42,11 +42,11 @@ observability:
 # ── PgBouncer metrics — opt-in sidecar ──────────────────────────────────────
 # pgbouncer itself only exposes stats via its admin SQL console (SHOW STATS
 # / SHOW POOLS), not HTTP. The community exporter
-# (prometheuscommunity/pgbouncer-exporter) connects to that console and
+# (prometheuscommunity/pgbouncer_exporter) connects to that console and
 # republishes as Prometheus metrics on :9127. Off in this chart; flip on
 # in values-{env}.yaml when ready — it adds one sidecar container + one
 # Service port and the database.json dashboard panels populate.
 metricsExporter:
   enabled: false
-  image:   prometheuscommunity/pgbouncer-exporter:0.10.2
+  image:   prometheuscommunity/pgbouncer_exporter:v0.12.0
   port:    9127

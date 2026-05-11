@@ -16,6 +16,7 @@ spec:
     spec:
       hostNetwork: true
       hostPID: true
+      nodeSelector: {{- toYaml .Values.daemonSetNodeSelector | nindent 8 }}
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists

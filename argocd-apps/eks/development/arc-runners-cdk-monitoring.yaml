@@ -60,7 +60,12 @@ spec:
 
   syncPolicy:
     automated:
-      prune: true
+      # prune: false — ARC controller creates Role + RoleBinding alongside each
+      # AutoscalingListener (hash-named, e.g. k8s-runner-cdk-{hash}-listener).
+      # These are not rendered by the Helm chart. With prune:true ArgoCD deletes
+      # them on every sync; the ARC controller immediately recreates them →
+      # permanent OutOfSync loop + transient RBAC gaps during job pickup.
+      prune: false
       selfHeal: true
       allowEmpty: false
     syncOptions:
