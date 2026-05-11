@@ -25,6 +25,8 @@ slo:
   alertsEnabled: false
 
 grafana:
+  serviceAccount:
+    irsaRoleArn: "arn:aws:iam::771826808455:role/k8s-dev-grafana-cloudwatch"
   alerting:
     snsTopicArn: ""        # no SNS in dev — email/Slack are noise
     awsRegion:   eu-west-1

@@ -72,6 +72,8 @@ prometheus:
 grafana:
   image: grafana/grafana:11.6.0
   replicas: 1
+  serviceAccount:
+    irsaRoleArn: ""
   resources:
     requests:
       cpu: 15m       # Observed p50: ~6m. 15m covers dashboard load spikes.

@@ -75,7 +75,7 @@ data:
         database: tucaken
         user: "{{ .Values.rdsPostgres.user }}"
         jsonData:
-          sslmode: require
+          sslmode: disable
           postgresVersion: 1800
           timescaledb: false
         secureJsonData:
