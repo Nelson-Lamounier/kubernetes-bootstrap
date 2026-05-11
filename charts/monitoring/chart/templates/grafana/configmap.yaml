@@ -79,7 +79,7 @@ data:
           postgresVersion: 1800
           timescaledb: false
         secureJsonData:
-          password: "{{ .Values.rdsPostgres.password }}"
+          password: "${GRAFANA_RDS_PASSWORD}"
       - name: Steampipe
         type: postgres
         access: proxy
