@@ -33,6 +33,55 @@ configs:
         - AutoscalingListener
         clusters:
         - "*"
+
+    # Custom DaemonSet health check — treats a DaemonSet as Healthy when all
+    # scheduled pods are on correct nodes and at least one is ready.
+    # Default ArgoCD check requires numberReady == desiredNumberScheduled, which
+    # deadlocks syncs indefinitely when pods are Pending due to node capacity
+    # (system nodes at 17-pod limit) rather than app failures. The DaemonSet
+    # controller binds each pod to a specific node via matchFields nodeAffinity
+    # — if that node is full, the pod never schedules and the sync hangs forever,
+    # blocking the commit that would fix the scheduling from being applied.
+    resource.customizations.health.apps_DaemonSet: |
+      hs = {}
+      if obj.status == nil then
+        hs.status = "Progressing"
+        hs.message = "Waiting for status"
+        return hs
+      end
+      local desired = obj.status.desiredNumberScheduled or 0
+      local ready = obj.status.numberReady or 0
+      local updated = obj.status.updatedNumberScheduled or 0
+      local misscheduled = obj.status.numberMisscheduled or 0
+      if desired == 0 then
+        hs.status = "Healthy"
+        hs.message = "No target nodes"
+        return hs
+      end
+      if ready == desired and updated == desired then
+        hs.status = "Healthy"
+        hs.message = ready .. "/" .. desired .. " ready"
+        return hs
+      end
+      if updated < desired then
+        hs.status = "Progressing"
+        hs.message = "Rolling update: " .. updated .. "/" .. desired .. " updated"
+        return hs
+      end
+      if misscheduled > 0 then
+        hs.status = "Degraded"
+        hs.message = misscheduled .. " pods running on non-matching nodes"
+        return hs
+      end
+      if ready >= 1 then
+        hs.status = "Healthy"
+        hs.message = ready .. "/" .. desired .. " ready; remaining pods pending (node capacity)"
+        return hs
+      end
+      hs.status = "Degraded"
+      hs.message = "0/" .. desired .. " pods ready"
+      return hs
+
   params:
     # ALB controller terminates TLS upstream; ArgoCD server runs HTTP-only.
     server.insecure: true
