@@ -19,6 +19,14 @@
 # top-level nodeSelector. An empty map merges-into rather than overrides.
 nodeSelector: null
 
+# Restrict DaemonSets (node-exporter, process-exporter, promtail) to workload
+# nodes only. System nodes are at the 17-pod EC2 limit; DaemonSet pods land
+# on system nodes by default because they have the dedicated=system toleration.
+# matchFields nodeAffinity injected by the DaemonSet controller pins each pod
+# to a specific node — if that node is full the pod stays Pending forever.
+daemonSetNodeSelector:
+  node-role: workload
+
 # Tolerate the system node taint so monitoring pods can land on system nodes.
 tolerations:
   - key: dedicated
