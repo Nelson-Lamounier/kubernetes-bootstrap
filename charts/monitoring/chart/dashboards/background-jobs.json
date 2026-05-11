@@ -39,11 +39,10 @@
       },
       {
         "name": "user_id",
-        "type": "custom",
+        "type": "textbox",
         "label": "User ID",
         "query": "",
-        "current": { "text": "All", "value": "" },
-        "options": [],
+        "current": { "text": "", "value": "" },
         "hide": 0
       },
       {
@@ -165,7 +164,7 @@
       "datasource": { "type": "tempo", "uid": "tempo" },
       "targets": [{
         "queryType": "traceql",
-        "query": "{ resource.service.name = \"ingestion\" }",
+        "query": "{ resource.service.name =~ \"ingestion|ingestion-worker\" }",
         "tableType": "spans"
       }]
     },
