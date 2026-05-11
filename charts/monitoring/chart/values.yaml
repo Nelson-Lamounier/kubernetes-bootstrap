@@ -237,6 +237,14 @@ steampipe:
   databasePassword: steampipe
 
 # ---------------------------------------------------------------------------
+# RDS PostgreSQL (via PgBouncer) — Grafana datasource for pgvector panels
+# password: injected via GRAFANA_RDS_PASSWORD env var from grafana-rds-credentials
+# Secret (ESO pulls from k8s-<env>/platform-rds/credentials in Secrets Manager)
+# ---------------------------------------------------------------------------
+rdsPostgres:
+  user: postgres
+
+# ---------------------------------------------------------------------------
 # Grafana Alloy (Faro Collector — receives client-side RUM telemetry)
 # ---------------------------------------------------------------------------
 alloy:
