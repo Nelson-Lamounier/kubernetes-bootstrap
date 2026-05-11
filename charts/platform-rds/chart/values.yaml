@@ -48,5 +48,5 @@ observability:
 # Service port and the database.json dashboard panels populate.
 metricsExporter:
   enabled: false
-  image:   prometheuscommunity/pgbouncer-exporter:0.10.2
+  image:   prometheuscommunity/pgbouncer-exporter:v0.12.0
   port:    9127

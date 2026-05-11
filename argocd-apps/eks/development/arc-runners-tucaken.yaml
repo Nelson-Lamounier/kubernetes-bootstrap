@@ -63,7 +63,10 @@ spec:
 
   syncPolicy:
     automated:
-      prune: true
+      # prune: false — ARC controller creates Role + RoleBinding alongside each
+      # AutoscalingListener (hash-named). Not rendered by Helm; pruning them
+      # causes transient RBAC gaps and an immediate ARC recreate loop.
+      prune: false
       selfHeal: true
       allowEmpty: false
     syncOptions:

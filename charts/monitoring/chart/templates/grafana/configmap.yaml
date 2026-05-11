@@ -71,7 +71,7 @@ data:
         access: proxy
         uid: rds-postgres
         editable: false
-        url: pgbouncer.platform-rds.svc.cluster.local:5432
+        url: pgbouncer.platform.svc.cluster.local:5432
         database: tucaken
         user: "{{ .Values.rdsPostgres.user }}"
         jsonData:
