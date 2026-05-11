@@ -126,12 +126,12 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: platform-rds-credentials
-                key:  POSTGRESQL_USERNAME
+                key:  PGUSER
           - name: POSTGRESQL_PASSWORD
             valueFrom:
               secretKeyRef:
                 name: platform-rds-credentials
-                key:  POSTGRESQL_PASSWORD
+                key:  PGPASSWORD
         ports:
           - containerPort: {{ .Values.metricsExporter.port }}
             name: metrics
