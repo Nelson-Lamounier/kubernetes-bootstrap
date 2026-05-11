@@ -26,18 +26,6 @@
   "templating": {
     "list": [
       {
-        "name": "env",
-        "type": "custom",
-        "label": "Environment",
-        "query": "development,production",
-        "current": { "text": "development", "value": "development" },
-        "options": [
-          { "text": "development", "value": "development", "selected": true },
-          { "text": "production",  "value": "production",  "selected": false }
-        ],
-        "hide": 0
-      },
-      {
         "name": "user_id",
         "type": "textbox",
         "label": "User ID",
