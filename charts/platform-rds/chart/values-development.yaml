@@ -23,6 +23,6 @@ bootstrap:
 pgbouncer:
   replicas: 1
 
-# ── Metrics exporter — leave off in dev until the sidecar is wired ──────────
+# ── Metrics exporter — pgbouncer-exporter sidecar on port 9127 ──────────────
 metricsExporter:
-  enabled: false
+  enabled: true

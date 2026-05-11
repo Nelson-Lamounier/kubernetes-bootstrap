@@ -61,6 +61,12 @@ spec:
               value: "false"
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "false"
+            # --- RDS PostgreSQL datasource password (interpolated in datasources.yaml) ---
+            - name: GRAFANA_RDS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-rds-credentials
+                  key: password
             # --- SNS region for alerting ---
             - name: AWS_REGION
               value: "{{ .Values.grafana.alerting.awsRegion }}"

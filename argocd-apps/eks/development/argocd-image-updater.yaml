@@ -6,9 +6,10 @@
 # Canary Rollouts whose chart annotates with `argocd-image-updater.argoproj.io/*`.
 #
 # Auth model:
-#   - ECR pull: docker-registry K8s secret `ecr-credentials` in argocd namespace.
-#     Refreshed every 10h by the ecr-token-refresh CronJob below (ECR tokens
-#     expire after 12h). registries.conf in config.registriesConf points to it.
+#   - ECR pull: Pod Identity (awsecr: credential type) — Image Updater calls
+#     ecr:GetAuthorizationToken via IAM on every poll. No static token, no expiry.
+#     Requires EksPodIdentityStack to have deployed the argocd/argocd-image-updater
+#     Pod Identity association (purpose: image-updater).
 #   - Git write: SSH deploy key in argocd/argocd-image-updater-writeback-key
 #     (sshPrivateKey field). Pulled from SSM /k8s/development/argocd/image-updater-deploy-key.
 apiVersion: argoproj.io/v1alpha1
@@ -46,8 +47,7 @@ spec:
                 prefix: 771826808455.dkr.ecr.eu-west-1.amazonaws.com
                 ping: false
                 insecure: false
-                credentials: pullsecret:argocd/ecr-credentials
-                credsexpire: 10h
+                credentials: awsecr:771826808455.dkr.ecr.eu-west-1.amazonaws.com
         # Image Updater itself runs on the system MNG.
         tolerations:
           - key: dedicated
