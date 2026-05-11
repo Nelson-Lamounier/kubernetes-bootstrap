@@ -1,0 +1,252 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "name": "Deploys",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "enable": true,
+        "expr": "{job=\"github-actions\", event=~\"deploy_succeeded|deploy_failed\", service=~\"ingestion|resume-import-processor\"} | json",
+        "iconColor": "blue",
+        "titleFormat": "{{event}} {{service}} {{git_sha}}",
+        "textFormat": "{{run_url}}"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "tags": ["ingestion", "resume-import", "background-jobs", "tracing"],
+  "title": "Background Jobs — Ingestion + Resume Import",
+  "uid": "background-jobs",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "type": "custom",
+        "label": "Environment",
+        "query": "development,production",
+        "current": { "text": "development", "value": "development" },
+        "options": [
+          { "text": "development", "value": "development", "selected": true },
+          { "text": "production",  "value": "production",  "selected": false }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "user_id",
+        "type": "custom",
+        "label": "User ID",
+        "query": "",
+        "current": { "text": "All", "value": "" },
+        "options": [],
+        "hide": 0
+      },
+      {
+        "name": "trace_id",
+        "type": "textbox",
+        "label": "Trace ID",
+        "query": "",
+        "current": { "text": "", "value": "" },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Health at a Glance — last 24 h",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Ingestion jobs — succeeded",
+      "id": 2,
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null}] }, "color": {"mode":"thresholds"} }
+      },
+      "targets": [{
+        "expr": "count_over_time({namespace=\"ingestion\", level=\"info\"} | json | event=\"ingestion.complete\" | status=\"complete\" [$__range])",
+        "legendFormat": "success"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Ingestion jobs — failed",
+      "id": 3,
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"red","value":1}] }, "color": {"mode":"thresholds"} }
+      },
+      "targets": [{
+        "expr": "count_over_time({namespace=\"ingestion\", level=\"info\"} | json | event=\"ingestion.complete\" | status=\"error\" [$__range])",
+        "legendFormat": "failed"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Resume import — succeeded",
+      "id": 4,
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null}] }, "color": {"mode":"thresholds"} }
+      },
+      "targets": [{
+        "expr": "count_over_time({namespace=\"resume-import\", level=\"info\"} | json | event=\"resume_import.complete\" | status=\"complete\" [$__range])",
+        "legendFormat": "success"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Resume import — failed",
+      "id": 5,
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": {
+        "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"red","value":1}] }, "color": {"mode":"thresholds"} }
+      },
+      "targets": [{
+        "expr": "count_over_time({namespace=\"resume-import\", level=\"info\"} | json | event=\"resume_import.complete\" | status=\"error\" [$__range])",
+        "legendFormat": "failed"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Active K8s jobs now",
+      "id": 6,
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null}] } } },
+      "targets": [{
+        "expr": "sum(kube_job_status_active{namespace=~\"ingestion|resume-import\"})",
+        "legendFormat": "active"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Chunks embedded today",
+      "id": 7,
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "value", "graphMode": "none" },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{"color":"blue","value":null}] } } },
+      "targets": [{
+        "expr": "sum_over_time({namespace=\"ingestion\", level=\"info\"} | json | event=\"ingestion.complete\" | unwrap embedded [$__range])",
+        "legendFormat": "chunks"
+      }]
+    },
+    {
+      "type": "row",
+      "title": "Phase Breakdown — Tempo span durations",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false,
+      "id": 10
+    },
+    {
+      "type": "traces",
+      "title": "Ingestion — pipeline spans (Tempo)",
+      "id": 11,
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [{
+        "queryType": "traceql",
+        "query": "{ resource.service.name = \"ingestion\" }",
+        "tableType": "spans"
+      }]
+    },
+    {
+      "type": "traces",
+      "title": "Resume import — pipeline spans (Tempo)",
+      "id": 12,
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [{
+        "queryType": "traceql",
+        "query": "{ resource.service.name = \"resume-import-processor\" }",
+        "tableType": "spans"
+      }]
+    },
+    {
+      "type": "row",
+      "title": "Failure Analysis",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "collapsed": false,
+      "id": 20
+    },
+    {
+      "type": "timeseries",
+      "title": "Error rate by namespace",
+      "id": 21,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{
+        "expr": "sum by (namespace) (rate({namespace=~\"ingestion|resume-import\", level=\"error\"} [5m]))",
+        "legendFormat": "{{namespace}}"
+      }]
+    },
+    {
+      "type": "logs",
+      "title": "Last 20 errors — ingestion + resume-import",
+      "id": 22,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none" },
+      "targets": [{
+        "expr": "{namespace=~\"ingestion|resume-import\", level=\"error\"} | json",
+        "maxLines": 20
+      }]
+    },
+    {
+      "type": "row",
+      "title": "Correlated Log Stream — filter by Trace ID",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "collapsed": false,
+      "id": 30
+    },
+    {
+      "type": "logs",
+      "title": "Full chain — admin-api + job pod (filter: $trace_id / $user_id)",
+      "id": 31,
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 26 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "options": { "showTime": true, "wrapLogMessage": false, "dedupStrategy": "none" },
+      "targets": [{
+        "expr": "{namespace=~\"admin-api|ingestion|resume-import\"} | json | trace_id=~\"${trace_id:pipe}\" | user_id=~\"${user_id:pipe}\"",
+        "maxLines": 200
+      }]
+    },
+    {
+      "type": "row",
+      "title": "Trace Waterfall — Tempo",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "collapsed": false,
+      "id": 40
+    },
+    {
+      "type": "traces",
+      "title": "Trace detail — paste Trace ID in $trace_id variable above",
+      "id": 41,
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 41 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [{
+        "queryType": "traceId",
+        "query": "${trace_id}"
+      }]
+    }
+  ]
+}
