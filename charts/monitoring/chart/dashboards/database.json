@@ -7,10 +7,23 @@
   "title": "Database — RDS Postgres / pgvector",
   "uid": "database",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "1m",
   "time": { "from": "now-3h", "to": "now" },
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "hide": 0,
+        "label": "DB Instance",
+        "name": "db_identifier",
+        "options": [{ "selected": true, "text": "k8s-dev-platform-rds", "value": "k8s-dev-platform-rds" }],
+        "query": "k8s-dev-platform-rds",
+        "skipUrlSync": false,
+        "type": "textbox",
+        "description": "RDS instance identifier — sets dimension filter on CloudWatch panels and log group path"
+      }
+    ]
+  },
   "panels": [
     { "type": "row", "id": 100, "title": "RDS instance health", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
     {
@@ -19,7 +32,7 @@
       "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
       "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 90 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
-      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "CPUUtilization", "statistic": "Average" }]
+      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "CPUUtilization", "statistic": "Average", "dimensionFilters": { "DBInstanceIdentifier": "${db_identifier}" } }]
     },
     {
       "id": 102, "type": "stat", "title": "DB connections",
@@ -27,7 +40,7 @@
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
       "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 80 }, { "color": "red", "value": 100 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
-      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "DatabaseConnections", "statistic": "Average" }]
+      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "DatabaseConnections", "statistic": "Average", "dimensionFilters": { "DBInstanceIdentifier": "${db_identifier}" } }]
     },
     {
       "id": 103, "type": "stat", "title": "Freeable memory",
@@ -35,7 +48,7 @@
       "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
       "fieldConfig": { "defaults": { "unit": "decbytes" } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "FreeableMemory", "statistic": "Average" }]
+      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "FreeableMemory", "statistic": "Average", "dimensionFilters": { "DBInstanceIdentifier": "${db_identifier}" } }]
     },
     {
       "id": 104, "type": "stat", "title": "Free storage",
@@ -43,7 +56,7 @@
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
       "fieldConfig": { "defaults": { "unit": "decbytes", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 5368709120 }, { "color": "green", "value": 21474836480 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
-      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "FreeStorageSpace", "statistic": "Minimum" }]
+      "targets": [{ "refId": "A", "namespace": "AWS/RDS", "metricName": "FreeStorageSpace", "statistic": "Minimum", "dimensionFilters": { "DBInstanceIdentifier": "${db_identifier}" } }]
     },
     {
       "id": 105, "type": "timeseries", "title": "Read / Write IOPS",
@@ -51,8 +64,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
       "fieldConfig": { "defaults": { "unit": "iops", "min": 0 } },
       "targets": [
-        { "refId": "A", "namespace": "AWS/RDS", "metricName": "ReadIOPS",  "statistic": "Average" },
-        { "refId": "B", "namespace": "AWS/RDS", "metricName": "WriteIOPS", "statistic": "Average" }
+        { "refId": "A", "namespace": "AWS/RDS", "metricName": "ReadIOPS",  "statistic": "Average", "dimensionFilters": { "DBInstanceIdentifier": "${db_identifier}" } },
+        { "refId": "B", "namespace": "AWS/RDS", "metricName": "WriteIOPS", "statistic": "Average", "dimensionFilters": { "DBInstanceIdentifier": "${db_identifier}" } }
       ]
     },
     {
@@ -61,8 +74,8 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
       "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
       "targets": [
-        { "refId": "A", "namespace": "AWS/RDS", "metricName": "ReadLatency",  "statistic": "Average" },
-        { "refId": "B", "namespace": "AWS/RDS", "metricName": "WriteLatency", "statistic": "Average" }
+        { "refId": "A", "namespace": "AWS/RDS", "metricName": "ReadLatency",  "statistic": "Average", "dimensionFilters": { "DBInstanceIdentifier": "${db_identifier}" } },
+        { "refId": "B", "namespace": "AWS/RDS", "metricName": "WriteLatency", "statistic": "Average", "dimensionFilters": { "DBInstanceIdentifier": "${db_identifier}" } }
       ]
     },
     { "type": "row", "id": 200, "title": "PgBouncer connection pool", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 } },
@@ -96,7 +109,7 @@
       "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
-        { "refId": "A", "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_CLIENT\",span_name=~\".*pg.*|.*postgres.*\"}[5m]))", "legendFormat": "{{service_name}}" }
+        { "refId": "A", "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_CLIENT\",db_system=\"postgresql\"}[5m]))", "legendFormat": "{{service_name}}" }
       ]
     },
     {
@@ -106,15 +119,99 @@
       "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
-        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_CLIENT\",span_name=~\".*pg.*|.*postgres.*\"}[5m])))", "legendFormat": "{{service_name}}" }
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_CLIENT\",db_system=\"postgresql\"}[5m])))", "legendFormat": "{{service_name}}" }
       ]
     },
     { "type": "row", "id": 400, "title": "pgvector — embeddings tables", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 } },
     {
-      "id": 401, "type": "text", "title": "Where pgvector data comes from",
-      "datasource": null,
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 33 },
-      "options": { "mode": "markdown", "content": "Embeddings live in `experience_embeddings` and the chunk store written by the **ingestion** Job. Row counts and pgvector index health are *not* exposed by RDS metrics — query them from a Grafana **PostgreSQL** data source pointed at the read replica.\n\nUseful queries:\n- `SELECT count(*) FROM experience_embeddings` — total vectors\n- `SELECT pg_size_pretty(pg_relation_size('experience_embeddings'))` — table size\n- `SELECT count(*) FROM experience_embeddings WHERE created_at > now() - interval '1h'` — ingest rate" }
+      "id": 401, "type": "timeseries", "title": "Embedding ingest rate",
+      "datasource": { "type": "postgres", "uid": "rds-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "displayName": "embeddings / interval" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [{
+        "refId": "A",
+        "rawSql": "SELECT $__timeGroupAlias(created_at,$__interval), count(*) AS \"embeddings\" FROM experience_embeddings WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1",
+        "format": "time_series"
+      }]
+    },
+    {
+      "id": 402, "type": "stat", "title": "Total vectors",
+      "datasource": { "type": "postgres", "uid": "rds-postgres" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [{
+        "refId": "A",
+        "rawSql": "SELECT count(*) AS \"Total vectors\" FROM experience_embeddings",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 403, "type": "stat", "title": "Table size",
+      "datasource": { "type": "postgres", "uid": "rds-postgres" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "decbytes" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [{
+        "refId": "A",
+        "rawSql": "SELECT pg_relation_size('experience_embeddings') AS \"bytes\"",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 404, "type": "table", "title": "pgvector index health",
+      "datasource": { "type": "postgres", "uid": "rds-postgres" },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 37 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "sortBy": [{ "desc": true, "displayName": "Scans" }] },
+      "targets": [{
+        "refId": "A",
+        "rawSql": "SELECT indexname AS \"Index\", pg_size_pretty(pg_relation_size(indexname::regclass)) AS \"Size\", idx_scan AS \"Scans\", idx_tup_read AS \"Tuples read\", idx_tup_fetch AS \"Tuples fetched\" FROM pg_stat_user_indexes WHERE tablename = 'experience_embeddings' ORDER BY idx_scan DESC",
+        "format": "table"
+      }]
+    },
+    { "type": "row", "id": 500, "title": "RDS PostgreSQL logs", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 } },
+    {
+      "id": 501, "type": "logs", "title": "Recent errors / warnings",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 42 },
+      "options": { "dedupStrategy": "none", "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "targets": [{
+        "refId": "A",
+        "queryMode": "Logs",
+        "logGroups": [{ "name": "/aws/rds/instance/${db_identifier}/postgresql" }],
+        "expression": "fields @timestamp, @message | filter @message like /ERROR|FATAL|PANIC|WARNING/ | sort @timestamp desc | limit 200",
+        "region": "eu-west-1"
+      }]
+    },
+    {
+      "id": 502, "type": "timeseries", "title": "Error / warning rate",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [{
+        "refId": "A",
+        "queryMode": "Logs",
+        "logGroups": [{ "name": "/aws/rds/instance/${db_identifier}/postgresql" }],
+        "expression": "filter @message like /ERROR|FATAL|WARNING/ | stats count() as log_count by bin(1m)",
+        "region": "eu-west-1"
+      }]
+    },
+    {
+      "id": 503, "type": "timeseries", "title": "Connection events / min",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 52 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [{
+        "refId": "A",
+        "queryMode": "Logs",
+        "logGroups": [{ "name": "/aws/rds/instance/${db_identifier}/postgresql" }],
+        "expression": "filter @message like /connection received|connection authorized|disconnection/ | stats count() as connections by bin(1m)",
+        "region": "eu-west-1"
+      }]
     }
   ]
 }

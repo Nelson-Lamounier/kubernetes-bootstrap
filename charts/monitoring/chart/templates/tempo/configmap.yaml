@@ -46,6 +46,7 @@ data:
             - service.name
             - http.method
             - http.status_code
+            - db.system
           enable_target_info: true
       registry:
         external_labels:

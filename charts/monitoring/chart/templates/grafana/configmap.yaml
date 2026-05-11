@@ -66,6 +66,20 @@ data:
         jsonData:
           defaultRegion: us-east-1
           authType: default
+      - name: RDS PostgreSQL
+        type: postgres
+        access: proxy
+        uid: rds-postgres
+        editable: false
+        url: pgbouncer.platform-rds.svc.cluster.local:5432
+        database: tucaken
+        user: "{{ .Values.rdsPostgres.user }}"
+        jsonData:
+          sslmode: require
+          postgresVersion: 1800
+          timescaledb: false
+        secureJsonData:
+          password: "{{ .Values.rdsPostgres.password }}"
       - name: Steampipe
         type: postgres
         access: proxy

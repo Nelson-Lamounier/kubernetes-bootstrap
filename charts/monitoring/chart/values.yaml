@@ -237,6 +237,14 @@ steampipe:
   databasePassword: steampipe
 
 # ---------------------------------------------------------------------------
+# RDS PostgreSQL (via PgBouncer) — Grafana datasource for pgvector panels
+# password: set in ArgoCD values from k8s-<env>/platform-rds/credentials secret
+# ---------------------------------------------------------------------------
+rdsPostgres:
+  user: postgres
+  password: ""
+
+# ---------------------------------------------------------------------------
 # Grafana Alloy (Faro Collector — receives client-side RUM telemetry)
 # ---------------------------------------------------------------------------
 alloy:
