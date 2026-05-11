@@ -15,6 +15,7 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/process-exporter/configmap.yaml") . | sha256sum }}
       labels: {{- include "monitoring.fullLabels" "process-exporter" | nindent 8 }}
     spec:
+      nodeSelector: {{- toYaml .Values.daemonSetNodeSelector | nindent 8 }}
       # Run on every node, including control plane.
       tolerations:
         - key: node-role.kubernetes.io/control-plane
