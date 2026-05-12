@@ -40,14 +40,16 @@ spec:
             insecure: true
             plaintext: true
             serverAddress: argocd-server.argocd.svc.cluster.local
-          registriesConf: |
-            registries:
-              - name: AWS ECR
-                api_url: https://771826808455.dkr.ecr.eu-west-1.amazonaws.com
-                prefix: 771826808455.dkr.ecr.eu-west-1.amazonaws.com
-                ping: false
-                insecure: false
-                credentials: awsecr:771826808455.dkr.ecr.eu-west-1.amazonaws.com
+          # config.registries (list) renders to registries.conf in the ConfigMap.
+          # config.registriesConf (raw string) renders to a key literally named
+          # "registriesConf" — Image Updater never reads that key. Use list form.
+          registries:
+            - name: AWS ECR
+              api_url: https://771826808455.dkr.ecr.eu-west-1.amazonaws.com
+              prefix: 771826808455.dkr.ecr.eu-west-1.amazonaws.com
+              ping: false
+              insecure: false
+              credentials: awsecr:771826808455.dkr.ecr.eu-west-1.amazonaws.com
         # Image Updater itself runs on the system MNG.
         tolerations:
           - key: dedicated
