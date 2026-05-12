@@ -1,0 +1,37 @@
+# @format
+# Default values for headlamp-config.
+#
+# viewer:        headlamp-viewer SA + ClusterRoleBinding + non-expiring token Secret.
+# tokenPusher:   PostSync Job that reads the token from the K8s Secret and writes
+#                it to SSM as a SecureString. Rendered only when aws.ssmPath is set.
+#
+# Pod Identity prerequisite (CDK — EksPodIdentity stack):
+#   new iam.Role('RoleheadlampTokenPusher', { assumedBy: pods.eks.amazonaws.com })
+#     .addToPolicy(ssm:PutParameter on arn:.../k8s/<env>/headlamp-viewer-token)
+#   new eks.CfnPodIdentityAssociation(cluster, namespace='headlamp', sa='token-pusher')
+#
+# Set aws.ssmPath in values-<env>.yaml once the CDK role + association exist.
+# Leaving aws.ssmPath empty disables the tokenPusher Job entirely.
+
+namespace: headlamp
+
+viewer:
+  # Built-in ClusterRole bound to the headlamp-viewer SA.
+  # `view` gives get/list/watch on most core resources — sufficient for a
+  # read-only dashboard. Raise to `cluster-admin` only if write access is needed.
+  clusterRole: view
+
+aws:
+  region: ""    # Override in values-<env>.yaml — e.g. eu-west-1
+  ssmPath: ""   # Override in values-<env>.yaml — e.g. /k8s/development/headlamp-viewer-token
+                # Leaving empty disables the tokenPusher Job.
+
+tokenPusher:
+  image: amazon/aws-cli:2.22.35
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

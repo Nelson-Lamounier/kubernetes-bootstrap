@@ -1,0 +1,52 @@
+# @format
+# Headlamp viewer identity:
+#   ServiceAccount    headlamp-viewer   — identity for human dashboard users
+#   ClusterRoleBinding                  — binds viewer SA to the configured ClusterRole
+#   Secret (sa-token type)              — non-expiring token auto-populated by K8s
+#                                         token controller once the SA exists
+#
+# Retrieve the token for browser login:
+#   aws ssm get-parameter \
+#     --name /k8s/<env>/headlamp-viewer-token \
+#     --with-decryption --query Parameter.Value --output text
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp-viewer
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: headlamp-viewer
+    app.kubernetes.io/part-of: headlamp
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-viewer
+  labels:
+    app.kubernetes.io/name: headlamp-viewer
+    app.kubernetes.io/part-of: headlamp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.viewer.clusterRole }}
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-viewer
+    namespace: {{ .Values.namespace }}
+---
+# Non-expiring SA token — Kubernetes token controller auto-populates
+# `.data.token` once the headlamp-viewer ServiceAccount exists.
+# No manual `kubectl create token` or rotation needed.
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  name: headlamp-viewer-token
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: headlamp-viewer
+    app.kubernetes.io/part-of: headlamp
+  annotations:
+    kubernetes.io/service-account.name: headlamp-viewer

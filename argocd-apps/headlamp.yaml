@@ -1,0 +1,107 @@
+# @format
+# ArgoCD Application: Headlamp Kubernetes Dashboard
+#
+# Two sources:
+#   1. Upstream Headlamp Helm chart — deployment, service, ingress, upstream RBAC.
+#   2. charts/headlamp-config — viewer SA + non-expiring token Secret +
+#      token-pusher PostSync Job (writes token to SSM after every sync).
+#
+# Ingress: joins the shared `public` ALB IngressGroup at order 203,
+# behind ops.nelsonlamounier.com/headlamp. WAF is owned by admin-api Ingress.
+#
+# Token resilience: headlamp-viewer-token Secret (type: sa-token) is
+# auto-populated by K8s and never expires. The PostSync Job pushes the
+# current value to SSM /k8s/development/headlamp-viewer-token on every sync.
+#
+# CDK prerequisite (EksPodIdentity stack):
+#   Role with ssm:PutParameter + PodIdentityAssociation(headlamp/token-pusher).
+#   See charts/headlamp-config/chart/values.yaml for full CDK snippet.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: headlamp
+  annotations:
+    kubernetes.io/description: "Headlamp Kubernetes dashboard — in-cluster, ALB ingress at /headlamp, token in SSM"
+    argocd.argoproj.io/sync-wave: "4"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  sources:
+    # ── Source 1: upstream Headlamp chart ─────────────────────────────────────
+    - repoURL: https://headlamp-k8s.github.io/headlamp/
+      chart: headlamp
+      targetRevision: "0.*"
+      helm:
+        values: |
+          config:
+            baseURL: /headlamp
+
+          ingress:
+            enabled: true
+            ingressClassName: alb
+            annotations:
+              alb.ingress.kubernetes.io/scheme: internet-facing
+              alb.ingress.kubernetes.io/target-type: ip
+              alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+              alb.ingress.kubernetes.io/ssl-redirect: "443"
+              alb.ingress.kubernetes.io/group.name: public
+              alb.ingress.kubernetes.io/group.order: "203"
+              alb.ingress.kubernetes.io/healthcheck-path: /headlamp
+              external-dns.alpha.kubernetes.io/hostname: ops.nelsonlamounier.com
+            hosts:
+              - host: ops.nelsonlamounier.com
+                paths:
+                  - path: /headlamp
+                    type: Prefix
+
+          # Headlamp's own SA proxies K8s API for the UI — view is sufficient.
+          clusterRoleBinding:
+            create: true
+            clusterRoleName: view
+
+          serviceAccount:
+            create: true
+
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+    # ── Source 2: local config chart ──────────────────────────────────────────
+    # viewer SA + non-expiring token Secret + token-pusher PostSync Job.
+    - repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+      targetRevision: main
+      path: charts/headlamp-config/chart
+      helm:
+        valueFiles:
+          - values-development.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: headlamp
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
