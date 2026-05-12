@@ -1,0 +1,100 @@
+# @format
+# ArgoCD Application: Headlamp (EKS — development)
+#
+# Two sources:
+#   1. Upstream Headlamp Helm chart — UI, service, ALB ingress at /headlamp.
+#   2. charts/headlamp-config — headlamp-viewer SA + non-expiring sa-token
+#      Secret + token-pusher PostSync Job (writes token to SSM on every sync).
+#
+# Token retrieval (after first sync):
+#   aws ssm get-parameter --name /k8s/development/headlamp-viewer-token \
+#     --with-decryption --query Parameter.Value --output text --profile dev-account
+#
+# CDK prerequisite: EksPodIdentity-development stack must be deployed first
+# so the headlamp/token-pusher Pod Identity association exists.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: headlamp-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "15"
+    kubernetes.io/description: "Headlamp Kubernetes dashboard on EKS (development)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  sources:
+    - repoURL: https://headlamp-k8s.github.io/headlamp/
+      chart: headlamp
+      targetRevision: "0.*"
+      helm:
+        values: |
+          config:
+            baseURL: /headlamp
+
+          ingress:
+            enabled: true
+            ingressClassName: alb
+            annotations:
+              alb.ingress.kubernetes.io/scheme: internet-facing
+              alb.ingress.kubernetes.io/target-type: ip
+              alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+              alb.ingress.kubernetes.io/ssl-redirect: "443"
+              alb.ingress.kubernetes.io/group.name: public
+              alb.ingress.kubernetes.io/group.order: "203"
+              alb.ingress.kubernetes.io/healthcheck-path: /headlamp
+              external-dns.alpha.kubernetes.io/hostname: ops.nelsonlamounier.com
+            hosts:
+              - host: ops.nelsonlamounier.com
+                paths:
+                  - path: /headlamp
+                    type: Prefix
+
+          clusterRoleBinding:
+            create: true
+            clusterRoleName: view
+
+          serviceAccount:
+            create: true
+
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+    - repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+      targetRevision: main
+      path: charts/headlamp-config/chart
+      helm:
+        valueFiles:
+          - values-development.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: headlamp
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
