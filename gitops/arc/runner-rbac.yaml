@@ -4,7 +4,8 @@
 # The runner pod runs as this ServiceAccount and needs cross-namespace
 # permissions to apply the K8s resources that deploy.py manages:
 #
-#   admin-api namespace:   Namespace, Secret, ConfigMap, IngressRoute
+#   admin-api namespace:   Namespace, Secret, ConfigMap, IngressRoute,
+#                          Rollout promote (deploy-admin-api.yml promote job)
 #   public-api namespace:  Namespace, ConfigMap, IngressRoute
 #   argocd namespace:      Application (patch annotations for sync trigger)
 #
