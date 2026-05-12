@@ -7,7 +7,12 @@
 #      Secret + token-pusher PostSync Job (writes token to SSM on every sync).
 #
 # Token retrieval (after first sync):
+#   Viewer (read-only):
 #   aws ssm get-parameter --name /k8s/development/headlamp-viewer-token \
+#     --with-decryption --query Parameter.Value --output text --profile dev-account
+#
+#   Admin (cluster-admin, full access including secrets):
+#   aws ssm get-parameter --name /k8s/development/headlamp-admin-token \
 #     --with-decryption --query Parameter.Value --output text --profile dev-account
 #
 # CDK prerequisite: EksPodIdentity-development stack must be deployed first

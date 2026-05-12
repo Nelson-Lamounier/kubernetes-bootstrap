@@ -7,3 +7,4 @@
 aws:
   region: eu-west-1
   ssmPath: /k8s/development/headlamp-viewer-token
+  adminSsmPath: /k8s/development/headlamp-admin-token
