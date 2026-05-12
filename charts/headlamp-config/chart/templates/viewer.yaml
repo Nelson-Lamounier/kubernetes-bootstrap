@@ -1,14 +1,41 @@
 # @format
 # Headlamp viewer identity:
-#   ServiceAccount    headlamp-viewer   — identity for human dashboard users
-#   ClusterRoleBinding                  — binds viewer SA to the configured ClusterRole
-#   Secret (sa-token type)              — non-expiring token auto-populated by K8s
-#                                         token controller once the SA exists
-#
-# Retrieve the token for browser login:
-#   aws ssm get-parameter \
-#     --name /k8s/<env>/headlamp-viewer-token \
-#     --with-decryption --query Parameter.Value --output text
+#   ClusterRole        headlamp-viewer   — extends built-in `view` with cluster-scoped
+#                                          resources Headlamp needs (nodes, PVs, namespaces)
+#   ServiceAccount     headlamp-viewer   — identity for human dashboard users
+#   ClusterRoleBinding                   — binds viewer SA to the ClusterRole above
+#   Secret (sa-token)                    — non-expiring token auto-populated by K8s
+---
+# Built-in `view` ClusterRole covers namespace-scoped resources but excludes
+# cluster-scoped resources (nodes, persistentvolumes) that Headlamp displays.
+# This role aggregates `view` and adds read-only access to those resources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-viewer
+  labels:
+    app.kubernetes.io/name: headlamp-viewer
+    app.kubernetes.io/part-of: headlamp
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - persistentvolumes
+      - namespaces
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - nodes
+      - pods
+    verbs: ["get", "list"]
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -30,7 +57,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ .Values.viewer.clusterRole }}
+  name: headlamp-viewer
 subjects:
   - kind: ServiceAccount
     name: headlamp-viewer
