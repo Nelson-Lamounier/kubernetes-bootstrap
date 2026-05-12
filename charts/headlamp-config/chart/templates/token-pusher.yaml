@@ -88,7 +88,7 @@ spec:
             - name: AWS_REGION
               value: {{ .Values.aws.region | quote }}
           command:
-            - /bin/bash
+            - /bin/sh
             - -c
             - |
               set -euo pipefail
@@ -99,12 +99,13 @@ spec:
               echo "Reading ${SECRET_NAME} from namespace ${NAMESPACE}..."
 
               # Retry until K8s token controller populates the Secret.
+              # amazon/aws-cli image ships `python` (not python3) and no jq.
               for i in $(seq 1 10); do
                 SECRET_JSON=$(curl -sf --cacert "$CA" \
                   -H "Authorization: Bearer $SELF_TOKEN" \
                   "https://kubernetes.default.svc/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}")
 
-                VIEWER_TOKEN=$(echo "$SECRET_JSON" | python3 -c "
+                VIEWER_TOKEN=$(echo "$SECRET_JSON" | python -c "
               import sys, json, base64
               data = json.load(sys.stdin)
               raw = data.get('data', {}).get('token', '')
