@@ -1179,47 +1179,33 @@ headlamp env="development" profile="dev-account":
 
     echo ""
 
-    # ── 2. Retrieve viewer token ───────────────────────────────────────────────
-    TOKEN=""
-
-    # Try SSM first (populated by the token-pusher PostSync Job).
-    echo "→ Fetching token from SSM (${SSM_PATH})..."
-    TOKEN=$(aws ssm get-parameter \
-      --name "${SSM_PATH}" \
-      --with-decryption \
-      --region "${REGION}" \
-      --profile "{{profile}}" \
-      --query Parameter.Value \
-      --output text 2>/dev/null || true)
+    # ── 2. Generate a bound viewer token ──────────────────────────────────────
+    # Headlamp requires a bound token (kubectl create token), not a static
+    # Secret token. Bound tokens are short-lived and properly OIDC-signed.
+    echo "→ Generating bound token for headlamp-viewer SA (24h)..."
+    TOKEN=$(kubectl create token headlamp-viewer \
+      -n headlamp \
+      --duration=24h 2>/dev/null || true)
 
     if [[ -z "${TOKEN}" ]]; then
-      echo "⚠ SSM parameter not yet populated — Pod Identity association may still be pending."
-      echo "  Falling back to kubectl (reads Secret directly)..."
-      TOKEN=$(kubectl get secret headlamp-viewer-token -n headlamp \
-        -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || true)
-    fi
-
-    if [[ -z "${TOKEN}" ]]; then
-      echo "✗ Could not retrieve token from SSM or kubectl."
-      echo "  Ensure headlamp-eks-{{env}} has synced and the PostSync Job completed."
+      echo "✗ Could not generate token. Ensure headlamp-eks-{{env}} has synced."
       exit 1
     fi
 
-    echo "✓ Token retrieved (${#TOKEN} chars)"
+    echo "✓ Token generated (expires in 24h)"
     echo ""
 
     # ── 3. Copy token + open browser ──────────────────────────────────────────
     if command -v pbcopy &>/dev/null; then
-      echo "${TOKEN}" | pbcopy
+      printf '%s' "${TOKEN}" | pbcopy
       echo "✓ Token copied to clipboard (pbcopy)"
     elif command -v xclip &>/dev/null; then
-      echo "${TOKEN}" | xclip -selection clipboard
+      printf '%s' "${TOKEN}" | xclip -selection clipboard
       echo "✓ Token copied to clipboard (xclip)"
     else
       echo "Token (paste this into Headlamp):"
       echo ""
-      echo "${TOKEN}"
-      echo ""
+      printf '%s\n' "${TOKEN}"
     fi
 
     echo "→ Opening ${URL}"
