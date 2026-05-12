@@ -1155,7 +1155,7 @@ headlamp env="development" profile="dev-account":
 
     APP="headlamp-eks-{{env}}"
     SSM_PATH="/k8s/{{env}}/headlamp-viewer-token"
-    URL="https://ops.nelsonlamounier.com/headlamp"
+    URL="https://ops.nelsonlamounier.com/headlamp/"
     TIMEOUT=30   # polls × 10 s = 5 min max
     REGION="eu-west-1"
 

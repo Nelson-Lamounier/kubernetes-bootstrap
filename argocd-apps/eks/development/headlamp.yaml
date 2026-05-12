@@ -48,7 +48,7 @@ spec:
               alb.ingress.kubernetes.io/ssl-redirect: "443"
               alb.ingress.kubernetes.io/group.name: public
               alb.ingress.kubernetes.io/group.order: "203"
-              alb.ingress.kubernetes.io/healthcheck-path: /headlamp
+              alb.ingress.kubernetes.io/healthcheck-path: /headlamp/
               external-dns.alpha.kubernetes.io/hostname: ops.nelsonlamounier.com
             hosts:
               - host: ops.nelsonlamounier.com
