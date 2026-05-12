@@ -117,6 +117,10 @@ awsRegion: "eu-west-1"
 # Passed as ENRICHMENT_MODEL_ID into every ingestion Job the admin-api creates.
 enrichmentModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
+# Bedrock cross-region inference profile ID forwarded to job-strategist K8s Jobs as RESEARCH_MODEL.
+# Kept separate from enrichmentModelId so the two pipelines can diverge to different models independently.
+researchModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+
 # ── ServiceAccount ────────────────────────────────────────────────────────────
 # Named SA so the cross-namespace RoleBinding in the ingestion namespace
 # (admin-api-job-creator) can grant Job CRUD + pod log read.
