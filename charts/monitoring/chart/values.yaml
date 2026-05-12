@@ -19,6 +19,14 @@ adminAccess:
 nodeSelector: {}
 
 # ---------------------------------------------------------------------------
+# DaemonSet Node Placement
+# System nodes (dedicated=system) hit t3.medium's ENI max-pods limit (17).
+# Restrict DaemonSets to workload nodes in environments where system nodes
+# are at capacity. Empty = run on all nodes (default, all environments).
+# ---------------------------------------------------------------------------
+daemonSetNodeSelector: {}
+
+# ---------------------------------------------------------------------------
 # Tolerations (applies to Deployments — NOT DaemonSets)
 # The monitoring pool is tainted `dedicated=monitoring:NoSchedule` by the
 # bootstrap script. All Deployment workloads must tolerate this taint.
@@ -64,6 +72,8 @@ prometheus:
 grafana:
   image: grafana/grafana:11.6.0
   replicas: 1
+  serviceAccount:
+    irsaRoleArn: ""
   resources:
     requests:
       cpu: 15m       # Observed p50: ~6m. 15m covers dashboard load spikes.
@@ -235,6 +245,14 @@ steampipe:
   service:
     port: 9193
   databasePassword: steampipe
+
+# ---------------------------------------------------------------------------
+# RDS PostgreSQL (via PgBouncer) — Grafana datasource for pgvector panels
+# password: injected via GRAFANA_RDS_PASSWORD env var from grafana-rds-credentials
+# Secret (ESO pulls from k8s-<env>/platform-rds/credentials in Secrets Manager)
+# ---------------------------------------------------------------------------
+rdsPostgres:
+  user: postgres
 
 # ---------------------------------------------------------------------------
 # Grafana Alloy (Faro Collector — receives client-side RUM telemetry)

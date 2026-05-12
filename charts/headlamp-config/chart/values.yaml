@@ -22,9 +22,11 @@ viewer:
   clusterRole: view
 
 aws:
-  region: ""    # Override in values-<env>.yaml — e.g. eu-west-1
-  ssmPath: ""   # Override in values-<env>.yaml — e.g. /k8s/development/headlamp-viewer-token
-                # Leaving empty disables the tokenPusher Job.
+  region: ""         # Override in values-<env>.yaml — e.g. eu-west-1
+  ssmPath: ""        # Override in values-<env>.yaml — e.g. /k8s/development/headlamp-viewer-token
+                     # Leaving empty disables the tokenPusher Job.
+  adminSsmPath: ""   # Override in values-<env>.yaml — e.g. /k8s/development/headlamp-admin-token
+                     # Leaving empty skips pushing the admin token.
 
 tokenPusher:
   image: amazon/aws-cli:2.22.35

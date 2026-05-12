@@ -9,6 +9,11 @@
 environment: development
 clusterName: portfolio-development
 
+# System nodes (t3.medium) are at ENI max-pods (17/17) capacity.
+# Restrict DaemonSets to the Karpenter workload node only.
+daemonSetNodeSelector:
+  node-role: workload
+
 # ─── Alerting — DEV BLACKHOLE ────────────────────────────────────────────────
 # In dev, SLO burn-rate alerts are fiction (no real load → unstable ratios).
 # Two-layer defence:
@@ -20,6 +25,8 @@ slo:
   alertsEnabled: false
 
 grafana:
+  serviceAccount:
+    irsaRoleArn: "arn:aws:iam::771826808455:role/k8s-dev-grafana-cloudwatch"
   alerting:
     snsTopicArn: ""        # no SNS in dev — email/Slack are noise
     awsRegion:   eu-west-1

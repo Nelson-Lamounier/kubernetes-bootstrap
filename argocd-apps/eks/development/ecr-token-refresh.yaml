@@ -2,8 +2,8 @@
 # ECR Token Refresh CronJob — argocd namespace
 #
 # ECR tokens expire after 12h. This job refreshes the `ecr-credentials`
-# docker-registry secret every 10h so ArgoCD Image Updater always has
-# a valid token for ECR tag listing.
+# docker-registry secret every 6h so ArgoCD Image Updater always has
+# a valid token with ≥6h safety margin before expiry.
 #
 # Uses the Kubernetes API directly via curl + the mounted SA token to
 # avoid requiring kubectl in the container (amazon/aws-cli doesn't ship it).
@@ -58,7 +58,7 @@ metadata:
     app.kubernetes.io/name: ecr-token-refresh
     app.kubernetes.io/part-of: argocd
 spec:
-  schedule: "0 */10 * * *"
+  schedule: "0 */6 * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 2

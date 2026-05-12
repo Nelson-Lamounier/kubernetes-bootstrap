@@ -1137,6 +1137,86 @@ k8s-diagnose environment="development":
 k8s-diagnose-raw:
     k8sgpt analyze
 
+# Wait for Headlamp ArgoCD sync, retrieve the viewer token, and open the UI.
+#
+# Steps:
+#   1. Poll headlamp-eks-development until Synced + Healthy (or timeout).
+#   2. Fetch token from SSM (written by the token-pusher PostSync Job).
+#      Falls back to kubectl if the PostSync Job has not run yet.
+#   3. Copies the token to the clipboard and opens the browser.
+#
+# Usage:
+#   just headlamp                                         # development (default)
+#   just headlamp staging staging-account
+[group('k8s')]
+headlamp env="development" profile="dev-account":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    APP="headlamp-eks-{{env}}"
+    SSM_PATH="/k8s/{{env}}/headlamp-viewer-token"
+    URL="https://ops.nelsonlamounier.com/headlamp/"
+    TIMEOUT=30   # polls × 10 s = 5 min max
+    REGION="eu-west-1"
+
+    # ── 1. Poll ArgoCD sync ────────────────────────────────────────────────────
+    echo "→ Waiting for ${APP} to be Synced + Healthy..."
+    for i in $(seq 1 ${TIMEOUT}); do
+      STATUS=$(kubectl get application "${APP}" -n argocd \
+        -o jsonpath='{.status.sync.status}/{.status.health.status}' 2>/dev/null || echo "NotFound/NotFound")
+      if [[ "${STATUS}" == "Synced/Healthy" ]]; then
+        echo "✓ ${APP} is Synced + Healthy"
+        break
+      fi
+      if [[ $i -eq ${TIMEOUT} ]]; then
+        echo "⚠ Timed out waiting for sync (last status: ${STATUS})"
+        echo "  Check ArgoCD UI: ${URL/headlamp/argocd}"
+        exit 1
+      fi
+      echo "  [${i}/${TIMEOUT}] ${STATUS} — retrying in 10s..."
+      sleep 10
+    done
+
+    echo ""
+
+    # ── 2. Generate a bound viewer token ──────────────────────────────────────
+    # Headlamp requires a bound token (kubectl create token), not a static
+    # Secret token. Bound tokens are short-lived and properly OIDC-signed.
+    echo "→ Generating bound token for headlamp-viewer SA (24h)..."
+    TOKEN=$(kubectl create token headlamp-viewer \
+      -n headlamp \
+      --duration=24h 2>/dev/null || true)
+
+    if [[ -z "${TOKEN}" ]]; then
+      echo "✗ Could not generate token. Ensure headlamp-eks-{{env}} has synced."
+      exit 1
+    fi
+
+    echo "✓ Token generated (expires in 24h)"
+    echo ""
+
+    # ── 3. Copy token + open browser ──────────────────────────────────────────
+    if command -v pbcopy &>/dev/null; then
+      printf '%s' "${TOKEN}" | pbcopy
+      echo "✓ Token copied to clipboard (pbcopy)"
+    elif command -v xclip &>/dev/null; then
+      printf '%s' "${TOKEN}" | xclip -selection clipboard
+      echo "✓ Token copied to clipboard (xclip)"
+    else
+      echo "Token (paste this into Headlamp):"
+      echo ""
+      printf '%s\n' "${TOKEN}"
+    fi
+
+    echo "→ Opening ${URL}"
+    if command -v open &>/dev/null; then
+      open "${URL}"
+    elif command -v xdg-open &>/dev/null; then
+      xdg-open "${URL}"
+    else
+      echo "  Open manually: ${URL}"
+    fi
+
 # =============================================================================
 # EC2 OPERATIONS
 # =============================================================================

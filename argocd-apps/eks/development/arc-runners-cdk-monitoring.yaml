@@ -60,7 +60,12 @@ spec:
 
   syncPolicy:
     automated:
-      prune: true
+      # prune: false — ARC controller creates Role + RoleBinding alongside each
+      # AutoscalingListener (hash-named, e.g. k8s-runner-cdk-{hash}-listener).
+      # These are not rendered by the Helm chart. With prune:true ArgoCD deletes
+      # them on every sync; the ARC controller immediately recreates them →
+      # permanent OutOfSync loop + transient RBAC gaps during job pickup.
+      prune: false
       selfHeal: true
       allowEmpty: false
     syncOptions:
@@ -68,20 +73,19 @@ spec:
       - PruneLast=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:
         duration: 10s
         factor: 2
         maxDuration: 5m
-  # ARC controller creates AutoscalingListener, Role, and RoleBinding with
-  # hash-suffixed names at runtime. These are not owned by Helm and will
-  # always differ from the declared chart state.
+  # ARC controller mutates the Helm-created Role (.rules) and RoleBinding
+  # (.roleRef, .subjects) post-install. Ignore these fields so ArgoCD does not
+  # flag them as drift on every sync.
+  # AutoscalingListener is excluded globally via argocd-cm resource.exclusions
+  # (not listed here — ignoreDifferences does not prevent pruning of orphaned resources).
   ignoreDifferences:
-    - group: actions.github.com
-      kind: AutoscalingListener
-      jqPathExpressions:
-        - .spec
     - group: rbac.authorization.k8s.io
       kind: Role
       jqPathExpressions:

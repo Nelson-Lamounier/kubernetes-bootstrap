@@ -1,14 +1,16 @@
 # @format
 # Headlamp token-pusher PostSync Job.
 #
-# Reads the auto-populated headlamp-viewer-token Secret from the K8s API
-# and writes the token value to SSM as a SecureString. Runs after every
-# ArgoCD sync so SSM always holds the current token.
+# Reads auto-populated SA token Secrets from the K8s API and writes them to
+# SSM as SecureStrings. Runs after every ArgoCD sync so SSM always holds
+# current tokens. Pushes viewer token (always) and admin token (when
+# aws.adminSsmPath is set).
 #
 # Rendered only when aws.ssmPath is non-empty (set in values-<env>.yaml).
 #
 # Pod Identity prerequisite — CDK EksPodIdentity stack:
 #   Role:                  ssm:PutParameter on arn:.../k8s/<env>/headlamp-viewer-token
+#                          ssm:PutParameter on arn:.../k8s/<env>/headlamp-admin-token
 #   PodIdentityAssociation: cluster=k8s-eks-<env>, namespace=headlamp, sa=token-pusher
 #
 # The SA carries no eks.amazonaws.com/role-arn annotation — Pod Identity
@@ -38,7 +40,11 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["headlamp-viewer-token"]
+    resourceNames:
+      - "headlamp-viewer-token"
+      {{- if .Values.aws.adminSsmPath }}
+      - "headlamp-admin-token"
+      {{- end }}
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -85,10 +91,14 @@ spec:
               value: "headlamp-viewer-token"
             - name: SSM_PATH
               value: {{ .Values.aws.ssmPath | quote }}
+            - name: ADMIN_SECRET_NAME
+              value: "headlamp-admin-token"
+            - name: ADMIN_SSM_PATH
+              value: {{ .Values.aws.adminSsmPath | quote }}
             - name: AWS_REGION
               value: {{ .Values.aws.region | quote }}
           command:
-            - /bin/bash
+            - /bin/sh
             - -c
             - |
               set -euo pipefail
@@ -99,12 +109,13 @@ spec:
               echo "Reading ${SECRET_NAME} from namespace ${NAMESPACE}..."
 
               # Retry until K8s token controller populates the Secret.
+              # amazon/aws-cli image ships `python` (not python3) and no jq.
               for i in $(seq 1 10); do
                 SECRET_JSON=$(curl -sf --cacert "$CA" \
                   -H "Authorization: Bearer $SELF_TOKEN" \
                   "https://kubernetes.default.svc/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME}")
 
-                VIEWER_TOKEN=$(echo "$SECRET_JSON" | python3 -c "
+                VIEWER_TOKEN=$(echo "$SECRET_JSON" | python -c "
               import sys, json, base64
               data = json.load(sys.stdin)
               raw = data.get('data', {}).get('token', '')
@@ -130,8 +141,46 @@ spec:
                 --type SecureString \
                 --overwrite
 
-              echo "Done. Retrieve with:"
+              echo "Done. Retrieve viewer token with:"
               echo "  aws ssm get-parameter --name ${SSM_PATH} --with-decryption --query Parameter.Value --output text"
+
+              if [ -n "${ADMIN_SSM_PATH:-}" ]; then
+                echo "Reading ${ADMIN_SECRET_NAME} from namespace ${NAMESPACE}..."
+
+                for i in $(seq 1 10); do
+                  SECRET_JSON=$(curl -sf --cacert "$CA" \
+                    -H "Authorization: Bearer $SELF_TOKEN" \
+                    "https://kubernetes.default.svc/api/v1/namespaces/${NAMESPACE}/secrets/${ADMIN_SECRET_NAME}")
+
+                  ADMIN_TOKEN=$(echo "$SECRET_JSON" | python -c "
+              import sys, json, base64
+              data = json.load(sys.stdin)
+              raw = data.get('data', {}).get('token', '')
+              if not raw:
+                  sys.exit(1)
+              print(base64.b64decode(raw).decode())
+              " 2>/dev/null) && break
+
+                  echo "Admin token not yet populated, retrying (${i}/10)..."
+                  sleep 3
+                done
+
+                if [ -z "${ADMIN_TOKEN:-}" ]; then
+                  echo "ERROR: headlamp-admin-token Secret has no token after retries."
+                  exit 1
+                fi
+
+                echo "Pushing admin token to SSM at ${ADMIN_SSM_PATH}..."
+                aws ssm put-parameter \
+                  --region "$AWS_REGION" \
+                  --name "$ADMIN_SSM_PATH" \
+                  --value "$ADMIN_TOKEN" \
+                  --type SecureString \
+                  --overwrite
+
+                echo "Done. Retrieve admin token with:"
+                echo "  aws ssm get-parameter --name ${ADMIN_SSM_PATH} --with-decryption --query Parameter.Value --output text"
+              fi
           resources:
             requests:
               cpu: {{ .Values.tokenPusher.resources.requests.cpu }}

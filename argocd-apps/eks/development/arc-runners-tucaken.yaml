@@ -6,14 +6,16 @@
 # repo that needs self-hosted runners requires its own scale set with
 # a distinct githubConfigUrl pointing at that repo.
 #
-# Uses the same arc-github-secret (GitHub App must be installed on
-# tucaken-app), runner image, and runnerScaleSetName as the
-# kubernetes-bootstrap scale set. GitHub scopes runner discovery
-# per-repo, so `runs-on: k8s-runner` in tucaken-app workflows picks
-# up runners from this scale set only.
+# Runner image is built and published by cdk-monitoring's build-ci-image.yml
+# workflow (.github/docker/arc-runner/Dockerfile) to GHCR under the
+# cdk-monitoring repository (public). Image must exist before ArgoCD reconciles.
 #
 # IAM: Runner pods inherit the worker node EC2 instance profile.
 # No additional IRSA needed for SSM, ECR, or S3 access.
+#
+# RBAC: arc-runner ClusterRole (gitops/arc/runner-rbac.yaml) already grants
+# argoproj.io rollouts get/list/watch/patch/update cluster-wide — covers the
+# admin-api namespace promote job without a separate RoleBinding.
 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -54,7 +56,7 @@ spec:
             serviceAccountName: arc-runner
             containers:
               - name: runner
-                image: ghcr.io/nelson-lamounier/kubernetes-bootstrap/arc-runner:latest
+                image: ghcr.io/nelson-lamounier/cdk-monitoring/arc-runner:latest
                 command: ["/home/runner/run.sh"]
 
   destination:
@@ -63,7 +65,10 @@ spec:
 
   syncPolicy:
     automated:
-      prune: true
+      # prune: false — ARC controller creates Role + RoleBinding alongside each
+      # AutoscalingListener (hash-named). Not rendered by Helm; pruning them
+      # causes transient RBAC gaps and an immediate ARC recreate loop.
+      prune: false
       selfHeal: true
       allowEmpty: false
     syncOptions:
@@ -71,20 +76,19 @@ spec:
       - PruneLast=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:
         duration: 10s
         factor: 2
         maxDuration: 5m
-  # ARC controller creates AutoscalingListener, Role, and RoleBinding with
-  # hash-suffixed names at runtime. These are not owned by Helm and will
-  # always differ from the declared chart state.
+  # ARC controller mutates the Helm-created Role (.rules) and RoleBinding
+  # (.roleRef, .subjects) post-install. Ignore these fields so ArgoCD does not
+  # flag them as drift on every sync.
+  # AutoscalingListener is excluded globally via argocd-cm resource.exclusions
+  # (not listed here — ignoreDifferences does not prevent pruning of orphaned resources).
   ignoreDifferences:
-    - group: actions.github.com
-      kind: AutoscalingListener
-      jqPathExpressions:
-        - .spec
     - group: rbac.authorization.k8s.io
       kind: Role
       jqPathExpressions:

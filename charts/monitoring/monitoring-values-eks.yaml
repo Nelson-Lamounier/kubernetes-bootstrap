@@ -19,6 +19,14 @@
 # top-level nodeSelector. An empty map merges-into rather than overrides.
 nodeSelector: null
 
+# Restrict DaemonSets (node-exporter, process-exporter, promtail) to workload
+# nodes only. System nodes are at the 17-pod EC2 limit; DaemonSet pods land
+# on system nodes by default because they have the dedicated=system toleration.
+# matchFields nodeAffinity injected by the DaemonSet controller pins each pod
+# to a specific node — if that node is full the pod stays Pending forever.
+daemonSetNodeSelector:
+  node-role: workload
+
 # Tolerate the system node taint so monitoring pods can land on system nodes.
 tolerations:
   - key: dedicated
@@ -26,11 +34,19 @@ tolerations:
     value: system
     effect: NoSchedule
 
-# Prefer system nodes (node-role=system) — falls back to workload nodes when
-# system nodes are at capacity. Eliminates idle Karpenter workload nodes kept
-# alive solely by monitoring pods.
+# AZ pinning: require eu-west-1b so all monitoring PVCs land in one AZ.
+# MNG spans eu-west-1a + eu-west-1b; without this constraint pods split
+# across AZs and each cluster restart accumulates orphan EBS volumes.
+# Prefer system nodes within that AZ to avoid idle Karpenter workload nodes.
 affinity:
   nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values:
+                - eu-west-1b
     preferredDuringSchedulingIgnoredDuringExecution:
       - weight: 100
         preference:
@@ -75,11 +91,6 @@ alertmanager:
 # in the ConfigMap, which caused CrashLoopBackOff ("component not found").
 # Re-enable once a PodIdentityAssociation + CloudWatch policy is added for
 # the alloy service account.
-grafana:
-  alerting:
-    snsTopicArn: "arn:aws:sns:eu-west-1:771826808455:k8s-bootstrap-alarm"
-    awsRegion: eu-west-1
-
 alloy:
   awsLogs:
     cloudtrail:
