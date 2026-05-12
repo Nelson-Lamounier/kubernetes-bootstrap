@@ -6,9 +6,9 @@
 # repo that needs self-hosted runners requires its own scale set with
 # a distinct githubConfigUrl pointing at that repo.
 #
-# Runner image is built and published by tucaken-app's build-arc-runner.yml
+# Runner image is built and published by cdk-monitoring's build-ci-image.yml
 # workflow (.github/docker/arc-runner/Dockerfile) to GHCR under the
-# tucaken-app repository. Image must exist before ArgoCD reconciles.
+# cdk-monitoring repository (public). Image must exist before ArgoCD reconciles.
 #
 # IAM: Runner pods inherit the worker node EC2 instance profile.
 # No additional IRSA needed for SSM, ECR, or S3 access.
@@ -56,7 +56,7 @@ spec:
             serviceAccountName: arc-runner
             containers:
               - name: runner
-                image: ghcr.io/nelson-lamounier/tucaken-app/arc-runner:latest
+                image: ghcr.io/nelson-lamounier/cdk-monitoring/arc-runner:latest
                 command: ["/home/runner/run.sh"]
 
   destination:
