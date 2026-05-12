@@ -19,7 +19,8 @@
 #                              from the Blue/Green Rollout: image updates do
 #                              NOT trigger admin-api restart.
 #
-# AWS SDK credentials come from the EC2 Instance Profile (IMDS) — never K8s.
+# AWS SDK credentials for admin-api come from the EC2 Instance Profile (IMDS).
+# Pipeline Job pods (ingestion, article-pipeline, job-strategist) use Pod Identity — see each SA manifest.
 # ─────────────────────────────────────────────────────────────────────────────
 
 namespace: admin-api

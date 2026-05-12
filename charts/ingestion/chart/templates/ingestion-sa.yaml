@@ -1,8 +1,14 @@
 # @format
 # ServiceAccount mounted by ingestion Job pods.
-# AWS perms (bedrock:InvokeModel, ssm:GetParameter for embedding endpoint, etc.)
-# are granted via the EC2 Instance Profile of the worker node — IMDS pattern,
-# consistent with admin-api and other platform pods.
+#
+# IAM prerequisite — CDK EksPodIdentity stack:
+#   Role:                  bedrock:InvokeModel + bedrock:InvokeModelWithResponseStream
+#                          on eu.* cross-region inference profiles and eu-* foundation models
+#                          ssm:GetParameter on /k8s/<env>/embedding-endpoint (if used)
+#   PodIdentityAssociation: cluster=k8s-eks-<env>, namespace=ingestion, sa=ingestion-sa
+#
+# Without the Pod Identity association the pod falls back to the EC2 node role
+# which must not be relied upon for application-level AWS permissions.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

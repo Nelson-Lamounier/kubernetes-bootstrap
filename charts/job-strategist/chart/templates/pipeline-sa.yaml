@@ -1,5 +1,13 @@
 # @format
-# ServiceAccount mounted by job-strategist Job pods (analysis + coaching).
+# ServiceAccount mounted by job-strategist Job pods (pipeline execution).
+#
+# IAM prerequisite — CDK EksPodIdentity stack:
+#   Role:                  bedrock:InvokeModel + bedrock:InvokeModelWithResponseStream
+#                          on eu.* cross-region inference profiles and eu-* foundation models
+#   PodIdentityAssociation: cluster=k8s-eks-<env>, namespace=job-strategist, sa=job-strategist-sa
+#
+# Without the Pod Identity association the pod falls back to the EC2 node role
+# which has no Bedrock permissions — pipeline will fail with AccessDeniedException.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

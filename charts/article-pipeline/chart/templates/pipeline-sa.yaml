@@ -1,7 +1,14 @@
 # @format
 # ServiceAccount mounted by article-pipeline Job pods.
-# AWS perms (bedrock:InvokeModel, s3:GetObject for draft staging) come from
-# the EC2 Instance Profile of the worker node — IMDS pattern.
+#
+# IAM prerequisite — CDK EksPodIdentity stack:
+#   Role:                  bedrock:InvokeModel + bedrock:InvokeModelWithResponseStream
+#                          on eu.* cross-region inference profiles and eu-* foundation models
+#                          s3:GetObject on the draft staging bucket
+#   PodIdentityAssociation: cluster=k8s-eks-<env>, namespace=article-pipeline, sa=article-pipeline-sa
+#
+# Without the Pod Identity association the pod falls back to the EC2 node role
+# which must not be relied upon for application-level AWS permissions.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
