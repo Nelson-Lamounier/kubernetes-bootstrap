@@ -36,6 +36,23 @@ rules:
       - nodes
       - pods
     verbs: ["get", "list"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - roles
+      - rolebindings
+      - clusterroles
+      - clusterrolebindings
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - gateways
+      - gatewayclasses
+      - httproutes
+      - grpcroutes
+      - referencegrants
+      - tcproutes
+      - tlsroutes
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: v1
 kind: ServiceAccount
