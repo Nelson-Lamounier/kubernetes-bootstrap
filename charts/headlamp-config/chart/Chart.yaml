@@ -1,0 +1,7 @@
+# @format
+apiVersion: v2
+name: headlamp-config
+description: RBAC, viewer token Secret, and token-pusher PostSync job for Headlamp
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

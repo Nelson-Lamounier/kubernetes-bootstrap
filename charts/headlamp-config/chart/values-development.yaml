@@ -1,0 +1,9 @@
+# @format
+# Development overrides for headlamp-config.
+#
+# tokenPusher activates once aws.ssmPath is non-empty AND the CDK
+# Pod Identity association for headlamp/token-pusher exists.
+
+aws:
+  region: eu-west-1
+  ssmPath: /k8s/development/headlamp-viewer-token
