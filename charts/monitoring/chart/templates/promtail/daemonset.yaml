@@ -15,6 +15,7 @@ spec:
         {{- include "monitoring.fullLabels" "promtail" | nindent 8 }}
     spec:
       serviceAccountName: prometheus
+      nodeSelector: {{- toYaml .Values.daemonSetNodeSelector | nindent 8 }}
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
