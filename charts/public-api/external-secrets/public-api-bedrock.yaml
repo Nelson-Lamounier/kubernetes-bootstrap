@@ -35,3 +35,11 @@ spec:
     - secretKey: BEDROCK_API_KEY_SECRET_ARN
       remoteRef:
         key: /bedrock-dev/bedrock-api-key-secret-arn
+    # Published by bedrock/api-stack: public RAG chatbot (stateless, bedrock-agent fallback).
+    - secretKey: BEDROCK_PUBLIC_API_URL
+      remoteRef:
+        key: /bedrock-development/chatbot-public-api-url
+    # Published by bedrock/api-stack: session-aware RAG chatbot.
+    - secretKey: BEDROCK_AUTH_API_URL
+      remoteRef:
+        key: /bedrock-development/chatbot-authenticated-api-url
