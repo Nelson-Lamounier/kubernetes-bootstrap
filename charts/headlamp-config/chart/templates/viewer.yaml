@@ -60,7 +60,9 @@ rules:
       - tlsroutes
     verbs: ["get", "list", "watch"]
 ---
-# Aggregated ClusterRole: rules field is controller-managed — do not add rules here.
+# Aggregated ClusterRole: rules field is owned by kube-controller-manager — omit it here.
+# Declaring `rules: []` with ServerSideApply causes ArgoCD to claim field ownership,
+# which conflicts with the aggregation controller and loops OutOfSync/Healthy forever.
 # Two selectors: one inherits built-in `view`, the other pulls in headlamp-viewer-extensions.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -75,7 +77,6 @@ aggregationRule:
         rbac.authorization.k8s.io/aggregate-to-view: "true"
     - matchLabels:
         rbac.authorization.k8s.io/aggregate-to-headlamp-viewer: "true"
-rules: []
 ---
 apiVersion: v1
 kind: ServiceAccount
