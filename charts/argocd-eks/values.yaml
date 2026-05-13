@@ -34,6 +34,22 @@ configs:
         clusters:
         - "*"
 
+    # Annotation-based resource tracking — prevents ARC listener Roles/RoleBindings
+    # from being tracked by ArgoCD.
+    #
+    # ARC controller inherits `app.kubernetes.io/instance` label from RunnerScaleSet
+    # and copies it onto listener Role + RoleBinding. With default label tracking,
+    # ArgoCD sees these as owned by arc-runners apps but not in the Helm chart output
+    # → marks requiresPruning=true → permanent OutOfSync even with prune:false.
+    #
+    # With annotation tracking, ArgoCD only owns resources it explicitly annotated
+    # with `argocd.argoproj.io/tracking-id`. ARC-created resources never receive
+    # this annotation → not tracked → apps show Synced.
+    #
+    # Migration: on first ArgoCD restart all managed resources have only the old
+    # label; selfHeal syncs them and writes the tracking annotation within minutes.
+    application.resourceTrackingMethod: annotation
+
     # Custom DaemonSet health check — treats a DaemonSet as Healthy when all
     # scheduled pods are on correct nodes and at least one is ready.
     # Default ArgoCD check requires numberReady == desiredNumberScheduled, which
