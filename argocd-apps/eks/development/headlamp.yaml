@@ -87,6 +87,15 @@ spec:
     server: https://kubernetes.default.svc
     namespace: headlamp
 
+  # kube-controller-manager owns the `rules` field on aggregated ClusterRoles.
+  # Without this, ArgoCD (SSA mode) fights the controller and loops OutOfSync/Healthy.
+  ignoreDifferences:
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: headlamp-viewer
+      managedFieldsManagers:
+        - kube-controller-manager
+
   syncPolicy:
     automated:
       prune: true
