@@ -19,7 +19,8 @@
 #                              from the Blue/Green Rollout: image updates do
 #                              NOT trigger admin-api restart.
 #
-# AWS SDK credentials come from the EC2 Instance Profile (IMDS) — never K8s.
+# AWS SDK credentials for admin-api come from the EC2 Instance Profile (IMDS).
+# Pipeline Job pods (ingestion, article-pipeline, job-strategist) use Pod Identity — see each SA manifest.
 # ─────────────────────────────────────────────────────────────────────────────
 
 namespace: admin-api
@@ -116,6 +117,10 @@ awsRegion: "eu-west-1"
 # In eu-west-1 direct on-demand Claude invocation is unsupported; must use an eu.* profile.
 # Passed as ENRICHMENT_MODEL_ID into every ingestion Job the admin-api creates.
 enrichmentModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+# Bedrock cross-region inference profile ID forwarded to job-strategist K8s Jobs as RESEARCH_MODEL.
+# Kept separate from enrichmentModelId so the two pipelines can diverge to different models independently.
+researchModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 # ── ServiceAccount ────────────────────────────────────────────────────────────
 # Named SA so the cross-namespace RoleBinding in the ingestion namespace

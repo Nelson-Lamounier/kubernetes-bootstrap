@@ -1,0 +1,47 @@
+# @format
+# Headlamp admin identity:
+#   ServiceAccount      headlamp-admin   — operator-level token for human dashboard admins
+#   ClusterRoleBinding                   — binds admin SA to cluster-admin
+#   Secret (sa-token)                   — non-expiring token auto-populated by K8s
+#
+# Use this token when you need full cluster access from the Headlamp UI:
+# secrets, RBAC mutations, cross-namespace writes, pod exec, etc.
+# The headlamp-viewer identity (viewer.yaml) remains for read-only use.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp-admin
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: headlamp-admin
+    app.kubernetes.io/part-of: headlamp
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-admin
+  labels:
+    app.kubernetes.io/name: headlamp-admin
+    app.kubernetes.io/part-of: headlamp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-admin
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  name: headlamp-admin-token
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: headlamp-admin
+    app.kubernetes.io/part-of: headlamp
+  annotations:
+    kubernetes.io/service-account.name: headlamp-admin

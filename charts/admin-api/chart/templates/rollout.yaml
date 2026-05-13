@@ -111,6 +111,10 @@ spec:
             # created by this pod. Override per-environment in argocd overlay values.
             - name: ENRICHMENT_MODEL_ID
               value: {{ .Values.enrichmentModelId | quote }}
+            # Bedrock inference profile forwarded to job-strategist K8s Jobs.
+            # Kept separate from ENRICHMENT_MODEL_ID to allow independent model changes.
+            - name: RESEARCH_MODEL
+              value: {{ .Values.researchModelId | quote }}
             # ── Observability (OTel + pino + prom-client) ─────────────────
             # Telemetry preload uses --import in the Dockerfile; the SDK
             # reads these vars at start. Endpoint points at the Alloy

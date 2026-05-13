@@ -1,0 +1,119 @@
+# @format
+# Headlamp viewer identity:
+#   ClusterRole        headlamp-viewer            — aggregates built-in `view` rules +
+#                                                   headlamp-viewer-extensions rules
+#   ClusterRole        headlamp-viewer-extensions — cluster-scoped read rules (nodes, PVs,
+#                                                   namespaces, metrics, RBAC, Gateway API)
+#                                                   labeled to feed into headlamp-viewer
+#   ServiceAccount     headlamp-viewer            — identity for human dashboard users
+#   ClusterRoleBinding                            — binds viewer SA to the ClusterRole above
+#   Secret (sa-token)                             — non-expiring token auto-populated by K8s
+#
+# Why two ClusterRoles?
+#   Kubernetes' aggregation controller owns the `rules` field of any ClusterRole that
+#   declares `aggregationRule` — manually specified `rules` are silently overwritten on
+#   every reconcile. Extension rules must live in a separate ClusterRole labeled to match
+#   one of the aggregation selectors.
+---
+# Extension ClusterRole: cluster-scoped read-only rules not covered by built-in `view`.
+# Labeled `aggregate-to-headlamp-viewer: "true"` so the aggregation controller
+# merges these rules into headlamp-viewer automatically.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-viewer-extensions
+  labels:
+    app.kubernetes.io/name: headlamp-viewer
+    app.kubernetes.io/part-of: headlamp
+    rbac.authorization.k8s.io/aggregate-to-headlamp-viewer: "true"
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - persistentvolumes
+      - namespaces
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - nodes
+      - pods
+    verbs: ["get", "list"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - roles
+      - rolebindings
+      - clusterroles
+      - clusterrolebindings
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - gateways
+      - gatewayclasses
+      - httproutes
+      - grpcroutes
+      - referencegrants
+      - tcproutes
+      - tlsroutes
+    verbs: ["get", "list", "watch"]
+---
+# Aggregated ClusterRole: rules field is controller-managed — do not add rules here.
+# Two selectors: one inherits built-in `view`, the other pulls in headlamp-viewer-extensions.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: headlamp-viewer
+  labels:
+    app.kubernetes.io/name: headlamp-viewer
+    app.kubernetes.io/part-of: headlamp
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        rbac.authorization.k8s.io/aggregate-to-view: "true"
+    - matchLabels:
+        rbac.authorization.k8s.io/aggregate-to-headlamp-viewer: "true"
+rules: []
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp-viewer
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: headlamp-viewer
+    app.kubernetes.io/part-of: headlamp
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-viewer
+  labels:
+    app.kubernetes.io/name: headlamp-viewer
+    app.kubernetes.io/part-of: headlamp
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: headlamp-viewer
+subjects:
+  - kind: ServiceAccount
+    name: headlamp-viewer
+    namespace: {{ .Values.namespace }}
+---
+# Non-expiring SA token — Kubernetes token controller auto-populates
+# `.data.token` once the headlamp-viewer ServiceAccount exists.
+# No manual `kubectl create token` or rotation needed.
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/service-account-token
+metadata:
+  name: headlamp-viewer-token
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: headlamp-viewer
+    app.kubernetes.io/part-of: headlamp
+  annotations:
+    kubernetes.io/service-account.name: headlamp-viewer
