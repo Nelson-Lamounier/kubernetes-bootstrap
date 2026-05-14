@@ -242,3 +242,78 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+---
+# =============================================================================
+# Migration 002 — prompt_invocations: add import_id + repo_name columns
+#
+# recordBedrockCost (shared/src/rds/bedrock-cost.ts) inserts import_id (UUID,
+# nullable, foreign key to resume_imports) and repo_name (TEXT, nullable) to
+# correlate Bedrock cost records with the ingestion repo or import job that
+# triggered them. Both columns are optional (NULL-safe) so existing rows are
+# unaffected.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-002-prompt-invocations-cols
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: add import_id + repo_name to prompt_invocations"
+  labels:
+    app: platform-rds-migration
+    migration: "002"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "002"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              ALTER TABLE prompt_invocations
+                ADD COLUMN IF NOT EXISTS import_id UUID,
+                ADD COLUMN IF NOT EXISTS repo_name TEXT;
+
+              CREATE INDEX IF NOT EXISTS idx_prompt_invocations_import_id
+                ON prompt_invocations (import_id)
+                WHERE import_id IS NOT NULL;
+
+              CREATE INDEX IF NOT EXISTS idx_prompt_invocations_repo_name
+                ON prompt_invocations (repo_name)
+                WHERE repo_name IS NOT NULL;
+
+              SELECT 'migration-002: prompt_invocations columns OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
