@@ -384,3 +384,75 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+---
+# =============================================================================
+# Migration 004 — user_token_budgets table
+#
+# recordBedrockCost (shared/src/rds/bedrock-cost.ts) reads and upserts rows
+# into user_token_budgets to enforce per-user monthly Bedrock spend limits.
+# monthly_limit_cents defaults to 500 cents ($5.00/month).
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-004-user-token-budgets
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: create user_token_budgets table"
+  labels:
+    app: platform-rds-migration
+    migration: "004"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "004"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              CREATE TABLE IF NOT EXISTS user_token_budgets (
+                  user_id             UUID          PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                  monthly_limit_cents NUMERIC(12,6) NOT NULL DEFAULT 500,
+                  alert_threshold_pct INTEGER       NOT NULL DEFAULT 80
+                                                    CHECK (alert_threshold_pct BETWEEN 1 AND 100),
+                  created_at          TIMESTAMPTZ   NOT NULL DEFAULT now(),
+                  updated_at          TIMESTAMPTZ   NOT NULL DEFAULT now()
+              );
+
+              GRANT SELECT, INSERT, UPDATE, DELETE ON user_token_budgets TO tucaken_app;
+
+              SELECT 'migration-004: user_token_budgets OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
