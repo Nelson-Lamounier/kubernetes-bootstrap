@@ -196,6 +196,33 @@ spec:
 
               GRANT SELECT, INSERT, UPDATE, DELETE ON repository_profile_embeddings TO tucaken_app;
 
+              -- coerce_classification_default trigger ──────────────────────
+              -- Ingestion upserts classification=NULL before LLM extraction
+              -- completes. PostgreSQL DEFAULT only fires when the column is
+              -- omitted; this trigger coerces explicit NULLs to 'project'.
+              CREATE OR REPLACE FUNCTION coerce_classification_default()
+              RETURNS TRIGGER LANGUAGE plpgsql AS $fn$
+              BEGIN
+                IF NEW.classification IS NULL THEN
+                  NEW.classification := 'project';
+                END IF;
+                RETURN NEW;
+              END;
+              $fn$;
+
+              DO $do$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_trigger
+                  WHERE tgname   = 'coerce_classification_default'
+                    AND tgrelid  = 'repository_profiles'::regclass
+                ) THEN
+                  CREATE TRIGGER coerce_classification_default
+                    BEFORE INSERT ON repository_profiles
+                    FOR EACH ROW EXECUTE FUNCTION coerce_classification_default();
+                END IF;
+              END $do$;
+
               SELECT 'migration-001: repository_profiles + embeddings OK' AS status;
               SQL
           env:
