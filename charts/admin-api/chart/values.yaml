@@ -122,6 +122,10 @@ enrichmentModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 # Kept separate from enrichmentModelId so the two pipelines can diverge to different models independently.
 researchModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
+# Bedrock cross-region inference profile ID forwarded to article-pipeline K8s Jobs as FOUNDATION_MODEL
+# (writer agent) and QA_MODEL (QA agent). Claude Sonnet 4.x uses the date-free profile format.
+foundationModelId: "eu.anthropic.claude-sonnet-4-6"
+
 # ── ServiceAccount ────────────────────────────────────────────────────────────
 # Named SA so the cross-namespace RoleBinding in the ingestion namespace
 # (admin-api-job-creator) can grant Job CRUD + pod log read.
