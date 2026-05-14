@@ -317,3 +317,70 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+---
+# =============================================================================
+# Migration 003 — prompt_invocations: cost columns INTEGER → NUMERIC(12,6)
+#
+# recordBedrockCost computes fractional cents (e.g. 0.87232 for a typical
+# haiku-4-5 invocation). The original INTEGER columns reject such values.
+# NUMERIC(12,6) accepts the fractional representation while remaining
+# compatible with existing integer rows.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-003-prompt-invocations-cost-type
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: alter cost columns to NUMERIC(12,6) in prompt_invocations"
+  labels:
+    app: platform-rds-migration
+    migration: "003"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "003"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              ALTER TABLE prompt_invocations
+                ALTER COLUMN input_cost_cents  TYPE NUMERIC(12,6),
+                ALTER COLUMN output_cost_cents TYPE NUMERIC(12,6),
+                ALTER COLUMN total_cost_cents  TYPE NUMERIC(12,6);
+
+              SELECT 'migration-003: prompt_invocations cost columns OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
