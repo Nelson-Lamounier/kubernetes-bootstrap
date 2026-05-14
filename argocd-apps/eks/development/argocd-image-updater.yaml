@@ -9,6 +9,8 @@
 #   - ECR: ext:/scripts/ecr-login.sh — shell script calls `aws ecr get-login-password`
 #     using Pod Identity credentials (EksPodIdentityStack Assoc-image-updater).
 #     Token refreshed every 10h (ECR tokens expire at 12h). No static secret, no CronJob.
+#     Output MUST be `AWS:<token>` (single line username:password) — the plain token alone
+#     is rejected by argocd-image-updater with "invalid script output" error.
 #   - Git write: SSH deploy key in argocd/argocd-image-updater-writeback-key
 #     (sshPrivateKey field). Pulled from SSM /k8s/development/argocd/image-updater-deploy-key.
 apiVersion: argoproj.io/v1alpha1
@@ -38,7 +40,7 @@ spec:
           scripts:
             ecr-login.sh: |
               #!/bin/sh
-              aws ecr get-login-password --region eu-west-1
+              echo "AWS:$(aws ecr get-login-password --region eu-west-1)"
         config:
           argocd:
             grpcWeb: true
