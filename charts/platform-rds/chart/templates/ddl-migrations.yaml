@@ -20,14 +20,15 @@
 #      deletes the previous completed job before creating a new one).
 ---
 # =============================================================================
-# Migration 001 — repository_profiles
+# Migration 001 — repository_profiles + repository_profile_embeddings
 #
-# Added in tucaken-app commit a04b719 (2026-05-13).
-# The admin-api GET /github/connected-repos query LEFT JOINs this table to
-# surface AI-generated KB quality scores and profile metadata per repo.
-# Omitting the table causes a PostgreSQL "relation does not exist" error,
-# returning 500 to the BFF and rendering the Connected Repositories panel
-# empty in the UI.
+# Canonical schema from ai-applications/applications/platform-rds-bootstrap/
+# migrations/014_repository_profiles.sql.
+#
+# Required by the ingestion service (RepositoryProfileRepository) which writes
+# AI-extracted profile data per repo, and by the admin-api GET
+# /github/connected-repos query which LEFT JOINs this table to surface quality
+# scores and profile metadata in the Connected Repositories panel.
 # =============================================================================
 apiVersion: batch/v1
 kind: Job
@@ -37,14 +38,14 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    kubernetes.io/description: "DDL: create repository_profiles table"
+    kubernetes.io/description: "DDL: create repository_profiles and repository_profile_embeddings tables"
   labels:
     app: platform-rds-migration
     migration: "001"
 spec:
   ttlSecondsAfterFinished: 3600
   backoffLimit: 3
-  activeDeadlineSeconds: 120
+  activeDeadlineSeconds: 180
   template:
     metadata:
       labels:
@@ -62,41 +63,140 @@ spec:
             - |
               set -eu
               psql "$DATABASE_URL" <<'SQL'
+
+              -- set_updated_at trigger function (used by multiple tables)
+              CREATE OR REPLACE FUNCTION set_updated_at()
+              RETURNS TRIGGER LANGUAGE plpgsql AS $fn$
+              BEGIN
+                  NEW.updated_at = now();
+                  RETURN NEW;
+              END;
+              $fn$;
+
+              -- repository_profiles ─────────────────────────────────────────
               CREATE TABLE IF NOT EXISTS repository_profiles (
-                  user_id           uuid        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                  repo_full_name    text        NOT NULL,
-                  quality_score     numeric(4,2),
-                  quality_breakdown jsonb,
-                  classification    text,
-                  extraction_status text,
-                  extracted         jsonb,
-                  created_at        timestamptz NOT NULL DEFAULT now(),
-                  updated_at        timestamptz NOT NULL DEFAULT now(),
-                  PRIMARY KEY (user_id, repo_full_name)
+                  id                  UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+                  user_id             UUID            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                  repository_id       UUID            REFERENCES repositories(id) ON DELETE CASCADE,
+                  repo_full_name      TEXT            NOT NULL,
+                  extracted           JSONB           NOT NULL DEFAULT '{}',
+                  user_overrides      JSONB           NOT NULL DEFAULT '{}',
+                  quality_score       NUMERIC(3,2)    NOT NULL DEFAULT 0
+                                                      CHECK (quality_score >= 0 AND quality_score <= 1),
+                  quality_breakdown   JSONB           NOT NULL DEFAULT '{}',
+                  classification      TEXT            NOT NULL DEFAULT 'project'
+                                                      CHECK (classification IN
+                                                        ('project','fork','tutorial','abandoned','noise','stale')),
+                  is_featured         BOOLEAN         NOT NULL DEFAULT FALSE,
+                  feature_rank        INTEGER,
+                  is_hidden           BOOLEAN         NOT NULL DEFAULT FALSE,
+                  extraction_status   TEXT            NOT NULL DEFAULT 'pending'
+                                                      CHECK (extraction_status IN
+                                                        ('pending','extracting','ready_for_review','completed','failed')),
+                  extraction_error    TEXT,
+                  extracted_at        TIMESTAMPTZ,
+                  reviewed_at         TIMESTAMPTZ,
+                  extractor_model     TEXT,
+                  extractor_version   TEXT,
+                  created_at          TIMESTAMPTZ     NOT NULL DEFAULT now(),
+                  updated_at          TIMESTAMPTZ     NOT NULL DEFAULT now(),
+                  UNIQUE (user_id, repo_full_name)
               );
 
-              CREATE INDEX IF NOT EXISTS idx_repository_profiles_user
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_user_id
                   ON repository_profiles (user_id);
+
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_featured
+                  ON repository_profiles (user_id, feature_rank)
+                  WHERE is_featured = TRUE;
+
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_classification
+                  ON repository_profiles (user_id, classification);
+
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_status
+                  ON repository_profiles (extraction_status);
+
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_tech_stack
+                  ON repository_profiles USING GIN ((extracted->'tech_stack'));
+
+              DO $do$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_trigger
+                  WHERE tgname = 'set_updated_at'
+                    AND tgrelid = 'repository_profiles'::regclass
+                ) THEN
+                  CREATE TRIGGER set_updated_at
+                    BEFORE UPDATE ON repository_profiles
+                    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+                END IF;
+              END $do$;
 
               ALTER TABLE repository_profiles ENABLE ROW LEVEL SECURITY;
 
-              DO $$
+              DO $do$
               BEGIN
                 IF NOT EXISTS (
                   SELECT 1 FROM pg_policies
                   WHERE schemaname = 'public'
                     AND tablename  = 'repository_profiles'
-                    AND policyname = 'repository_profiles_isolation'
+                    AND policyname = 'rls_repository_profiles'
                 ) THEN
-                  EXECUTE $policy$
-                    CREATE POLICY repository_profiles_isolation ON repository_profiles
-                      USING      (user_id = (current_setting('app.current_user_id', true))::uuid)
-                      WITH CHECK (user_id = (current_setting('app.current_user_id', true))::uuid)
-                  $policy$;
+                  CREATE POLICY rls_repository_profiles ON repository_profiles
+                    USING      (user_id = current_setting('app.current_user_id', true)::uuid)
+                    WITH CHECK (user_id = current_setting('app.current_user_id', true)::uuid);
                 END IF;
-              END $$;
+              END $do$;
 
-              SELECT 'migration-001: repository_profiles OK' AS status;
+              GRANT SELECT, INSERT, UPDATE, DELETE ON repository_profiles TO tucaken_app;
+
+              -- repository_profile_embeddings ───────────────────────────────
+              CREATE TABLE IF NOT EXISTS repository_profile_embeddings (
+                  id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+                  user_id         UUID            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                  profile_id      UUID            NOT NULL REFERENCES repository_profiles(id) ON DELETE CASCADE,
+                  chunk_type      TEXT            NOT NULL
+                                                  CHECK (chunk_type IN ('one_liner', 'description', 'highlight')),
+                  content         TEXT            NOT NULL,
+                  content_hash    TEXT            NOT NULL,
+                  embedding       vector(1024)    NOT NULL,
+                  metadata        JSONB           NOT NULL DEFAULT '{}',
+                  last_synced_at  TIMESTAMPTZ     NOT NULL DEFAULT now(),
+                  UNIQUE (profile_id, chunk_type, content_hash)
+              );
+
+              CREATE INDEX IF NOT EXISTS idx_rpe_user_id
+                  ON repository_profile_embeddings (user_id);
+
+              CREATE INDEX IF NOT EXISTS idx_rpe_profile_id
+                  ON repository_profile_embeddings (profile_id);
+
+              CREATE INDEX IF NOT EXISTS idx_rpe_chunk_type
+                  ON repository_profile_embeddings (chunk_type);
+
+              CREATE INDEX IF NOT EXISTS idx_rpe_hnsw
+                  ON repository_profile_embeddings
+                  USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+
+              ALTER TABLE repository_profile_embeddings ENABLE ROW LEVEL SECURITY;
+
+              DO $do$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_policies
+                  WHERE schemaname = 'public'
+                    AND tablename  = 'repository_profile_embeddings'
+                    AND policyname = 'rls_repository_profile_embeddings'
+                ) THEN
+                  CREATE POLICY rls_repository_profile_embeddings ON repository_profile_embeddings
+                    USING      (user_id = current_setting('app.current_user_id', true)::uuid)
+                    WITH CHECK (user_id = current_setting('app.current_user_id', true)::uuid);
+                END IF;
+              END $do$;
+
+              GRANT SELECT, INSERT, UPDATE, DELETE ON repository_profile_embeddings TO tucaken_app;
+
+              SELECT 'migration-001: repository_profiles + embeddings OK' AS status;
               SQL
           env:
             - name: DATABASE_URL
