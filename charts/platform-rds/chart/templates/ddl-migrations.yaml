@@ -1,0 +1,117 @@
+# @format
+# DDL migration jobs — idempotent schema additions that post-date the
+# initial platform-rds-bootstrap image.
+#
+# Each migration is a standalone ArgoCD PostSync Job. All migrations use
+# `CREATE TABLE/INDEX/POLICY IF NOT EXISTS` so they are safe to re-run on
+# every ArgoCD sync. Jobs connect directly to RDS (not PgBouncer) using
+# the same libpq environment variables as the bootstrap job.
+#
+# Naming convention: migration-<NN>-<short-description>
+#   NN — monotonically increasing 2-digit sequence; determines apply order
+#        when ArgoCD runs PostSync hooks in parallel (they are batched by
+#        sync-wave; within a wave ordering is non-deterministic, so make
+#        each migration self-contained and idempotent).
+#
+# Adding a new migration:
+#   1. Add a new Job block below (increment NN).
+#   2. Write idempotent SQL (IF NOT EXISTS / ON CONFLICT DO NOTHING).
+#   3. Commit — ArgoCD will re-run all jobs on next sync (BeforeHookCreation
+#      deletes the previous completed job before creating a new one).
+---
+# =============================================================================
+# Migration 001 — repository_profiles
+#
+# Added in tucaken-app commit a04b719 (2026-05-13).
+# The admin-api GET /github/connected-repos query LEFT JOINs this table to
+# surface AI-generated KB quality scores and profile metadata per repo.
+# Omitting the table causes a PostgreSQL "relation does not exist" error,
+# returning 500 to the BFF and rendering the Connected Repositories panel
+# empty in the UI.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-001-repository-profiles
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: create repository_profiles table"
+  labels:
+    app: platform-rds-migration
+    migration: "001"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "001"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+              CREATE TABLE IF NOT EXISTS repository_profiles (
+                  user_id           uuid        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                  repo_full_name    text        NOT NULL,
+                  quality_score     numeric(4,2),
+                  quality_breakdown jsonb,
+                  classification    text,
+                  extraction_status text,
+                  extracted         jsonb,
+                  created_at        timestamptz NOT NULL DEFAULT now(),
+                  updated_at        timestamptz NOT NULL DEFAULT now(),
+                  PRIMARY KEY (user_id, repo_full_name)
+              );
+
+              CREATE INDEX IF NOT EXISTS idx_repository_profiles_user
+                  ON repository_profiles (user_id);
+
+              ALTER TABLE repository_profiles ENABLE ROW LEVEL SECURITY;
+
+              DO $$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_policies
+                  WHERE schemaname = 'public'
+                    AND tablename  = 'repository_profiles'
+                    AND policyname = 'repository_profiles_isolation'
+                ) THEN
+                  EXECUTE $policy$
+                    CREATE POLICY repository_profiles_isolation ON repository_profiles
+                      USING      (user_id = (current_setting('app.current_user_id', true))::uuid)
+                      WITH CHECK (user_id = (current_setting('app.current_user_id', true))::uuid)
+                  $policy$;
+                END IF;
+              END $$;
+
+              SELECT 'migration-001: repository_profiles OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
