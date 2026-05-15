@@ -456,3 +456,297 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+---
+# =============================================================================
+# Migration 005 — resume_import_corrections
+#
+# Captures (extracted_value, corrected_value) pairs when a user edits a
+# career entry post-import. Eval dataset for extraction-prompt iteration.
+# Mirrors ai-applications migration 016. Idempotent.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-005-resume-import-corrections
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: resume_import_corrections table + indexes"
+  labels:
+    app: platform-rds-migration
+    migration: "005"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "005"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              CREATE TABLE IF NOT EXISTS resume_import_corrections (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                import_id       UUID NOT NULL REFERENCES resume_imports(id)      ON DELETE CASCADE,
+                career_entry_id UUID NOT NULL REFERENCES user_career_history(id) ON DELETE CASCADE,
+                user_id         UUID NOT NULL REFERENCES users(id)               ON DELETE CASCADE,
+                entry_type      TEXT NOT NULL,
+                field_path      TEXT NOT NULL,
+                extracted_value JSONB,
+                corrected_value JSONB,
+                model_id        TEXT,
+                prompt_version  TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+              );
+
+              CREATE INDEX IF NOT EXISTS idx_corrections_user_created
+                ON resume_import_corrections (user_id, created_at DESC);
+              CREATE INDEX IF NOT EXISTS idx_corrections_entry
+                ON resume_import_corrections (career_entry_id);
+              CREATE INDEX IF NOT EXISTS idx_corrections_entry_field
+                ON resume_import_corrections (entry_type, field_path);
+
+              GRANT SELECT, INSERT, UPDATE, DELETE ON resume_import_corrections TO tucaken_app;
+
+              SELECT 'migration-005: resume_import_corrections OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 006 — tavily_cache
+#
+# Memoises non-empty Tavily result sets (role-research dedup, 7-day TTL at
+# read time). Mirrors ai-applications migration 017. Idempotent.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-006-tavily-cache
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: tavily_cache table + index"
+  labels:
+    app: platform-rds-migration
+    migration: "006"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "006"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              CREATE TABLE IF NOT EXISTS tavily_cache (
+                query_hash   TEXT PRIMARY KEY,
+                query_text   TEXT NOT NULL,
+                max_results  SMALLINT NOT NULL,
+                results      JSONB NOT NULL,
+                fetched_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                hit_count    INTEGER     NOT NULL DEFAULT 0
+              );
+
+              CREATE INDEX IF NOT EXISTS idx_tavily_cache_fetched_at
+                ON tavily_cache (fetched_at);
+
+              GRANT SELECT, INSERT, UPDATE, DELETE ON tavily_cache TO tucaken_app;
+
+              SELECT 'migration-006: tavily_cache OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 007 — resume_imports active-index widening
+#
+# Splits the import pipeline added 'analyzing' (gap analysis, A3) and
+# 'confirmed' (enrichment dispatch, A2) states. Widen the active-imports
+# partial index so an import stuck in either stays visible to monitoring.
+# Supersedes ai-applications migration 018 (which added 'confirmed' only).
+# DROP IF EXISTS + CREATE makes it idempotent.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-007-resume-imports-active-index
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: widen idx_resume_imports_status_active"
+  labels:
+    app: platform-rds-migration
+    migration: "007"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "007"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              DROP INDEX IF EXISTS idx_resume_imports_status_active;
+
+              CREATE INDEX idx_resume_imports_status_active
+                ON resume_imports (status)
+                WHERE status IN ('queued', 'parsing', 'extracting_career',
+                                 'analyzing', 'confirmed', 'enriching');
+
+              SELECT 'migration-007: idx_resume_imports_status_active OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 008 — resume_imports gap-analysis report columns
+#
+# Phase-1 gap-analysis artifact. gap_report is nullable (gap analysis is
+# non-fatal); gap_report_generated_at is the artifact-ready signal the
+# admin-api progress endpoint exposes. Mirrors ai-applications migration
+# 019. Idempotent (ADD COLUMN IF NOT EXISTS).
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-008-resume-imports-gap-report
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: resume_imports gap_report columns"
+  labels:
+    app: platform-rds-migration
+    migration: "008"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "008"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              ALTER TABLE resume_imports
+                ADD COLUMN IF NOT EXISTS gap_report              JSONB,
+                ADD COLUMN IF NOT EXISTS gap_report_generated_at TIMESTAMPTZ;
+
+              SELECT 'migration-008: resume_imports gap_report OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
