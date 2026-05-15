@@ -1328,7 +1328,7 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{resource.service.name=\"admin-api\"} | select(http.route, http.status_code, http.method) | http.route =~ `/api/admin/resume-imports.*`"
+          "query": "{ resource.service.name=\"admin-api\" && span.http.target =~ \"/api/admin/resume-imports.*\" } | select(span.http.target, span.http.status_code, span.http.method, span.url.path)"
         }
       ]
     },
@@ -1352,7 +1352,7 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{resource.service.name=\"resume-import-processor\"} | select(resume.import_id, deployment.environment)"
+          "query": "{ resource.service.name=\"resume-import-processor\" } | select(span.import.id, span.user.id, span.role.title, span.role.company)"
         }
       ]
     },
