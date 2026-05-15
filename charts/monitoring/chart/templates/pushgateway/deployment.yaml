@@ -7,6 +7,11 @@ metadata:
   labels: {{- include "monitoring.fullLabels" "pushgateway" | nindent 4 }}
 spec:
   replicas: {{ .Values.pushgateway.replicas }}
+  {{- if .Values.pushgateway.persistence.enabled }}
+  # RWO PVC cannot attach to two pods; Recreate avoids rollout deadlock.
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "monitoring.selectorLabels" "pushgateway" | nindent 6 }}
@@ -31,15 +36,20 @@ spec:
         - name: pushgateway
           image: {{ .Values.pushgateway.image }}
           args:
-            # Persist push state on graceful shutdown so a pod restart
-            # doesn't lose the most recent terminal counters.
-            - "--persistence.file=/tmp/pushgateway-state"
-            - "--persistence.interval=5m"
+            # Persist push state to a PVC so pod restarts (drift eviction,
+            # image roll, node replacement) don't lose pushed groups.
+            - "--persistence.file={{ .Values.pushgateway.persistence.mountPath }}/state"
+            - "--persistence.interval={{ .Values.pushgateway.persistence.flushInterval }}"
             - "--web.listen-address=:{{ .Values.pushgateway.service.port }}"
           ports:
             - containerPort: {{ .Values.pushgateway.service.port }}
               name: http
           resources: {{- toYaml .Values.pushgateway.resources | nindent 12 }}
+          {{- if .Values.pushgateway.persistence.enabled }}
+          volumeMounts:
+            - name: state
+              mountPath: {{ .Values.pushgateway.persistence.mountPath }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /-/ready
@@ -52,4 +62,10 @@ spec:
               port: {{ .Values.pushgateway.service.port }}
             initialDelaySeconds: 15
             periodSeconds: 15
+      {{- if .Values.pushgateway.persistence.enabled }}
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: pushgateway-state
+      {{- end }}
 {{- end }}

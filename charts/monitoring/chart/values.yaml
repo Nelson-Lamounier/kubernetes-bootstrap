@@ -385,6 +385,19 @@ pushgateway:
       memory: 128Mi
   service:
     port: 9091
+  # Persistent state for pushed groups. Without a PVC, push state lives in
+  # the container's /tmp and vanishes on every pod restart (drift eviction,
+  # image roll-out, node replacement) — which makes Grafana panels backed
+  # by Pushgateway counters read "No data" even though Jobs ran.
+  # Persistence interval is the worst-case data loss on hard crash.
+  persistence:
+    enabled:         true
+    size:            1Gi
+    storageClass:    "ebs-sc"
+    # rwOnce: PVC is RWO; deployment uses strategy Recreate to avoid two
+    # pods racing for the same volume during rollouts.
+    flushInterval:   1m
+    mountPath:       /data/pushgateway-state
   # External push endpoint for GH Actions DORA leg. Reuses the Loki
   # push-auth Middleware (same htpasswd, same SSM path) since both surface
   # write-only to the same caller.

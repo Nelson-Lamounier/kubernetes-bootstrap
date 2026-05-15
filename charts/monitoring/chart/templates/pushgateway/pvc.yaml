@@ -1,0 +1,15 @@
+{{- if and .Values.pushgateway.enabled .Values.pushgateway.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pushgateway-state
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "pushgateway" | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.pushgateway.persistence.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.pushgateway.persistence.size | quote }}
+{{- end }}
