@@ -3,7 +3,10 @@
     "list": [
       {
         "name": "Deploys",
-        "datasource": { "type": "loki", "uid": "loki" },
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
         "enable": true,
         "expr": "{job=\"github-actions\", event=~\"deploy_succeeded|deploy_failed\", service=~\"ingestion|resume-import-processor\"} | json",
         "iconColor": "blue",
@@ -15,13 +18,21 @@
   "editable": true,
   "graphTooltip": 1,
   "id": null,
-  "tags": ["ingestion", "resume-import", "background-jobs", "tracing"],
+  "tags": [
+    "ingestion",
+    "resume-import",
+    "background-jobs",
+    "tracing"
+  ],
   "title": "Background Jobs — Ingestion + Resume Import",
   "uid": "background-jobs",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "30s",
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timepicker": {},
   "templating": {
     "list": [
@@ -30,7 +41,10 @@
         "type": "textbox",
         "label": "User ID",
         "query": "",
-        "current": { "text": "", "value": "" },
+        "current": {
+          "text": "",
+          "value": ""
+        },
         "hide": 0
       },
       {
@@ -38,8 +52,39 @@
         "type": "textbox",
         "label": "Trace ID",
         "query": "",
-        "current": { "text": "", "value": "" },
+        "current": {
+          "text": "",
+          "value": ""
+        },
         "hide": 0
+      },
+      {
+        "name": "pipeline",
+        "type": "custom",
+        "label": "Pipeline",
+        "query": "all,ingestion,resume-import",
+        "current": {
+          "text": "all",
+          "value": "all"
+        },
+        "options": [
+          {
+            "text": "all",
+            "value": "all",
+            "selected": true
+          },
+          {
+            "text": "ingestion",
+            "value": "ingestion",
+            "selected": false
+          },
+          {
+            "text": "resume-import",
+            "value": "resume-import",
+            "selected": false
+          }
+        ],
+        "description": "Scope panels to one pipeline. \"all\" keeps the cross-pipeline view."
       }
     ]
   },
@@ -47,7 +92,12 @@
     {
       "type": "row",
       "title": "Health at a Glance — last 24 h",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "collapsed": false,
       "id": 1
     },
@@ -55,123 +105,338 @@
       "type": "stat",
       "title": "Ingestion jobs — succeeded",
       "id": 2,
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "none" },
-      "fieldConfig": {
-        "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null}] }, "color": {"mode":"thresholds"} }
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
       },
-      "targets": [{
-        "expr": "count_over_time({namespace=\"ingestion\", level=\"info\"} | json | event=\"ingestion.complete\" | status=\"complete\" [$__range])",
-        "legendFormat": "success"
-      }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ingestion_runs_total{outcome=\"success\"}[$__range]))",
+          "legendFormat": "success"
+        }
+      ]
     },
     {
       "type": "stat",
       "title": "Ingestion jobs — failed",
       "id": 3,
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "none" },
-      "fieldConfig": {
-        "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"red","value":1}] }, "color": {"mode":"thresholds"} }
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
       },
-      "targets": [{
-        "expr": "count_over_time({namespace=\"ingestion\", level=\"info\"} | json | event=\"ingestion.complete\" | status=\"error\" [$__range])",
-        "legendFormat": "failed"
-      }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ingestion_runs_total{outcome=\"failed\"}[$__range]))",
+          "legendFormat": "failed"
+        }
+      ]
     },
     {
       "type": "stat",
       "title": "Resume import — succeeded",
       "id": 4,
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "none" },
-      "fieldConfig": {
-        "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null}] }, "color": {"mode":"thresholds"} }
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
       },
-      "targets": [{
-        "expr": "count_over_time({namespace=\"resume-import\", level=\"info\"} | json | event=\"resume_import.complete\" | status=\"complete\" [$__range])",
-        "legendFormat": "success"
-      }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(resume_import_runs_total{outcome=\"success\"}[$__range]))",
+          "legendFormat": "success"
+        }
+      ]
     },
     {
       "type": "stat",
       "title": "Resume import — failed",
       "id": 5,
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "none" },
-      "fieldConfig": {
-        "defaults": { "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null},{"color":"red","value":1}] }, "color": {"mode":"thresholds"} }
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
       },
-      "targets": [{
-        "expr": "count_over_time({namespace=\"resume-import\", level=\"info\"} | json | event=\"resume_import.complete\" | status=\"error\" [$__range])",
-        "legendFormat": "failed"
-      }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(resume_import_runs_total{outcome=\"failed\"}[$__range]))",
+          "legendFormat": "failed"
+        }
+      ]
     },
     {
       "type": "stat",
       "title": "Active K8s jobs now",
       "id": 6,
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{"color":"green","value":null}] } } },
-      "targets": [{
-        "expr": "sum(kube_job_status_active{namespace=~\"ingestion|resume-import\"})",
-        "legendFormat": "active"
-      }]
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kube_job_status_active{namespace=~\"${pipeline:regex}|(ingestion|resume-import)\"})",
+          "legendFormat": "active"
+        }
+      ],
+      "description": " Honours $pipeline; \"all\" matches both namespaces."
     },
     {
       "type": "stat",
       "title": "Chunks embedded today",
       "id": 7,
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "value", "graphMode": "none" },
-      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{"color":"blue","value":null}] } } },
-      "targets": [{
-        "expr": "sum_over_time({namespace=\"ingestion\", level=\"info\"} | json | event=\"ingestion.complete\" | unwrap embedded [$__range])",
-        "legendFormat": "chunks"
-      }]
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ingestion_chunks_total[$__range])) + sum(increase(resume_import_embeddings_created_total[$__range]))",
+          "legendFormat": "chunks + embeddings"
+        }
+      ]
     },
     {
       "type": "row",
       "title": "Phase Breakdown — Tempo span durations",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
       "collapsed": false,
       "id": 10
     },
     {
       "type": "traces",
-      "title": "Ingestion — pipeline spans (Tempo)",
+      "title": "Pipeline spans — both ($pipeline)",
       "id": 11,
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 6 },
-      "datasource": { "type": "tempo", "uid": "tempo" },
-      "targets": [{
-        "queryType": "traceql",
-        "query": "{ resource.service.name =~ \"ingestion|ingestion-worker\" }",
-        "tableType": "spans"
-      }]
-    },
-    {
-      "type": "traces",
-      "title": "Resume import — pipeline spans (Tempo)",
-      "id": 12,
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 6 },
-      "datasource": { "type": "tempo", "uid": "tempo" },
-      "targets": [{
-        "queryType": "traceql",
-        "query": "{ resource.service.name = \"resume-import-processor\" }",
-        "tableType": "spans"
-      }]
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name =~ \"ingestion|ingestion-worker|resume-import-processor\" }"
+        }
+      ],
+      "description": "TraceQL across ingestion + resume-import. Filter to one via the $pipeline variable. Click any trace to open the waterfall in Tempo."
     },
     {
       "type": "row",
       "title": "Failure Analysis",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
       "collapsed": false,
       "id": 20
     },
@@ -179,29 +444,58 @@
       "type": "timeseries",
       "title": "Error rate by namespace",
       "id": 21,
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "targets": [{
-        "expr": "sum by (namespace) (rate({namespace=~\"ingestion|resume-import\", level=\"error\"} [5m]))",
-        "legendFormat": "{{namespace}}"
-      }]
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "expr": "sum by (namespace) (rate({namespace=~\"ingestion|resume-import\", level=\"error\"} [5m]))",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
     },
     {
       "type": "logs",
       "title": "Last 20 errors — ingestion + resume-import",
       "id": 22,
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "none" },
-      "targets": [{
-        "expr": "{namespace=~\"ingestion|resume-import\", level=\"error\"} | json",
-        "maxLines": 20
-      }]
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "expr": "{namespace=~\"ingestion|resume-import\", level=\"error\"} | json",
+          "maxLines": 20
+        }
+      ]
     },
     {
       "type": "row",
       "title": "Correlated Log Stream — filter by Trace ID",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
       "collapsed": false,
       "id": 30
     },
@@ -209,18 +503,37 @@
       "type": "logs",
       "title": "Full chain — admin-api + job pod (filter: $trace_id / $user_id)",
       "id": 31,
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 26 },
-      "datasource": { "type": "loki", "uid": "loki" },
-      "options": { "showTime": true, "wrapLogMessage": false, "dedupStrategy": "none" },
-      "targets": [{
-        "expr": "{namespace=~\"admin-api|ingestion|resume-import\"} | json | trace_id=~\"${trace_id:pipe}\" | user_id=~\"${user_id:pipe}\"",
-        "maxLines": 200
-      }]
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": false,
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "expr": "{namespace=~\"admin-api|ingestion|resume-import\"} | json | trace_id=~\"${trace_id:pipe}\" | user_id=~\"${user_id:pipe}\"",
+          "maxLines": 200
+        }
+      ]
     },
     {
       "type": "row",
       "title": "Trace Waterfall — Tempo",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
       "collapsed": false,
       "id": 40
     },
@@ -228,12 +541,264 @@
       "type": "traces",
       "title": "Trace detail — paste Trace ID in $trace_id variable above",
       "id": 41,
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 41 },
-      "datasource": { "type": "tempo", "uid": "tempo" },
-      "targets": [{
-        "queryType": "traceId",
-        "query": "${trace_id}"
-      }]
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "queryType": "traceId",
+          "query": "${trace_id}"
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "type": "row",
+      "title": "Duration distribution (Pushgateway histograms)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      }
+    },
+    {
+      "id": 51,
+      "type": "timeseries",
+      "title": "Ingestion duration p50/p95",
+      "description": "Per-run wall-clock from Pushgateway histogram. Watch for the gap between p50 and p95 widening — that's when a slow repo (lots of files / large diff) drags fleet latency.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "type": "timeseries",
+      "title": "Resume-import duration p50/p95",
+      "description": "Same as ingestion but for resume_import_duration_seconds. The resume-import dashboard breaks this down per sub-step.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(resume_import_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(resume_import_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "type": "timeseries",
+      "title": "K8s job status timeline — both pipelines",
+      "description": "Active / succeeded / failed counts from kube-state-metrics. Useful for seeing burst patterns and TTL behaviour. Scoped to $pipeline.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kube_job_status_active{namespace=~\"${pipeline:regex}|(ingestion|resume-import)\"})",
+          "legendFormat": "active"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(kube_job_status_succeeded{namespace=~\"${pipeline:regex}|(ingestion|resume-import)\"})",
+          "legendFormat": "succeeded"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(kube_job_status_failed{namespace=~\"${pipeline:regex}|(ingestion|resume-import)\"})",
+          "legendFormat": "failed"
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "type": "timeseries",
+      "title": "Throughput — chunks + embeddings created (1 h rate)",
+      "description": "Sum of ingestion_chunks_total + resume_import_embeddings_created_total. Both pipelines create vector store rows; this is the unified throughput signal.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 64
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ingestion_chunks_total[1h]))",
+          "legendFormat": "ingestion chunks"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(resume_import_embeddings_created_total[1h]))",
+          "legendFormat": "resume embeddings"
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "type": "row",
+      "title": "Spend — Bedrock cost across both pipelines (RDS)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 72
+      }
+    },
+    {
+      "id": 61,
+      "type": "table",
+      "title": "Bedrock spend by pipeline + agent (24 h)",
+      "description": "Aggregates prompt_invocations across both pipelines so you can compare $ per workload. resume-import / ingestion appear as separate rows.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  pipeline,\n  agent,\n  COUNT(*)                                            AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens), 0) AS in_tokens,\n  COALESCE(SUM(output_tokens), 0)                              AS out_tokens,\n  ROUND(SUM(total_cost_cents) / 100, 4)               AS usd,\n  ROUND(AVG(latency_ms)::numeric, 0)                  AS avg_latency_ms\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\nGROUP BY pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 50"
+        }
+      ]
+    }
+  ],
+  "links": [
+    {
+      "title": "Resume Import (detail)",
+      "type": "link",
+      "url": "/d/resume-import",
+      "targetBlank": false,
+      "icon": "external link",
+      "tags": []
+    },
+    {
+      "title": "Ingestion logs (Explore)",
+      "type": "link",
+      "url": "/explore?orgId=1&left=%7B%22datasource%22:%22loki%22,%22queries%22:%5B%7B%22expr%22:%22%7Bnamespace%3D%5C%22ingestion%5C%22%7D%22%7D%5D%7D",
+      "targetBlank": false,
+      "icon": "external link",
+      "tags": []
     }
   ]
 }
