@@ -95,6 +95,42 @@ data:
     prometheus.exporter.self "default" {
     }
 
+    {{- if .Values.alloy.kubernetesEvents.enabled }}
+    // =========================================================================
+    // Kubernetes events → Loki
+    // =========================================================================
+    // Streams every K8s Event (kubectl get events) cluster-wide. Used by the
+    // resume-import dashboard's "K8s events" panel and the cluster-events
+    // explore view. Requires the ServiceAccount/ClusterRole defined in
+    // templates/alloy/rbac.yaml.
+    loki.source.kubernetes_events "cluster" {
+      job_name   = "integrations/kubernetes/eventhandler"
+      log_format = "logfmt"
+      forward_to = [loki.process.kube_events.receiver]
+    }
+    loki.process "kube_events" {
+      forward_to = [loki.write.default.receiver]
+      // Parse fields the dashboard filters on. The Alloy events source emits
+      // logfmt with keys: name, namespace, reason, type, regarding_*, etc.
+      stage.logfmt {
+        mapping = {
+          "namespace" = "",
+          "reason"    = "",
+          "type"      = "",
+          "name"      = "",
+        }
+      }
+      stage.labels {
+        values = {
+          job       = "integrations/kubernetes/eventhandler",
+          namespace = "",
+          type      = "",
+          reason    = "",
+        }
+      }
+    }
+    {{- end }}
+
     // =========================================================================
     // AWS log scrapers — CloudWatch Logs → Loki
     // =========================================================================

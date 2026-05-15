@@ -277,6 +277,16 @@ alloy:
     otlpHttpPort: 4318
     otlpGrpcPort: 4317
 
+  # ── Kubernetes events → Loki ─────────────────────────────────────────────
+  # Streams every K8s Event cluster-wide to Loki under
+  # job="integrations/kubernetes/eventhandler". Powers the "K8s events"
+  # panels in resume-import / cluster-events dashboards. When enabled,
+  # provisions a dedicated ServiceAccount + ClusterRole (templates/alloy/
+  # rbac.yaml) so Alloy can list/watch events cluster-wide. Without this
+  # block the SA stays as `default` (no events RBAC).
+  kubernetesEvents:
+    enabled: true
+
   # ── AWS log scrapers ────────────────────────────────────────────────────────
   # Alloy polls CloudWatch Log Groups + S3 buckets and forwards to Loki.
   # Required IAM on the EC2 instance profile:

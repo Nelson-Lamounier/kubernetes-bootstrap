@@ -944,7 +944,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{job=~\"eventrouter|integrations/kubernetes/eventhandler\"} | json | namespace=\"resume-import\""
+          "expr": "{job=\"integrations/kubernetes/eventhandler\", namespace=\"resume-import\"} | logfmt | line_format \"[{{.type}}] {{.reason}} {{.name}}: {{.__line__}}\""
         }
       ]
     },
@@ -972,7 +972,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{namespace=\"external-secrets\"} | json | line_format \"{{.msg}} {{.ExternalSecret}} {{.namespace}}\" | namespace=\"resume-import\""
+          "expr": "{namespace=\"external-secrets\"} |~ \"resume-import\" | json | line_format \"{{.msg}} es={{.ExternalSecret}} ns={{.namespace}}\""
         }
       ]
     },
