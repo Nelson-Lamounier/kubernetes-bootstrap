@@ -3,7 +3,10 @@
     "list": [
       {
         "name": "Deploys",
-        "datasource": { "type": "loki", "uid": "loki" },
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
         "enable": true,
         "expr": "{job=\"github-actions\", event=~\"deploy_succeeded|deploy_failed\", service=~\"admin-api|resume-import-processor\"} | json",
         "iconColor": "blue",
@@ -24,13 +27,22 @@
       "icon": "external link"
     }
   ],
-  "tags": ["resume", "import", "career", "tucaken", "admin-api"],
+  "tags": [
+    "resume",
+    "import",
+    "career",
+    "tucaken",
+    "admin-api"
+  ],
   "title": "Resume Import — Upload to Career Entries",
   "uid": "resume-import",
   "schemaVersion": 39,
   "version": 2,
   "refresh": "30s",
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timepicker": {},
   "templating": {
     "list": [
@@ -39,21 +51,47 @@
         "type": "custom",
         "label": "Environment",
         "query": "development,production",
-        "current": { "text": "development", "value": "development" },
+        "current": {
+          "text": "development",
+          "value": "development"
+        },
         "options": [
-          { "text": "development", "value": "development", "selected": true },
-          { "text": "production",  "value": "production",  "selected": false }
+          {
+            "text": "development",
+            "value": "development",
+            "selected": true
+          },
+          {
+            "text": "production",
+            "value": "production",
+            "selected": false
+          }
         ]
+      },
+      {
+        "name": "importId",
+        "type": "textbox",
+        "label": "Import ID",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "description": "Filter per-import drill-down panels to a single importId (UUID)."
       }
     ]
   },
   "panels": [
-
     {
       "type": "row",
       "id": 100,
       "title": "Funnel — upload → dispatch → job outcome (24 h)",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "collapsed": false
     },
     {
@@ -61,37 +99,94 @@
       "type": "stat",
       "title": "Presigned URLs issued",
       "description": "Successful GET /upload-url — presigned PUT URL returned, resume_imports row created (status=awaiting_upload).",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
-      "fieldConfig": {
-        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
-        "overrides": []
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
       },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "area" },
-      "targets": [{ "refId": "A", "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\",status_code=\"200\"}[24h]))", "legendFormat": "issued" }]
-    },
-    {
-      "id": 102,
-      "type": "stat",
-      "title": "Lost uploads (S3 CORS / network gap)",
-      "description": "URLs issued minus jobs dispatched. > 0 means the browser PUT to S3 failed before /complete was called. Root cause: S3 CORS mis-match, presign expiry, or network error. The gap from the 2026-05-09 incident was caused by tucaken.io missing from the S3 CORS AllowedOrigins.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green",  "value": null },
-              { "color": "orange", "value": 1 },
-              { "color": "red",    "value": 3 }
+              {
+                "color": "blue",
+                "value": null
+              }
             ]
           }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\",status_code=\"200\"}[24h]))",
+          "legendFormat": "issued"
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "Lost uploads (S3 CORS / network gap)",
+      "description": "URLs issued minus jobs dispatched. > 0 means the browser PUT to S3 failed before /complete was called. Root cause: S3 CORS mis-match, presign expiry, or network error. The gap from the 2026-05-09 incident was caused by tucaken.io missing from the S3 CORS AllowedOrigins.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background"
+      },
       "targets": [
         {
           "refId": "A",
@@ -105,75 +200,213 @@
       "type": "stat",
       "title": "Uploads dispatched",
       "description": "POST /:id/complete returned 202 — S3 PUT succeeded and K8s Job was created.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "area" },
-      "targets": [{ "refId": "A", "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"202\"}[24h]))", "legendFormat": "dispatched" }]
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"202\"}[24h]))",
+          "legendFormat": "dispatched"
+        }
+      ]
     },
     {
       "id": 104,
       "type": "stat",
       "title": "Jobs succeeded",
       "description": "resume-import-processor Jobs that completed all pipeline steps and pushed outcome=success to Pushgateway.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } },
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background", "graphMode": "area" },
-      "targets": [{ "refId": "A", "expr": "sum(increase(resume_import_runs_total{outcome=\"success\"}[24h]))", "legendFormat": "success" }]
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(resume_import_runs_total{outcome=\"success\"}[24h]))",
+          "legendFormat": "success"
+        }
+      ]
     },
     {
       "id": 105,
       "type": "stat",
       "title": "Jobs failed",
       "description": "Jobs that exited with outcome=failed. Caused by PIPELINE_ERROR (caught in main), or by a crash before main() ran (MODULE_NOT_FOUND, CreateContainerConfigError) which leaves the import stuck at status=queued until manually reset.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "thresholds": {
             "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }]
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
           }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background" },
-      "targets": [{ "refId": "A", "expr": "sum(increase(resume_import_runs_total{outcome=\"failed\"}[24h]))", "legendFormat": "failed" }]
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(resume_import_runs_total{outcome=\"failed\"}[24h]))",
+          "legendFormat": "failed"
+        }
+      ]
     },
     {
       "id": 106,
       "type": "stat",
       "title": "Job dispatch errors (502)",
       "description": "POST /:id/complete returned 502 — K8s Job creation failed. Causes: image not resolved (ESO not yet synced), RBAC error, or namespace ResourceQuota exceeded.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "thresholds": {
             "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }]
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
           }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "background" },
-      "targets": [{ "refId": "A", "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"502\"}[24h]))", "legendFormat": "502s" }]
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"502\"}[24h]))",
+          "legendFormat": "502s"
+        }
+      ]
     },
-
     {
       "type": "row",
       "id": 150,
       "title": "Infrastructure prerequisites — secrets, pod health, K8s job states",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
       "collapsed": false
     },
     {
@@ -181,19 +414,47 @@
       "type": "stat",
       "title": "Secrets in resume-import ns",
       "description": "Secrets present in the resume-import namespace (from kube-state-metrics). Expected: 2 required (platform-rds-credentials, admin-api-bedrock) + 1 optional (resume-import-secrets). Job pods use envFrom.secretRef — absent secrets cause CreateContainerConfigError. The 2026-05-09 incident: 0 secrets, fixed by applying ExternalSecret manifests.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 6 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 6
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "thresholds": {
             "mode": "absolute",
-            "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 1 }, { "color": "green", "value": 2 }]
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 2
+              }
+            ]
           }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
       "targets": [
         {
           "refId": "A",
@@ -207,19 +468,47 @@
       "type": "stat",
       "title": "Job pods in error (waiting)",
       "description": "Job pods in a waiting state due to CreateContainerConfigError (missing secret), ErrImagePull (ECR auth expired), or ImagePullBackOff. Any value > 0 means the job cannot start. Check the pod waiting reasons panel below for the specific reason.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 6 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 6
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "thresholds": {
             "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 2 }]
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
           }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
       "targets": [
         {
           "refId": "A",
@@ -233,13 +522,39 @@
       "type": "stat",
       "title": "K8s jobs active now",
       "description": "K8s Jobs currently running a resume-import-processor pod. Normally 0 between imports. > 0 during active processing. Stuck at > 0 for > 10 min may indicate a hung Bedrock call or pgbouncer connectivity issue.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 6 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 6
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
       "targets": [
         {
           "refId": "A",
@@ -253,19 +568,47 @@
       "type": "stat",
       "title": "K8s jobs failed (not yet TTL-cleaned)",
       "description": "Failed K8s Jobs still present (TTL = 3600s after completion). Each failed Job means backoffLimit was exhausted without a successful run. The 2026-05-09 incident produced 1 failed job: pod#1 CreateContainerConfigError, pod#2 MODULE_NOT_FOUND.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 6 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 6
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "thresholds": {
             "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 3 }]
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
           }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
       "targets": [
         {
           "refId": "A",
@@ -279,13 +622,39 @@
       "type": "stat",
       "title": "K8s jobs succeeded (not yet TTL-cleaned)",
       "description": "Succeeded K8s Jobs still present in the cluster (TTL = 3600s). Confirms the processor ran to completion.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 6 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 6
+      },
       "fieldConfig": {
-        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } },
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
       "targets": [
         {
           "refId": "A",
@@ -299,19 +668,43 @@
       "type": "stat",
       "title": "ECR token refresh last status",
       "description": "ecr-token-refresh CronJob status. A failed run means ECR auth tokens may have expired, causing ErrImagePull or ImagePullBackOff on the next resume-import-processor Job pod. Observed failing 2026-05-09 during node shutdown.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 6 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 6
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "thresholds": {
             "mode": "absolute",
-            "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }]
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
           }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
       "targets": [
         {
           "refId": "A",
@@ -320,16 +713,34 @@
         }
       ]
     },
-
     {
       "id": 157,
       "type": "timeseries",
       "title": "Job pod waiting reasons over time",
       "description": "kube_pod_container_status_waiting_reason for namespace=resume-import. CreateContainerConfigError = missing secret or configmap (fix: apply ExternalSecrets). ErrImagePull / ImagePullBackOff = ECR token expired (fix: force ecr-token-refresh). OOMKilled = increase container memory limit.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
-      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -343,22 +754,57 @@
       "type": "timeseries",
       "title": "K8s job status timeline",
       "description": "Active / succeeded / failed job counts over time in the resume-import namespace. A spike in 'failed' with no 'succeeded' indicates the processor could not complete any run. Correlate with pod waiting reasons panel.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
-      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(kube_job_status_active{namespace=\"resume-import\"})", "legendFormat": "active" },
-        { "refId": "B", "expr": "sum(kube_job_status_succeeded{namespace=\"resume-import\"})", "legendFormat": "succeeded" },
-        { "refId": "C", "expr": "sum(kube_job_status_failed{namespace=\"resume-import\"})", "legendFormat": "failed" }
+        {
+          "refId": "A",
+          "expr": "sum(kube_job_status_active{namespace=\"resume-import\"})",
+          "legendFormat": "active"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(kube_job_status_succeeded{namespace=\"resume-import\"})",
+          "legendFormat": "succeeded"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(kube_job_status_failed{namespace=\"resume-import\"})",
+          "legendFormat": "failed"
+        }
       ]
     },
-
     {
       "type": "row",
       "id": 200,
       "title": "Step-by-step — request rates through the upload flow",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
       "collapsed": false
     },
     {
@@ -366,29 +812,83 @@
       "type": "timeseries",
       "title": "GET /upload-url — rate by status code",
       "description": "200 = URL issued + DB row created. 429 = free-tier quota hit. 415 = unsupported MIME. 413 = file too large. 503 = S3 bucket not configured (ASSETS_BUCKET_NAME unset — ESO not synced).",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
-      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
-      "targets": [{ "refId": "A", "expr": "sum by (status_code) (rate(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\"}[5m]))", "legendFormat": "{{status_code}}" }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_code) (rate(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\"}[5m]))",
+          "legendFormat": "{{status_code}}"
+        }
+      ]
     },
     {
       "id": 202,
       "type": "timeseries",
       "title": "POST /:id/complete — rate by status code",
       "description": "202 = K8s Job dispatched. 404 = import not found or already in progress. 502 = Job creation failed. A gap between /upload-url 200s and /complete 202s means the S3 PUT failed (CORS, expiry, network).",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
-      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
-      "targets": [{ "refId": "A", "expr": "sum by (status_code) (rate(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\"}[5m]))", "legendFormat": "{{status_code}}" }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_code) (rate(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\"}[5m]))",
+          "legendFormat": "{{status_code}}"
+        }
+      ]
     },
-
     {
       "type": "row",
       "id": 250,
       "title": "Full pipeline chain — combined log view (admin-api → job pod)",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
       "collapsed": false
     },
     {
@@ -396,9 +896,23 @@
       "type": "logs",
       "title": "Full chain — admin-api + job pod (time-ordered)",
       "description": "Combined log stream from both admin-api (upload-url, complete, poll) and resume-import job pods. Shows the complete sequence: presign → dispatch → pod start → extraction → enrichment → completion. Use this panel to identify exactly where the pipeline stalled. Filter by trace_id to follow a single import end-to-end.",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 28 },
-      "options": { "dedupStrategy": "none", "showTime": true, "sortOrder": "Ascending", "wrapLogMessage": true, "enableLogDetails": true },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Ascending",
+        "wrapLogMessage": true,
+        "enableLogDetails": true
+      },
       "targets": [
         {
           "refId": "A",
@@ -411,9 +925,22 @@
       "type": "logs",
       "title": "K8s events — resume-import namespace",
       "description": "Kubernetes Events for the resume-import namespace from eventrouter/Loki. Shows: FailedCreate (quota exceeded), CreateContainerConfigError (missing secret — fix: apply ExternalSecrets), BackOff (image pull failure), SuccessfulCreate (job pod started). Critical for diagnosing pre-start failures that never appear in the pod logs.",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
-      "options": { "dedupStrategy": "none", "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
       "targets": [
         {
           "refId": "A",
@@ -426,9 +953,22 @@
       "type": "logs",
       "title": "ESO controller — ExternalSecret sync events",
       "description": "External Secrets Operator controller logs filtered to resume-import namespace. Shows SecretSynced (healthy), SecretSyncedError (store unreachable or SSM path missing), and NotFound errors. The 2026-05-09 incident: ExternalSecret CRDs existed on disk but were never applied to the cluster — ESO had nothing to sync.",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
-      "options": { "dedupStrategy": "none", "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
       "targets": [
         {
           "refId": "A",
@@ -436,12 +976,16 @@
         }
       ]
     },
-
     {
       "type": "row",
       "id": 300,
       "title": "Job processor — durations and pipeline outcomes",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
       "collapsed": false
     },
     {
@@ -449,24 +993,76 @@
       "type": "timeseries",
       "title": "Job outcome rate (Pushgateway)",
       "description": "resume_import_runs_total from Pushgateway. Only populated after a Job completes (success or caught-error). Jobs that crash before main() (MODULE_NOT_FOUND, CreateContainerConfigError) never reach the finally block and never push — use K8s job status panels above to detect those failures.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 51 },
-      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
-      "targets": [{ "refId": "A", "expr": "sum by (outcome) (increase(resume_import_runs_total[24h]))", "legendFormat": "{{outcome}}" }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 51
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (increase(resume_import_runs_total[24h]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
     },
     {
       "id": 302,
       "type": "timeseries",
       "title": "Job end-to-end duration (p50 / p95)",
       "description": "resume_import_duration_seconds from Pushgateway. Includes S3 download, parsing, Bedrock extraction, per-role enrichment, and embedding. p95 > 300 s may indicate Bedrock throttling or Tavily timeouts.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 51 },
-      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 51
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
       "targets": [
-        { "refId": "A", "expr": "histogram_quantile(0.50, sum by (le, outcome) (resume_import_duration_seconds_bucket))", "legendFormat": "p50 {{outcome}}" },
-        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le, outcome) (resume_import_duration_seconds_bucket))", "legendFormat": "p95 {{outcome}}" }
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le, outcome) (resume_import_duration_seconds_bucket))",
+          "legendFormat": "p50 {{outcome}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (resume_import_duration_seconds_bucket))",
+          "legendFormat": "p95 {{outcome}}"
+        }
       ]
     },
     {
@@ -474,29 +1070,83 @@
       "type": "timeseries",
       "title": "Per-step duration (p95)",
       "description": "resume_import_step_duration_seconds breakdown. Steps: s3_download, pdf_parse/docx_parse, bedrock_extract, enrichment_per_role, embed_persist. Identifies the bottleneck step.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 59 },
-      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
-      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, step) (resume_import_step_duration_seconds_bucket))", "legendFormat": "p95 {{step}}" }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 59
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, step) (resume_import_step_duration_seconds_bucket))",
+          "legendFormat": "p95 {{step}}"
+        }
+      ]
     },
     {
       "id": 304,
       "type": "timeseries",
       "title": "Enrichment entries processed",
       "description": "resume_import_enrichment_entries_total. enriched = Bedrock + Tavily complete. skipped = no search results (null return from enrichRole). failed = enrichRole threw.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 59 },
-      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
-      "targets": [{ "refId": "A", "expr": "sum by (outcome) (increase(resume_import_enrichment_entries_total[24h]))", "legendFormat": "{{outcome}}" }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 59
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (increase(resume_import_enrichment_entries_total[24h]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
     },
-
     {
       "type": "row",
       "id": 400,
       "title": "Status polling — frontend progress updates",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 67 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 67
+      },
       "collapsed": false
     },
     {
@@ -504,32 +1154,88 @@
       "type": "timeseries",
       "title": "GET /:id — status poll rate",
       "description": "Frontend polls every 2-3 s from status=queued until completed or failed. A sustained high rate with no job completion indicates a stuck or crashed Job. If the job crashed before main(), the import stays at status=queued indefinitely — look for kube_job_status_failed > 0 and manually reset status=failed to unblock the retry endpoint.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 68 },
-      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
-      "targets": [{ "refId": "A", "expr": "sum by (status_code) (rate(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id\"}[5m]))", "legendFormat": "{{status_code}}" }]
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_code) (rate(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id\"}[5m]))",
+          "legendFormat": "{{status_code}}"
+        }
+      ]
     },
     {
       "id": 402,
       "type": "timeseries",
       "title": "GET /upload-url latency (p50 / p95)",
       "description": "Server-side latency for the upload URL endpoint. Includes quota DB check, plan lookup, S3 presign call, and resume_imports INSERT. p95 > 1 s may indicate pgbouncer or S3 presigner issues.",
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 68 },
-      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 68
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
       "targets": [
-        { "refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\"}[5m])))", "legendFormat": "p50" },
-        { "refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\"}[5m])))", "legendFormat": "p95" }
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\"}[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\"}[5m])))",
+          "legendFormat": "p95"
+        }
       ]
     },
-
     {
       "type": "row",
       "id": 500,
       "title": "Logs — per service",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 76 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 76
+      },
       "collapsed": false
     },
     {
@@ -537,27 +1243,69 @@
       "type": "logs",
       "title": "admin-api — resume-import routes only",
       "description": "Filtered to /api/admin/resume-imports/* routes. Shows upload-url requests (with presign timing), complete dispatch calls, retry calls, and poll responses. Use trace_id to correlate with the processor logs.",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 77 },
-      "options": { "dedupStrategy": "none", "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true, "enableLogDetails": true },
-      "targets": [{ "refId": "A", "expr": "{namespace=\"admin-api\"} | json | route=~\"/api/admin/resume-imports.*\"" }]
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 77
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true,
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{namespace=\"admin-api\"} | json | route=~\"/api/admin/resume-imports.*\""
+        }
+      ]
     },
     {
       "id": 502,
       "type": "logs",
       "title": "resume-import-processor — K8s Job pod logs",
       "description": "Logs from processor Job pods. Key messages: 'starting' (env vars loaded, pipeline begins), '[run-import] fetching from S3' (S3 download step), 'completed' (success, includes totalEmbeddings count), 'fatal error' (PIPELINE_ERROR, includes full err stack). Empty = pod never started (check K8s events panel).",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 77 },
-      "options": { "dedupStrategy": "none", "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true, "enableLogDetails": true },
-      "targets": [{ "refId": "A", "expr": "{namespace=\"resume-import\"} | json" }]
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 77
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true,
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{namespace=\"resume-import\"} | json"
+        }
+      ]
     },
-
     {
       "type": "row",
       "id": 600,
       "title": "Traces — pod-level Tempo pivot (admin-api + processor)",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 87 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 87
+      },
       "collapsed": false
     },
     {
@@ -565,8 +1313,16 @@
       "type": "traces",
       "title": "admin-api — /api/admin/resume-imports/* spans",
       "description": "TraceQL for resume-import spans originating in admin-api. Covers: GET /upload-url (quota check + DB INSERT + S3 presign), POST /complete (status update + K8s Job create), GET /:id (poll). Click a trace to expand spans and see DB query timing and K8s API call duration.",
-      "datasource": { "type": "tempo", "uid": "tempo" },
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 88 },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 88
+      },
       "options": {},
       "targets": [
         {
@@ -581,8 +1337,16 @@
       "type": "traces",
       "title": "resume-import-processor — pod-level pipeline spans",
       "description": "TraceQL for spans from the resume-import-processor Job pod itself (OTEL_SERVICE_NAME=resume-import-processor, pushed via OTLP to alloy.monitoring.svc.cluster.local:4318). Each trace represents one Job run. Spans cover: s3_download, pdf_parse, bedrock_extract, enrichment_per_role, embed_persist. Empty when job crashes before OTel initialises (MODULE_NOT_FOUND, CreateContainerConfigError).",
-      "datasource": { "type": "tempo", "uid": "tempo" },
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 88 },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 88
+      },
       "options": {},
       "targets": [
         {
@@ -591,7 +1355,1043 @@
           "query": "{resource.service.name=\"resume-import-processor\"} | select(resume.import_id, deployment.environment)"
         }
       ]
+    },
+    {
+      "id": 700,
+      "type": "row",
+      "title": "Per-import drill-down — set $importId variable above",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 97
+      },
+      "panels": []
+    },
+    {
+      "id": 701,
+      "type": "stat",
+      "title": "Total duration",
+      "description": "resume_import_duration_seconds_sum for the selected importId (success or failed).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 98
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(resume_import_duration_seconds_sum{instance=\"$importId\"})"
+        }
+      ]
+    },
+    {
+      "id": 702,
+      "type": "stat",
+      "title": "Textract OCR sec",
+      "description": "Time spent in AWS Textract for this import (0 if pdf-parse succeeded).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 98
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(resume_import_textract_duration_seconds_sum{instance=\"$importId\"})"
+        }
+      ]
+    },
+    {
+      "id": 703,
+      "type": "stat",
+      "title": "Bedrock extract sec",
+      "description": "Bedrock InvokeModel duration for extract_career on this import.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 98
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(resume_import_bedrock_duration_seconds_sum{instance=\"$importId\",purpose=\"extract\"})"
+        }
+      ]
+    },
+    {
+      "id": 704,
+      "type": "stat",
+      "title": "Tavily total sec",
+      "description": "Sum of all Tavily searches for this import (one per role).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 98
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(resume_import_tavily_duration_seconds_sum{instance=\"$importId\"})"
+        }
+      ]
+    },
+    {
+      "id": 705,
+      "type": "stat",
+      "title": "Bedrock enrich sec",
+      "description": "Bedrock enrich_role duration (sum across all roles).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 98
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(resume_import_bedrock_duration_seconds_sum{instance=\"$importId\",purpose=\"enrich\"})"
+        }
+      ]
+    },
+    {
+      "id": 706,
+      "type": "stat",
+      "title": "Embed + persist sec",
+      "description": "Embedding generation + Postgres insert time.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 98
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(resume_import_embed_duration_seconds_sum{instance=\"$importId\"}) + sum(resume_import_persist_duration_seconds_sum{instance=\"$importId\"})"
+        }
+      ]
+    },
+    {
+      "id": 710,
+      "type": "logs",
+      "title": "$importId — full pipeline timeline (Loki)",
+      "description": "All log lines from admin-api + processor for this importId / trace. Order ascending so the waterfall reads top → bottom.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 102
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Ascending",
+        "wrapLogMessage": true,
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{namespace=~\"admin-api|resume-import\"} | json | (import_id=\"$importId\" or importId=\"$importId\" or trace_id=~\".*\") | line_format \"[{{.namespace}}] {{.event}} {{.msg}} {{.route}} {{.duration_ms}}ms {{.err}}\""
+        }
+      ]
+    },
+    {
+      "id": 711,
+      "type": "traces",
+      "title": "$importId — Tempo span waterfall",
+      "description": "Full distributed trace for resource.service.name=resume-import-processor with the chosen importId. Click into spans to see Textract / Bedrock / Postgres timing.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 112
+      },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name=\"resume-import-processor\" && span.import.id=\"$importId\" }"
+        }
+      ]
+    },
+    {
+      "id": 800,
+      "type": "row",
+      "title": "Sub-stage latencies (fleet, [5m] rolling)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 124
+      },
+      "panels": []
+    },
+    {
+      "id": 801,
+      "type": "timeseries",
+      "title": "Textract OCR duration p50/p95",
+      "description": "Histogram of Textract round-trip (StartDocumentTextDetection → completed).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 125
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(resume_import_textract_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(resume_import_textract_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 802,
+      "type": "timeseries",
+      "title": "Tavily search duration p95 by outcome",
+      "description": "Tavily web-search latency split by outcome (success/empty/failed).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 125
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(resume_import_tavily_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 803,
+      "type": "timeseries",
+      "title": "Bedrock duration p95 by purpose",
+      "description": "Bedrock InvokeModel latency for extract vs enrich purposes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 133
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, purpose) (rate(resume_import_bedrock_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{purpose}}"
+        }
+      ]
+    },
+    {
+      "id": 804,
+      "type": "timeseries",
+      "title": "Embed + Postgres persist p95",
+      "description": "Embedding generation and DB insert latencies for the persist step.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 133
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(resume_import_embed_duration_seconds_bucket[5m])))",
+          "legendFormat": "embed p95"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, op) (rate(resume_import_persist_duration_seconds_bucket[5m])))",
+          "legendFormat": "persist {{op}} p95"
+        }
+      ]
+    },
+    {
+      "id": 900,
+      "type": "row",
+      "title": "Cost & external services (Bedrock / Textract)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 141
+      },
+      "panels": []
+    },
+    {
+      "id": 901,
+      "type": "table",
+      "title": "Bedrock spend by import (last 24 h)",
+      "description": "Joins resume_imports + bedrock_cost. Sums input/output token cost per import. Source: RDS.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 142
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n           ri.id            AS import_id,\n           ri.status,\n           ri.created_at    AS started,\n           SUM(bc.input_tokens)  AS in_tokens,\n           SUM(bc.output_tokens) AS out_tokens,\n           ROUND(SUM(bc.input_tokens * bc.price_in_per_million + bc.output_tokens * bc.price_out_per_million) / 1e6, 4) AS usd\n         FROM resume_imports ri\n         LEFT JOIN bedrock_cost bc ON bc.import_id = ri.id\n         WHERE ri.created_at > NOW() - INTERVAL '24 hours'\n         GROUP BY ri.id, ri.status, ri.created_at\n         ORDER BY ri.created_at DESC\n         LIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 902,
+      "type": "timeseries",
+      "title": "Bedrock invocations by model (CloudWatch)",
+      "description": "AWS/Bedrock Invocations metric, summed per ModelId. Cross-reference with our histograms to spot model-side latency drift.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 142
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/Bedrock",
+          "metricName": "Invocations",
+          "dimensions": {
+            "ModelId": "*"
+          },
+          "statistic": "Sum",
+          "period": "300",
+          "region": "eu-west-1"
+        }
+      ]
+    },
+    {
+      "id": 903,
+      "type": "timeseries",
+      "title": "Textract requests (CloudWatch)",
+      "description": "AWS/Textract SuccessfulRequestCount + ThrottledCount. Helps spot account-level Textract throttles separately from our retry behavior.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 151
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/Textract",
+          "metricName": "SuccessfulRequestCount",
+          "statistic": "Sum",
+          "period": "300",
+          "region": "eu-west-1"
+        },
+        {
+          "refId": "B",
+          "namespace": "AWS/Textract",
+          "metricName": "ThrottledCount",
+          "statistic": "Sum",
+          "period": "300",
+          "region": "eu-west-1"
+        },
+        {
+          "refId": "C",
+          "namespace": "AWS/Textract",
+          "metricName": "ResponseTime",
+          "statistic": "Average",
+          "period": "300",
+          "region": "eu-west-1"
+        }
+      ]
+    },
+    {
+      "id": 904,
+      "type": "timeseries",
+      "title": "Career entries extracted + embeddings created (24 h rate)",
+      "description": "Throughput of the pipeline — entries split by type, plus embedding row counter.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 151
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (type) (increase(resume_import_career_entries_total[1h]))",
+          "legendFormat": "entries {{type}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(resume_import_embeddings_created_total[1h]))",
+          "legendFormat": "embeddings"
+        }
+      ]
+    },
+    {
+      "id": 1000,
+      "type": "row",
+      "title": "Failure modes — split by reason / error_code / event",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 159
+      },
+      "panels": []
+    },
+    {
+      "id": 1001,
+      "type": "timeseries",
+      "title": "Failed jobs by error_code",
+      "description": "resume_import_runs_total{outcome=failed} broken down by error_code label.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 160
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (error_code) (increase(resume_import_runs_total{outcome=\"failed\"}[24h]))",
+          "legendFormat": "{{error_code}}"
+        }
+      ]
+    },
+    {
+      "id": 1002,
+      "type": "timeseries",
+      "title": "Textract fallback rate by reason",
+      "description": "How often pdf-parse fell through to Textract OCR, split by reason (threw / empty / short_text).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 160
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (reason) (increase(resume_import_textract_fallback_total[1h]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 1003,
+      "type": "timeseries",
+      "title": "enrich-role failures (Loki, 5 m rolling rate)",
+      "description": "Counts of structured events that mark a degraded enrichment outcome.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 168
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate({namespace=\"resume-import\"} | json | event=\"enrich_role.search_failed\" [5m]))",
+          "legendFormat": "search_failed"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate({namespace=\"resume-import\"} | json | event=\"enrich_role.no_tool_use\"  [5m]))",
+          "legendFormat": "no_tool_use"
+        }
+      ]
+    },
+    {
+      "id": 1004,
+      "type": "timeseries",
+      "title": "admin-api resume-import error rate (4xx/5xx)",
+      "description": "Per-route error rate for the resume-import surface.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 168
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route, status_code) (rate(http_requests_total{service=\"admin-api\",route=~\"/api/admin/resume-imports.*\",status_code!~\"2..|3..\"}[5m]))",
+          "legendFormat": "{{route}} {{status_code}}"
+        }
+      ]
+    },
+    {
+      "id": 1005,
+      "type": "stat",
+      "title": "Free-tier cap hits (24 h)",
+      "description": "Number of entries skipped due to FREE_TIER_ENRICHMENT_CAP. High value = upsell signal.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 176
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(resume_import_free_tier_capped_total[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 1006,
+      "type": "stat",
+      "title": "Career entries extracted (24 h)",
+      "description": "Sum of experience+education+skill+cert+project+achievement entries created.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 176
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(resume_import_career_entries_total[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 1007,
+      "type": "stat",
+      "title": "Embeddings created (24 h)",
+      "description": "Embedding rows inserted into experience_embeddings.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 176
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(resume_import_embeddings_created_total[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 1008,
+      "type": "stat",
+      "title": "Textract fallback rate (24 h)",
+      "description": "Share of imports that needed OCR fallback. >50% = expect cost spike.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 176
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(resume_import_textract_fallback_total[24h])) / clamp_min(sum(increase(resume_import_runs_total[24h])), 1)"
+        }
+      ]
     }
-
   ]
 }
