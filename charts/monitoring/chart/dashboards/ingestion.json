@@ -1,0 +1,1336 @@
+{
+  "title": "Ingestion — Repo Profiles + Chunk Embedding",
+  "uid": "ingestion",
+  "tags": [
+    "ingestion",
+    "repo-sync",
+    "profile-extraction",
+    "background-jobs",
+    "tucaken"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "links": [
+    {
+      "title": "Background Jobs (overview)",
+      "type": "link",
+      "url": "/d/background-jobs",
+      "icon": "external link",
+      "targetBlank": false,
+      "tags": []
+    },
+    {
+      "title": "Resume Import (sibling pipeline)",
+      "type": "link",
+      "url": "/d/resume-import",
+      "icon": "external link",
+      "targetBlank": false,
+      "tags": []
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "userId",
+        "type": "textbox",
+        "label": "User ID",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "description": "UUID of the GitHub user whose ingestion you want to drill into. Used in Tempo waterfall filter."
+      },
+      {
+        "name": "repoFullName",
+        "type": "textbox",
+        "label": "Repo (owner/name)",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "description": "GitHub repo full name with slashes (e.g. Nelson-Lamounier/ai-applications). Used in Tempo waterfall + Loki timeline filters."
+      },
+      {
+        "name": "repoInstance",
+        "type": "textbox",
+        "label": "Pushgateway instance",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "description": "Pushgateway grouping label: <userId>_<owner>_<repo> (slashes replaced with underscores). Used by Prom panels scoped to one ingestion run. e.g. 31f4686a-...-22a1e71cec59_Nelson-Lamounier_ai-applications. Grafana does not support regex replacement in variable interpolation, so enter this explicitly."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Health at a glance — last 24 h",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 101,
+      "type": "stat",
+      "title": "Runs succeeded",
+      "description": "ingestion_runs_total{outcome=success} increase over 24h.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ingestion_runs_total{outcome=\"success\"}[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "Runs failed",
+      "description": "ingestion_runs_total{outcome=failed}.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ingestion_runs_total{outcome=\"failed\"}[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "Active K8s jobs now",
+      "description": "Live count of running ingestion Jobs in the ingestion ns.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kube_job_status_active{namespace=\"ingestion\"}) or vector(0)"
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "Chunks embedded (24 h)",
+      "description": "ingestion_chunks_total{phase=embedded} — newly-written vector rows.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ingestion_chunks_total{phase=\"embedded\"}[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 105,
+      "type": "stat",
+      "title": "Chunks skipped (24 h)",
+      "description": "Files already up-to-date (content hash unchanged).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ingestion_chunks_total{phase=\"skipped\"}[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "type": "stat",
+      "title": "Chunks pruned (24 h)",
+      "description": "Files removed from vector store because they no longer exist in the repo.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ingestion_chunks_total{phase=\"pruned\"}[24h]))"
+        }
+      ]
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Per-repo drill-down — set $userId + $repoFullName variables",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      }
+    },
+    {
+      "id": 201,
+      "type": "stat",
+      "title": "Total duration",
+      "description": "ingestion_duration_seconds_sum for this instance (success or failed).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ingestion_duration_seconds_sum{instance=\"$repoInstance\"})"
+        }
+      ]
+    },
+    {
+      "id": 202,
+      "type": "stat",
+      "title": "Profile collect sec",
+      "description": "GitHub fetch time for profile-input files (README, package.json, etc.).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ingestion_profile_collect_duration_seconds_sum{instance=\"$repoInstance\"})"
+        }
+      ]
+    },
+    {
+      "id": 203,
+      "type": "stat",
+      "title": "Profile extract sec",
+      "description": "Bedrock InvokeModel time for repository profile extraction.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ingestion_profile_extract_duration_seconds_sum{instance=\"$repoInstance\"})"
+        }
+      ]
+    },
+    {
+      "id": 204,
+      "type": "stat",
+      "title": "Profile embed sec",
+      "description": "Titan embedding time for profile (one_liner + description + highlights).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ingestion_profile_embed_duration_seconds_sum{instance=\"$repoInstance\"})"
+        }
+      ]
+    },
+    {
+      "id": 205,
+      "type": "stat",
+      "title": "Chunk-ingest sec",
+      "description": "orchestrator.ingestRepo wall-clock — chunk + enrich + embed + persist.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ingestion_chunk_ingest_duration_seconds_sum{instance=\"$repoInstance\"})"
+        }
+      ]
+    },
+    {
+      "id": 206,
+      "type": "stat",
+      "title": "KB quality score",
+      "description": "scoreProfile() output (0..1). Low score = sparse evidence in the repo.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(ingestion_kb_quality_score_sum{instance=\"$repoInstance\"}) / clamp_min(sum(ingestion_kb_quality_score_count{instance=\"$repoInstance\"}), 1)"
+        }
+      ]
+    },
+    {
+      "id": 210,
+      "type": "logs",
+      "title": "$repoFullName — full pipeline timeline (Loki)",
+      "description": "All log lines from the ingestion-worker pod for this repo, ordered ascending — reads top → bottom as a waterfall.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Ascending",
+        "wrapLogMessage": true,
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{namespace=\"ingestion\"} | json | repo_full_name=\"$repoFullName\" | line_format \"{{.time}} [{{.level}}] event={{.event}} {{.msg}} embedded={{.embedded}} pruned={{.pruned}} dur_ms={{.duration_ms}} err={{.err}}\""
+        }
+      ]
+    },
+    {
+      "id": 211,
+      "type": "traces",
+      "title": "$repoFullName — Tempo span waterfall",
+      "description": "Tempo trace for resource.service.name=ingestion with the chosen repo.full_name. Click into spans for ingestion.chunk / ingestion.enrich / ingestion.embed_upsert / ingestion.prune timings.",
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "options": {},
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name=\"ingestion\" && span.repo.full_name=\"$repoFullName\" && span.user.id=\"$userId\" }"
+        }
+      ]
+    },
+    {
+      "id": 300,
+      "type": "row",
+      "title": "Sub-stage latencies (fleet, [5m] rolling)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      }
+    },
+    {
+      "id": 301,
+      "type": "timeseries",
+      "title": "Profile-extraction p50/p95",
+      "description": "Bedrock InvokeModel duration for repository profile extraction across the fleet.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_profile_extract_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_profile_extract_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 302,
+      "type": "timeseries",
+      "title": "Profile-collect (GitHub) p95",
+      "description": "p95 of the time spent fetching profile-input files from GitHub.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 33
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_profile_collect_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 303,
+      "type": "timeseries",
+      "title": "Profile-embed p95",
+      "description": "Titan embedding latency for profile (one_liner + description + highlights).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_profile_embed_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 304,
+      "type": "timeseries",
+      "title": "Chunk-ingest p95 by outcome",
+      "description": "Wall-clock of orchestrator.ingestRepo, split by outcome.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 41
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(ingestion_chunk_ingest_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 305,
+      "type": "timeseries",
+      "title": "End-to-end Job duration p50/p95",
+      "description": "ingestion_duration_seconds (terminal counter pushed at exit).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 49
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 306,
+      "type": "timeseries",
+      "title": "KB quality score distribution",
+      "description": "Histogram of repo profile quality scores. A concentration in the lower bins flags repos producing weak evidence — typically dotfiles, READMEs only, or noise.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 49
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_kb_quality_score_bucket[1h])))",
+          "legendFormat": "median"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.25, sum by (le) (rate(ingestion_kb_quality_score_bucket[1h])))",
+          "legendFormat": "p25"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.75, sum by (le) (rate(ingestion_kb_quality_score_bucket[1h])))",
+          "legendFormat": "p75"
+        }
+      ]
+    },
+    {
+      "id": 400,
+      "type": "row",
+      "title": "Cost & throughput (Bedrock × pipeline)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      }
+    },
+    {
+      "id": 401,
+      "type": "table",
+      "title": "Bedrock spend by pipeline + agent (24 h)",
+      "description": "Aggregates prompt_invocations across ingestion-side pipelines (profile-extraction, repo-sync) — and includes resume-import for comparison. Cost already pre-computed in cents.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 58
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  pipeline,\n  agent,\n  COUNT(*)                                            AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens), 0) AS in_tokens,\n  COALESCE(SUM(output_tokens), 0)                              AS out_tokens,\n  ROUND(SUM(total_cost_cents) / 100, 4)               AS usd,\n  ROUND(AVG(latency_ms)::numeric, 0)                  AS avg_latency_ms\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\nGROUP BY pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 402,
+      "type": "timeseries",
+      "title": "Bedrock invocations by model (CloudWatch)",
+      "description": "AWS/Bedrock Invocations Sum/5m, fan-out by ModelId. Cross-check with our histograms when latency drifts.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 58
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/Bedrock",
+          "metricName": "Invocations",
+          "dimensions": {
+            "ModelId": "*"
+          },
+          "statistic": "Sum",
+          "period": "300",
+          "region": "eu-west-1"
+        }
+      ]
+    },
+    {
+      "id": 403,
+      "type": "timeseries",
+      "title": "Chunk-phase throughput (1 h rate)",
+      "description": "ingestion_chunks_total split by phase — embedded vs skipped vs pruned. A high skipped ratio = warm cache; high pruned = repo shrinking.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 67
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (phase) (increase(ingestion_chunks_total[1h]))",
+          "legendFormat": "{{phase}}"
+        }
+      ]
+    },
+    {
+      "id": 404,
+      "type": "timeseries",
+      "title": "Profile-extract calls by outcome (1 h rate)",
+      "description": "ingestion_profile_extract_calls_total — success vs failed. Distinct from end-to-end run outcome since profile-extraction is just Phase 0.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 67
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (increase(ingestion_profile_extract_calls_total[1h]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 500,
+      "type": "row",
+      "title": "Failure modes",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 75
+      }
+    },
+    {
+      "id": 501,
+      "type": "timeseries",
+      "title": "Run outcomes timeline",
+      "description": "ingestion_runs_total split by outcome — visualises burst failures.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 76
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (increase(ingestion_runs_total[1h]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 502,
+      "type": "timeseries",
+      "title": "Error rate by repo (5m, top 10)",
+      "description": "Loki error lines filtered to ingestion ns, aggregated by repo. Catches per-repo recurring failures.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 76
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (repo_full_name) (rate({namespace=\"ingestion\", level=\"error\"} | json [5m])))",
+          "legendFormat": "{{repo_full_name}}"
+        }
+      ]
+    },
+    {
+      "id": 503,
+      "type": "logs",
+      "title": "Last 30 ingestion errors",
+      "description": "Latest Loki error lines from the ingestion namespace — useful for spotting GitHub 401, Bedrock throttle, pg lock waits.",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 84
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "showTime": true,
+        "sortOrder": "Ascending",
+        "wrapLogMessage": true,
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{namespace=\"ingestion\", level=\"error\"} | json | line_format \"{{.time}} repo={{.repo_full_name}} {{.msg}} {{.err}}\""
+        }
+      ]
+    },
+    {
+      "id": 600,
+      "type": "row",
+      "title": "Repository portfolio (live RDS state)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 94
+      }
+    },
+    {
+      "id": 601,
+      "type": "table",
+      "title": "Repos by extraction status",
+      "description": "repository_profiles grouped by extraction_status. Pending/extracting rows older than ~5 min are stuck.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 95
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  extraction_status,\n  COUNT(*) AS repos,\n  MIN(extracted_at) AS oldest_extracted,\n  MAX(extracted_at) AS newest_extracted\nFROM repository_profiles\nGROUP BY extraction_status\nORDER BY repos DESC"
+        }
+      ]
+    },
+    {
+      "id": 602,
+      "type": "table",
+      "title": "Top 20 repos by quality score",
+      "description": "repository_profiles.quality_score (set by scoreProfile()). Useful for the portfolio narrative — high scoring repos surface stronger evidence.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 95
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  repo_full_name,\n  classification,\n  ROUND(quality_score::numeric, 2) AS score,\n  extraction_status,\n  extracted_at\nFROM repository_profiles\nWHERE quality_score IS NOT NULL\nORDER BY quality_score DESC NULLS LAST\nLIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 603,
+      "type": "table",
+      "title": "Stuck sync_state rows",
+      "description": "repo_sync_state where state is in-progress for more than 15 minutes — pod likely died without writing terminal status.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 105
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  user_id::text,\n  repo_full_name,\n  sync_status,\n  last_sync_triggered_at,\n  last_synced_at,\n  NOW() - last_sync_triggered_at AS triggered_age\nFROM repo_sync_state\nWHERE sync_status NOT IN ('complete','error')\n  AND last_sync_triggered_at IS NOT NULL\n  AND last_sync_triggered_at < NOW() - INTERVAL '15 minutes'\nORDER BY last_sync_triggered_at ASC\nLIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 604,
+      "type": "table",
+      "title": "Embedding rows by repo (top 20)",
+      "description": "repository_profile_embeddings count + experience_embeddings count per user. Compare against repos count to spot under- or over-embedded repos.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 105
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  rp.repo_full_name,\n  rp.classification,\n  COUNT(rpe.id) AS profile_embeddings\nFROM repository_profiles rp\nLEFT JOIN repository_profile_embeddings rpe ON rpe.profile_id = rp.id\nGROUP BY rp.repo_full_name, rp.classification\nORDER BY profile_embeddings DESC NULLS LAST\nLIMIT 20"
+        }
+      ]
+    }
+  ]
+}

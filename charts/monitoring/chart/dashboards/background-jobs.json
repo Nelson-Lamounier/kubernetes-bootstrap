@@ -793,9 +793,9 @@
       "tags": []
     },
     {
-      "title": "Ingestion logs (Explore)",
+      "title": "Ingestion (detail)",
       "type": "link",
-      "url": "/explore?orgId=1&left=%7B%22datasource%22:%22loki%22,%22queries%22:%5B%7B%22expr%22:%22%7Bnamespace%3D%5C%22ingestion%5C%22%7D%22%7D%5D%7D",
+      "url": "/d/ingestion",
       "targetBlank": false,
       "icon": "external link",
       "tags": []
