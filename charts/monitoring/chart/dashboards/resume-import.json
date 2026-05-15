@@ -1882,7 +1882,7 @@
       "id": 901,
       "type": "table",
       "title": "Bedrock spend by import (last 24 h)",
-      "description": "Joins resume_imports + bedrock_cost. Sums input/output token cost per import. Source: RDS.",
+      "description": "Joins resume_imports × prompt_invocations (pipeline='resume-import'). Sums input/output tokens and total_cost_cents per import, converts to USD. Source: RDS tucaken DB.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "rds-postgres"
@@ -1905,7 +1905,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n           ri.id            AS import_id,\n           ri.status,\n           ri.created_at    AS started,\n           SUM(bc.input_tokens)  AS in_tokens,\n           SUM(bc.output_tokens) AS out_tokens,\n           ROUND(SUM(bc.input_tokens * bc.price_in_per_million + bc.output_tokens * bc.price_out_per_million) / 1e6, 4) AS usd\n         FROM resume_imports ri\n         LEFT JOIN bedrock_cost bc ON bc.import_id = ri.id\n         WHERE ri.created_at > NOW() - INTERVAL '24 hours'\n         GROUP BY ri.id, ri.status, ri.created_at\n         ORDER BY ri.created_at DESC\n         LIMIT 50"
+          "rawSql": "SELECT\n  ri.id::text                    AS import_id,\n  ri.status,\n  ri.created_at                  AS started,\n  ri.extraction_method,\n  ri.embeddings_created_count    AS embeddings,\n  COUNT(pi.id)                   AS invocations,\n  COALESCE(SUM(pi.user_message_tokens + pi.system_prompt_tokens), 0) AS in_tokens,\n  COALESCE(SUM(pi.output_tokens), 0)                                  AS out_tokens,\n  ROUND(COALESCE(SUM(pi.total_cost_cents), 0) / 100, 4)               AS usd\nFROM resume_imports ri\nLEFT JOIN prompt_invocations pi\n  ON pi.import_id = ri.id\n AND pi.pipeline  = 'resume-import'\nWHERE ri.created_at > NOW() - INTERVAL '24 hours'\nGROUP BY ri.id, ri.status, ri.created_at, ri.extraction_method, ri.embeddings_created_count\nORDER BY ri.created_at DESC\nLIMIT 50"
         }
       ]
     },
