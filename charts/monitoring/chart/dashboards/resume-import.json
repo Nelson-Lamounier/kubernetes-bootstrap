@@ -1955,7 +1955,7 @@
       "id": 903,
       "type": "timeseries",
       "title": "Textract requests (CloudWatch)",
-      "description": "AWS/Textract SuccessfulRequestCount + ThrottledCount. Helps spot account-level Textract throttles separately from our retry behavior.",
+      "description": "AWS/Textract per-Operation series. Verified live: AWS/Textract emits ResponseTime / SuccessfulRequestCount / UserErrorCount keyed by Operation dim (no ThrottledCount metric exists in this namespace). Helps spot Textract-side errors and latency drift, independent of our pdf-parse fallback heuristic.",
       "datasource": {
         "type": "cloudwatch",
         "uid": "cloudwatch"
@@ -1984,6 +1984,7 @@
           "refId": "A",
           "namespace": "AWS/Textract",
           "metricName": "SuccessfulRequestCount",
+          "dimensions": { "Operation": "*" },
           "statistic": "Sum",
           "period": "300",
           "region": "eu-west-1"
@@ -1991,7 +1992,8 @@
         {
           "refId": "B",
           "namespace": "AWS/Textract",
-          "metricName": "ThrottledCount",
+          "metricName": "UserErrorCount",
+          "dimensions": { "Operation": "*" },
           "statistic": "Sum",
           "period": "300",
           "region": "eu-west-1"
@@ -2000,6 +2002,7 @@
           "refId": "C",
           "namespace": "AWS/Textract",
           "metricName": "ResponseTime",
+          "dimensions": { "Operation": "*" },
           "statistic": "Average",
           "period": "300",
           "region": "eu-west-1"
