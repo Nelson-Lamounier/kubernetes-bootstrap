@@ -105,4 +105,51 @@ data:
                 typically because the Karpenter controller is down or has no AWS credentials.
                 Check: kubectl get nodeclaims -o wide
                 Check: kubectl get pods -n karpenter
+
+      - name: app:abuse
+        rules:
+          # admin-api 429 spike — sustained share of responses are rate-limited.
+          # Signals bot/credential-stuffing traffic or quota saturation. The
+          # app-level per-IP limiter and edge WAF return 429; a high ratio over
+          # 10m is abuse or a misbehaving client, not normal usage.
+          - alert: AdminApiRateLimitSpike
+            expr: |
+              sum(rate(http_requests_total{service="admin-api",status_code="429"}[5m]))
+              /
+              clamp_min(sum(rate(http_requests_total{service="admin-api"}[5m])), 1)
+              > 0.05
+            for: 10m
+            labels:
+              severity: warning
+              service:  admin-api
+              team:     platform
+            annotations:
+              summary: "admin-api 429 rate > 5% of traffic for > 10 minutes"
+              description: >
+                More than 5% of admin-api responses are HTTP 429 (rate limited)
+                over the last 5m, sustained 10m. Likely bot/abuse or limiter
+                saturation. Inspect the edge WAF sampled requests for the rate
+                rule and admin-api access logs in Loki for the offending IPs.
+
+          # tucaken-app 429 spike — SSR surface. Auth server functions throw
+          # 429 via the token-bucket limiter; same abuse signal.
+          - alert: TucakenAppRateLimitSpike
+            expr: |
+              sum(rate(ssr_requests_total{service="tucaken-app",status_code="429"}[5m]))
+              /
+              clamp_min(sum(rate(ssr_requests_total{service="tucaken-app"}[5m])), 1)
+              > 0.05
+            for: 10m
+            labels:
+              severity: warning
+              service:  tucaken-app
+              team:     platform
+            annotations:
+              summary: "tucaken-app 429 rate > 5% of traffic for > 10 minutes"
+              description: >
+                More than 5% of tucaken-app SSR responses are HTTP 429 over the
+                last 5m, sustained 10m. Auth endpoints are being hammered or the
+                token-bucket limiter is saturated. Check Loki:
+                kubectl logs -n tucaken-app -l app.kubernetes.io/name=tucaken-app
+                | grep auth_rate_limited
 {{- end }}
