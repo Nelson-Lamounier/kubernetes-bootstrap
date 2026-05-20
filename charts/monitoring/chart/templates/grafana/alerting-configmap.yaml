@@ -176,7 +176,16 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
+                  # `sum by (...)` preserves labels through the expression
+                  # pipeline. Previous form used `reducer: last` over a
+                  # bare increase() expression, which stripped labels and
+                  # rendered annotations as "Pod [no value]/[no value] is
+                  # crash-looping" — the rule sat in NoData forever and
+                  # real crashloops slipped through silently.
+                  expr: |
+                    sum by (namespace, pod, container) (
+                      increase(kube_pod_container_status_restarts_total[15m])
+                    ) > 3
                   refId: A
               - refId: B
                 datasourceUid: __expr__
@@ -195,7 +204,7 @@ data:
                         type: gt
                         params: [0]
                   refId: C
-            for: 0s
+            for: 2m
             labels:
               severity: critical
             annotations:
@@ -252,6 +261,147 @@ data:
             annotations:
               summary: "Pod {{ "{{$labels.namespace}}" }}/{{ "{{$labels.pod}}" }} is not ready"
               description: "Pod has been in a non-ready state for more than 15 minutes (Job/CronJob completions excluded)."
+
+          # ─────────────────────────────────────────────────────────────
+          # Job Failed — terminal-state alert for batch workloads
+          #
+          # Closes the largest signal gap in the cluster. Over the last
+          # 14 days 60+ Jobs hit BackoffLimitExceeded / DeadlineExceeded
+          # (incl. platform-rds-bootstrap, migration-024-once, two
+          # ecr-token-refresh runs, headlamp/token-pusher) and no rule
+          # caught them — the only signal was Pod Not Ready cycling
+          # through the backoff retries, producing 5-10 false-positive
+          # emails per failed Job. kube_job_failed reports once when the
+          # Job reaches terminal failure, so this fires exactly once per
+          # incident.
+          # ─────────────────────────────────────────────────────────────
+          - uid: alert-job-failed
+            title: Job Failed
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: kube_job_failed{condition="true"} == 1
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [0]
+                  refId: C
+            for: 0s
+            labels:
+              severity: critical
+            annotations:
+              summary: "Job {{ "{{$labels.namespace}}" }}/{{ "{{$labels.job_name}}" }} failed"
+              description: "Kubernetes Job reached terminal failure (BackoffLimitExceeded or DeadlineExceeded). Inspect pod logs before TTL clean-up."
+
+          # ─────────────────────────────────────────────────────────────
+          # Pod Stuck Pending — scheduling deadlock catcher
+          #
+          # The pushgateway AZ deadlock (2026-05-15..18) sat Pending for
+          # 3d7h with no signal. A pod stuck Pending past 10m means the
+          # scheduler can't satisfy constraints (zonal EBS mismatch,
+          # nodeSelector with no matching node, resource quota, etc.).
+          # Exclude Job-owned pods — they can legitimately be Pending
+          # during scale-up to new Karpenter nodes.
+          # ─────────────────────────────────────────────────────────────
+          - uid: alert-pod-pending-stuck
+            title: Pod Stuck Pending
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: |
+                    (kube_pod_status_phase{phase="Pending"} == 1)
+                      unless on(namespace, pod) (kube_pod_owner{owner_kind="Job"} == 1)
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [0]
+                  refId: C
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ "{{$labels.namespace}}" }}/{{ "{{$labels.pod}}" }} stuck Pending"
+              description: "Pod has been Pending for 10+ minutes — check scheduler/Karpenter events for unsatisfiable constraints (AZ, taints, resources)."
+
+          # ─────────────────────────────────────────────────────────────
+          # Image Pull Failure — fires on ImagePullBackOff / ErrImagePull
+          #
+          # Catches downstream effects of ECR token refresh failures
+          # (ecr-token-refresh Job has failed twice in 14d) and bad image
+          # tags before they cascade into Deployment unavailability.
+          # ─────────────────────────────────────────────────────────────
+          - uid: alert-image-pull-failure
+            title: Image Pull Failure
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  expr: |
+                    kube_pod_container_status_waiting_reason{reason=~"ImagePullBackOff|ErrImagePull"} == 1
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [0]
+                  refId: C
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Pod {{ "{{$labels.namespace}}" }}/{{ "{{$labels.pod}}" }} cannot pull image"
+              description: "Container {{ "{{$labels.container}}" }} is in {{ "{{$labels.reason}}" }} — check image tag, registry credentials, and ECR token refresh."
 
       - orgId: 1
         name: Application Health
