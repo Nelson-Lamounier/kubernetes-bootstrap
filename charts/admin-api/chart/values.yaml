@@ -242,10 +242,11 @@ rollout:
 # expired. See charts/admin-api/chart/templates/account-sweep-cronjob.yaml
 # and admin-api/src/scripts/account-sweep.ts in the tucaken-app repo.
 #
-# Disabled by default — flip to true once the cdk-monitoring IAM grant
-# (cognito-idp:AdminDeleteUser) has been deployed.
+# Enabled 2026-05-20 after cdk-monitoring EksPodIdentity-development
+# deployed cognito-idp:Admin{Disable,Enable,Delete}User on the admin-api IRSA.
+# Verify CronJob health: kubectl -n admin-api get cronjob account-sweep
 accountSweep:
-  enabled:    false
+  enabled:    true
   # 03:00 UTC every day — quietest period for the cluster.
   schedule:   "0 3 * * *"
   graceDays:  30
