@@ -73,6 +73,16 @@ spec:
             # --- Unified Alerting ---
             - name: GF_UNIFIED_ALERTING_ENABLED
               value: "true"
+            # External labels appended to EVERY Grafana-managed alert rule
+            # (rendered on the data source side, so we don't have to edit
+            # 12 individual rule blocks). The `environment` label is the
+            # routing key the Alertmanager dev-blackhole matcher uses
+            # (charts/monitoring/chart/templates/alertmanager/configmap.yaml):
+            #   - dev cluster   (environment=development) → blackhole → 0 SNS emails
+            #   - prod cluster  (environment=production)  → severity routing → SNS pages
+            # Same chart, different .Values.environment — production-ready by design.
+            - name: GF_UNIFIED_ALERTING_EXTERNAL_LABELS
+              value: "environment={{ .Values.environment }}"
           ports:
             - containerPort: 3000
               name: http
