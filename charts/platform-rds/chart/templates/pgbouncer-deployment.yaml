@@ -100,16 +100,34 @@ spec:
           limits:
             cpu: 100m
             memory: 64Mi
+        # End-to-end SELECT 1 round-trip through PgBouncer to RDS.
+        # The previous TCP probe only confirmed PgBouncer was listening,
+        # masking upstream failures — pgbouncer-7fc6b8c79-whj69 sat
+        # Ready=False for 4 straight hours on 2026-05-11 because the
+        # upstream connection broke after pgbouncer started. An exec
+        # probe that actually issues a query catches credential drift,
+        # RDS unavailability, and network partitions immediately.
+        # PGCONNECT_TIMEOUT bounds the probe at 3s so we still fail fast.
         livenessProbe:
-          tcpSocket:
-            port: 5432
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - 'PGCONNECT_TIMEOUT=3 PGPASSWORD="$POSTGRESQL_PASSWORD" /opt/bitnami/postgresql/bin/psql -h 127.0.0.1 -p 5432 -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_DATABASE" -tAc "SELECT 1" >/dev/null'
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - 'PGCONNECT_TIMEOUT=3 PGPASSWORD="$POSTGRESQL_PASSWORD" /opt/bitnami/postgresql/bin/psql -h 127.0.0.1 -p 5432 -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_DATABASE" -tAc "SELECT 1" >/dev/null'
           initialDelaySeconds: 10
           periodSeconds: 10
-        readinessProbe:
-          tcpSocket:
-            port: 5432
-          initialDelaySeconds: 5
-          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
       {{- if .Values.metricsExporter.enabled }}
       # ── PgBouncer metrics exporter (sidecar) ────────────────────────────
       # Connects to the colocated PgBouncer admin console over loopback,
