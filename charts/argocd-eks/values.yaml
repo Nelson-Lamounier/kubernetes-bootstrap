@@ -112,6 +112,30 @@ configs:
     # Absent key → ArgoCD flag default (/) is used → benign warning fires but
     # routing is correct because rootpath takes precedence for all path handling.
 
+    # ── repo-server rendered-manifest cache TTL ───────────────────────────
+    # Default 24h. After argocd-image-updater commits a new tag the
+    # repo-server re-renders on the next hard refresh, but the Redis-backed
+    # render cache continues to serve the OLD manifest until this TTL
+    # elapses. Observed symptom: even `argocd.argoproj.io/refresh=hard`
+    # plus an argocd-repo-server pod restart kept returning the previous
+    # image tag — only restarting argocd-application-controller (which
+    # cleared its in-process resource cache derived from the repo-server
+    # cache) finally surfaced the new tag.
+    #
+    # Wiring: this key maps to env ARGOCD_REPO_CACHE_EXPIRATION on the
+    # argocd-repo-server Pod (confirmed via
+    #   kubectl get deploy argocd-repo-server -n argocd \
+    #     -o jsonpath='{...env...valueFrom.configMapKeyRef.key}'
+    # ). The earlier `controller.repo.cache.expiration` key was a no-op —
+    # it isn't wired into any Pod's env in argo-cd 7.7.5.
+    #
+    # 30m matches argocd-image-updater's default poll interval so a
+    # stuck cache self-clears within one update cycle. The runbook
+    # docs/runbooks/argocd-stale-manifest-cache.md and helper
+    # scripts/argocd-bust-cache.sh cover the manual remediation path
+    # when something needs to clear instantly.
+    reposerver.repo.cache.expiration: 30m
+
 server:
   service:
     type: ClusterIP

@@ -4,8 +4,14 @@
 # ClusterIP service exposing PgBouncer as the single database endpoint for
 # all pods in the cluster.
 #
+# ⚠ NON-DEFAULT LISTEN PORT — read values.yaml `pgbouncer.port`.
+# PgBouncer's documented default is 6432; this Service deliberately binds
+# 5432 → 5432 so consumer Pods can use the canonical Postgres port. The
+# `nelsonlamounier.com/upstream-port-override` annotation below makes
+# the deviation visible in `kubectl describe svc pgbouncer -n platform`.
+#
 # Connection string for all consumers:
-#   host=pgbouncer.platform.svc.cluster.local port=5432
+#   host=pgbouncer.platform.svc.cluster.local port={{ .Values.pgbouncer.port }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,22 +19,30 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     app: pgbouncer
-  {{- if .Values.metricsExporter.enabled }}
   annotations:
+    # Surfaces the deliberate departure from PgBouncer's 6432 default so
+    # operators see it at-a-glance when debugging port-forwards or
+    # writing new clients. Update both this annotation and the values
+    # comment if the port changes.
+    nelsonlamounier.com/upstream-port-override: "listen={{ .Values.pgbouncer.port }} (PgBouncer default is 6432)"
+    {{- if .Values.metricsExporter.enabled }}
     # Auto-scraped by Prometheus's kubernetes-service-endpoints job once
     # the exporter sidecar is enabled. Drives database.json PgBouncer panels.
     prometheus.io/scrape: "true"
     prometheus.io/port:   {{ .Values.metricsExporter.port | quote }}
     prometheus.io/path:   "/metrics"
-  {{- end }}
+    {{- end }}
 spec:
   type: ClusterIP
   selector:
     app: pgbouncer
   ports:
-  - name: postgres
-    port: 5432
-    targetPort: 5432
+  # Port name `pgbouncer-postgres` makes the indirection visible in
+  # `kubectl get svc -o yaml` (vs the previous bare `postgres` which
+  # masked the fact that traffic flows through a connection pooler).
+  - name: pgbouncer-postgres
+    port: {{ .Values.pgbouncer.port }}
+    targetPort: {{ .Values.pgbouncer.port }}
     protocol: TCP
   {{- if .Values.metricsExporter.enabled }}
   - name: metrics
