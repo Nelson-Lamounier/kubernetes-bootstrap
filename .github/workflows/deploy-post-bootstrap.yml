@@ -46,7 +46,7 @@ jobs:
     secrets: inherit
 
   deploy-marker:
-    name: Loki deploy marker
+    name: "Annotate deploy in Loki (non-blocking, observability only)"
     needs: [post-bootstrap]
     if: always()
     runs-on: ubuntu-latest
@@ -66,6 +66,8 @@ jobs:
             echo "status=succeeded" >> "$GITHUB_OUTPUT"
           fi
       - uses: ./.github/actions/loki-deploy-marker
+        # Observability annotation only — never block the workflow.
+        continue-on-error: true
         env:
           LOKI_PUSH_URL:        ${{ secrets.LOKI_PUSH_URL }}
           LOKI_PUSH_BASIC_AUTH: ${{ secrets.LOKI_PUSH_BASIC_AUTH }}
