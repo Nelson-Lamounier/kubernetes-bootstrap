@@ -2,8 +2,15 @@
 # PgBouncer Deployment
 #
 # Connection pooler in front of Platform RDS.
-# All pods in the cluster connect to pgbouncer.platform.svc.cluster.local:5432 —
+# All pods in the cluster connect to
+#   pgbouncer.platform.svc.cluster.local:{{ "{{ .Values.pgbouncer.port }}" }}
 # NEVER directly to RDS.
+#
+# ⚠ NON-DEFAULT LISTEN PORT — see values.yaml `pgbouncer.port`.
+# PgBouncer's documented default is 6432; this Deployment deliberately
+# binds {{ "{{ .Values.pgbouncer.port }}" }} via env PGBOUNCER_PORT so
+# consumers don't need a translation step. The matching Service
+# annotation `nelsonlamounier.com/upstream-port-override` surfaces this.
 #
 # Pool mode: transaction (correct for stateless HTTP handlers)
 # Max server connections: 20 (well under RDS t4g.micro limit of ~85)
@@ -34,8 +41,11 @@ spec:
       - name: pgbouncer
         image: {{ .Values.pgbouncer.image.repository }}:{{ .Values.pgbouncer.image.tag }}
         ports:
-        - containerPort: 5432
-          name: postgres
+        # Port name `pgbouncer-postgres` matches the Service port name —
+        # makes the connection-pooler indirection visible in
+        # `kubectl get pod/svc -o yaml` and `kubectl describe`.
+        - containerPort: {{ .Values.pgbouncer.port }}
+          name: pgbouncer-postgres
         env:
         - name: POSTGRESQL_HOST
           valueFrom:
@@ -76,9 +86,10 @@ spec:
               optional: false
         # Bitnami legacy 1.23.1 image errors with "PGBOUNCER_PORT: value is
         # not an integer" if this env var is unset, even though the docs
-        # claim a default of 5432. Setting explicitly.
+        # claim a default of 5432. Setting explicitly from values so the
+        # listen port stays in one source of truth (values.pgbouncer.port).
         - name: PGBOUNCER_PORT
-          value: "5432"
+          value: {{ .Values.pgbouncer.port | quote }}
         - name: PGBOUNCER_POOL_MODE
           value: {{ .Values.pgbouncer.poolMode }}
         - name: PGBOUNCER_MAX_CLIENT_CONN
