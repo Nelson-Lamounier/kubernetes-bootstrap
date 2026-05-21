@@ -71,7 +71,9 @@ redis:
       repository: bitnamilegacy/redis-exporter
       tag:        1.66.0-debian-12-r4
     serviceMonitor:
-      enabled:     true
+      # Cluster runs Grafana-only (no Prometheus Operator CRDs).
+      # Flip on once ServiceMonitor CRD is installed.
+      enabled:     false
       namespace:   monitoring
       honorLabels: true
       labels:

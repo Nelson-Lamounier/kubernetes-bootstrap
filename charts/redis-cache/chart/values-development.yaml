@@ -21,4 +21,4 @@ redis:
       tcp-keepalive 60
   metrics:
     serviceMonitor:
-      enabled: true
+      enabled: false
