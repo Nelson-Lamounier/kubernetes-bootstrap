@@ -1,0 +1,13 @@
+# @format
+apiVersion: v2
+name: redis-broker
+description: Cluster Redis instance (broker profile — AOF persistence, noeviction, EBS gp3)
+type: application
+version: 0.1.0
+appVersion: "7.4"
+
+# See charts/redis-cache/chart/Chart.yaml for the Bitnami image-purge note.
+dependencies:
+  - name: redis
+    version: "20.6.2"
+    repository: https://charts.bitnami.com/bitnami

@@ -1,0 +1,106 @@
+# @format
+# redis-cache — CACHE profile
+#
+# Design intent (do not change without re-reading):
+#   • Ephemeral. Pod restart = warm-up from DB; no data to lose.
+#   • allkeys-lru eviction when maxmemory is hit.
+#   • No persistence (no RDB, no AOF) — eliminates AOF-rewrite fork
+#     latency spikes and PVC churn.
+#   • Separate Helm release / namespace from the broker so eviction
+#     policy and durability concerns never bleed across instances.
+#
+# Pair: charts/redis-broker (durable, noeviction, AOF on).
+
+namespace: redis-cache
+
+redis:
+  # ── Bitnami chart guardrail bypass ────────────────────────────────────
+  # Bitnami chart (>= 20.x) refuses to render if image.repository is not
+  # in its allow-list. bitnamilegacy/redis is the documented migration
+  # path post-Sept-2025 image purge but is "unrecognised" by the chart.
+  # See https://github.com/bitnami/charts/issues/30850
+  global:
+    security:
+      allowInsecureImages: true
+
+  # ── Topology ───────────────────────────────────────────────────────────
+  architecture: standalone
+  fullnameOverride: redis-cache
+
+  # ── Image (bitnami purge workaround) ───────────────────────────────────
+  # docker.io/bitnami/redis was purged Sept 2025. Use the legacy mirror.
+  # Same pattern as charts/platform-rds (PgBouncer override).
+  image:
+    registry:   docker.io
+    repository: bitnamilegacy/redis
+    tag:        7.4.1-debian-12-r2
+
+  # ── Auth ───────────────────────────────────────────────────────────────
+  # Password sourced from ExternalSecret → K8s Secret `redis-cache-auth`
+  # (key: `redis-password`, the field name bitnami expects).
+  auth:
+    enabled: true
+    existingSecret:            redis-cache-auth
+    existingSecretPasswordKey: redis-password
+    # sentinel disabled — standalone topology
+
+  # ── Master (single replica, cache profile) ─────────────────────────────
+  master:
+    count: 1
+    persistence:
+      enabled: false           # pure cache — no PVC
+    resources:
+      requests:
+        memory: 512Mi
+        cpu:    100m
+      limits:
+        memory: 1Gi
+        cpu:    500m
+    # redis.conf overrides — appended after the bitnami template.
+    # MUST: maxmemory < pod memory limit (Redis accounting excludes
+    # fragmentation + Lua overhead → matching limits ⇒ random OOMKills).
+    extraFlags: []
+    configuration: |-
+      maxmemory 750mb
+      maxmemory-policy allkeys-lru
+      save ""
+      appendonly no
+      timeout 300
+      tcp-keepalive 60
+    # PDB — cache may die freely during node consolidation.
+    pdb:
+      create:       true
+      minAvailable: 0
+    # Bind to one AZ-spread isn't necessary for single-replica cache.
+
+  # Replicas disabled in standalone mode.
+  replica:
+    replicaCount: 0
+
+  # ── Metrics ────────────────────────────────────────────────────────────
+  metrics:
+    enabled: true
+    image:
+      registry:   docker.io
+      repository: bitnamilegacy/redis-exporter
+      tag:        1.66.0-debian-12-r4
+    serviceMonitor:
+      enabled:   true
+      namespace: monitoring
+      # honorLabels avoids collisions if multiple redis instances are
+      # scraped under the same job.
+      honorLabels: true
+      labels:
+        release: kube-prometheus-stack
+
+  # ── NetworkPolicy ──────────────────────────────────────────────────────
+  # Chart-built policy: deny ingress except from labeled namespaces.
+  # Apps that need access must run in a namespace carrying the label
+  # `tucaken.com/redis-cache-client: "true"`. Apply with:
+  #   kubectl label ns <app-ns> tucaken.com/redis-cache-client=true
+  networkPolicy:
+    enabled:           true
+    allowExternal:     false
+    ingressNSMatchLabels:
+      tucaken.com/redis-cache-client: "true"
+    ingressNSPodMatchLabels: {}

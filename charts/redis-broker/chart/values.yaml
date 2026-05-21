@@ -1,0 +1,85 @@
+# @format
+# redis-broker — JOB QUEUE / PUB-SUB profile
+#
+# Design intent (do not change without re-reading):
+#   • Durable. In-flight jobs survive pod restart.
+#   • AOF persistence ON (appendonly yes, appendfsync everysec).
+#   • noeviction — running out of memory is a louder failure than silent
+#     job loss via eviction.
+#   • EBS gp3 PVC. Snapshot via AWS Backup on the PVC tag (separate concern).
+#   • PDB minAvailable: 1 — node consolidation must not orphan jobs.
+#
+# Pair: charts/redis-cache (ephemeral, allkeys-lru).
+
+namespace: redis-broker
+
+redis:
+  # See charts/redis-cache/chart/values.yaml for the rationale.
+  global:
+    security:
+      allowInsecureImages: true
+
+  architecture: standalone
+  fullnameOverride: redis-broker
+
+  image:
+    registry:   docker.io
+    repository: bitnamilegacy/redis
+    tag:        7.4.1-debian-12-r2
+
+  auth:
+    enabled: true
+    existingSecret:            redis-broker-auth
+    existingSecretPasswordKey: redis-password
+
+  master:
+    count: 1
+    persistence:
+      enabled:      true
+      storageClass: gp3
+      size:         8Gi
+      accessModes:
+        - ReadWriteOnce
+    resources:
+      requests:
+        memory: 512Mi
+        cpu:    100m
+      limits:
+        memory: 1Gi
+        cpu:    500m
+    configuration: |-
+      maxmemory 750mb
+      maxmemory-policy noeviction
+      save ""
+      appendonly yes
+      appendfsync everysec
+      auto-aof-rewrite-percentage 100
+      auto-aof-rewrite-min-size 64mb
+      timeout 0
+      tcp-keepalive 60
+    pdb:
+      create:       true
+      minAvailable: 1
+
+  replica:
+    replicaCount: 0
+
+  metrics:
+    enabled: true
+    image:
+      registry:   docker.io
+      repository: bitnamilegacy/redis-exporter
+      tag:        1.66.0-debian-12-r4
+    serviceMonitor:
+      enabled:     true
+      namespace:   monitoring
+      honorLabels: true
+      labels:
+        release: kube-prometheus-stack
+
+  networkPolicy:
+    enabled:        true
+    allowExternal:  false
+    ingressNSMatchLabels:
+      tucaken.com/redis-broker-client: "true"
+    ingressNSPodMatchLabels: {}
