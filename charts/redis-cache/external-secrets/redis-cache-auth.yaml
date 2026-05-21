@@ -1,0 +1,38 @@
+# @format
+# ExternalSecret: redis-cache-auth
+#
+# Source: SSM Parameter Store SecureString /k8s/development/redis-cache-auth
+#   (a single string — the password). Seed manually one time:
+#     aws ssm put-parameter \
+#       --name /k8s/development/redis-cache-auth \
+#       --type SecureString \
+#       --value "$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)"
+#
+# Target Secret consumed by bitnami/redis subchart via
+# auth.existingSecret + auth.existingSecretPasswordKey: redis-password.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: redis-cache-auth
+  namespace: redis-cache
+  annotations:
+    kubernetes.io/description: "Redis cache password from SSM SecureString — 15m refresh"
+spec:
+  refreshInterval: 15m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: redis-cache-auth
+    creationPolicy: Owner
+    deletionPolicy: Delete
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        # Key name bitnami chart expects when existingSecretPasswordKey=redis-password.
+        redis-password: "{{ .password }}"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: /k8s/development/redis-cache-auth
