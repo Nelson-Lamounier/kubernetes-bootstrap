@@ -11,6 +11,13 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "7"
     kubernetes.io/description: "Redis broker (standalone, AOF persistence) on EKS"
+    # StatefulSet volumeClaimTemplates get volumeMode/status defaulted by
+    # the API server. ArgoCD's default client-side diff does not normalise
+    # those, producing a permanent phantom OutOfSync on an immutable field.
+    # ServerSideDiff runs the comparison through a server dry-run, which
+    # applies the same defaulting and clears the false positive. Only the
+    # broker needs this (the cache has no PVC).
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
   labels:
     app.kubernetes.io/part-of: argocd
     cluster: eks
