@@ -52,7 +52,7 @@ spec:
         # (e.g. SSM rotation, or a Bedrock CDK stack publishing a new key
         # that ESO then syncs in). selfHeal must NOT revert this annotation
         # — argocd-apps/public-api.yaml ignoreDifferences handles that.
-        secret.reloader.stakater.com/reload: "public-api-core,public-api-bedrock,public-api-strategist"
+        secret.reloader.stakater.com/reload: "public-api-core,public-api-bedrock,public-api-strategist,public-api-redis-cache"
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}
         platform.engineering/layer: bff
@@ -97,6 +97,14 @@ spec:
               value: {{ .Values.awsRegion | quote }}
             - name: ALLOWED_ORIGINS
               value: {{ .Values.allowedOrigins | quote }}
+            - name: REDIS_CACHE_HOST
+              value: {{ .Values.redisCache.host | quote }}
+            - name: REDIS_CACHE_PORT
+              value: {{ .Values.redisCache.port | quote }}
+            - name: REDIS_CACHE_TLS
+              value: {{ .Values.redisCache.tls | quote }}
+            - name: REDIS_CACHE_DEFAULT_TTL_SECONDS
+              value: {{ .Values.redisCache.defaultTtlSeconds | quote }}
           # ---------------------------------------------------------------
           # ESO syncs SSM into K8s Secrets (not ConfigMaps). Each
           # ExternalSecret in charts/public-api/external-secrets/ produces
@@ -122,6 +130,9 @@ spec:
                 optional: true
             - secretRef:
                 name: public-api-strategist
+                optional: true
+            - secretRef:
+                name: public-api-redis-cache
                 optional: true
 
           # ---------------------------------------------------------------
@@ -168,6 +179,10 @@ metadata:
   labels:
     app.kubernetes.io/name: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   {{ .Values.port | quote }}
+    prometheus.io/path:   "/metrics"
 spec:
   type: {{ .Values.service.type }}
   ports:
