@@ -20,14 +20,15 @@
 #      deletes the previous completed job before creating a new one).
 ---
 # =============================================================================
-# Migration 001 — repository_profiles
+# Migration 001 — repository_profiles + repository_profile_embeddings
 #
-# Added in tucaken-app commit a04b719 (2026-05-13).
-# The admin-api GET /github/connected-repos query LEFT JOINs this table to
-# surface AI-generated KB quality scores and profile metadata per repo.
-# Omitting the table causes a PostgreSQL "relation does not exist" error,
-# returning 500 to the BFF and rendering the Connected Repositories panel
-# empty in the UI.
+# Canonical schema from ai-applications/applications/platform-rds-bootstrap/
+# migrations/014_repository_profiles.sql.
+#
+# Required by the ingestion service (RepositoryProfileRepository) which writes
+# AI-extracted profile data per repo, and by the admin-api GET
+# /github/connected-repos query which LEFT JOINs this table to surface quality
+# scores and profile metadata in the Connected Repositories panel.
 # =============================================================================
 apiVersion: batch/v1
 kind: Job
@@ -37,14 +38,14 @@ metadata:
   annotations:
     argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-    kubernetes.io/description: "DDL: create repository_profiles table"
+    kubernetes.io/description: "DDL: create repository_profiles and repository_profile_embeddings tables"
   labels:
     app: platform-rds-migration
     migration: "001"
 spec:
   ttlSecondsAfterFinished: 3600
   backoffLimit: 3
-  activeDeadlineSeconds: 120
+  activeDeadlineSeconds: 180
   template:
     metadata:
       labels:
@@ -62,41 +63,675 @@ spec:
             - |
               set -eu
               psql "$DATABASE_URL" <<'SQL'
+
+              -- set_updated_at trigger function (used by multiple tables)
+              CREATE OR REPLACE FUNCTION set_updated_at()
+              RETURNS TRIGGER LANGUAGE plpgsql AS $fn$
+              BEGIN
+                  NEW.updated_at = now();
+                  RETURN NEW;
+              END;
+              $fn$;
+
+              -- repository_profiles ─────────────────────────────────────────
               CREATE TABLE IF NOT EXISTS repository_profiles (
-                  user_id           uuid        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                  repo_full_name    text        NOT NULL,
-                  quality_score     numeric(4,2),
-                  quality_breakdown jsonb,
-                  classification    text,
-                  extraction_status text,
-                  extracted         jsonb,
-                  created_at        timestamptz NOT NULL DEFAULT now(),
-                  updated_at        timestamptz NOT NULL DEFAULT now(),
-                  PRIMARY KEY (user_id, repo_full_name)
+                  id                  UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+                  user_id             UUID            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                  repository_id       UUID            REFERENCES repositories(id) ON DELETE CASCADE,
+                  repo_full_name      TEXT            NOT NULL,
+                  extracted           JSONB           NOT NULL DEFAULT '{}',
+                  user_overrides      JSONB           NOT NULL DEFAULT '{}',
+                  quality_score       NUMERIC(3,2)    NOT NULL DEFAULT 0
+                                                      CHECK (quality_score >= 0 AND quality_score <= 1),
+                  quality_breakdown   JSONB           NOT NULL DEFAULT '{}',
+                  classification      TEXT            NOT NULL DEFAULT 'project'
+                                                      CHECK (classification IN
+                                                        ('project','fork','tutorial','abandoned','noise','stale')),
+                  is_featured         BOOLEAN         NOT NULL DEFAULT FALSE,
+                  feature_rank        INTEGER,
+                  is_hidden           BOOLEAN         NOT NULL DEFAULT FALSE,
+                  extraction_status   TEXT            NOT NULL DEFAULT 'pending'
+                                                      CHECK (extraction_status IN
+                                                        ('pending','extracting','ready_for_review','completed','failed')),
+                  extraction_error    TEXT,
+                  extracted_at        TIMESTAMPTZ,
+                  reviewed_at         TIMESTAMPTZ,
+                  extractor_model     TEXT,
+                  extractor_version   TEXT,
+                  created_at          TIMESTAMPTZ     NOT NULL DEFAULT now(),
+                  updated_at          TIMESTAMPTZ     NOT NULL DEFAULT now(),
+                  UNIQUE (user_id, repo_full_name)
               );
 
-              CREATE INDEX IF NOT EXISTS idx_repository_profiles_user
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_user_id
                   ON repository_profiles (user_id);
+
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_featured
+                  ON repository_profiles (user_id, feature_rank)
+                  WHERE is_featured = TRUE;
+
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_classification
+                  ON repository_profiles (user_id, classification);
+
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_status
+                  ON repository_profiles (extraction_status);
+
+              CREATE INDEX IF NOT EXISTS idx_repo_profiles_tech_stack
+                  ON repository_profiles USING GIN ((extracted->'tech_stack'));
+
+              DO $do$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_trigger
+                  WHERE tgname = 'set_updated_at'
+                    AND tgrelid = 'repository_profiles'::regclass
+                ) THEN
+                  CREATE TRIGGER set_updated_at
+                    BEFORE UPDATE ON repository_profiles
+                    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+                END IF;
+              END $do$;
 
               ALTER TABLE repository_profiles ENABLE ROW LEVEL SECURITY;
 
-              DO $$
+              DO $do$
               BEGIN
                 IF NOT EXISTS (
                   SELECT 1 FROM pg_policies
                   WHERE schemaname = 'public'
                     AND tablename  = 'repository_profiles'
-                    AND policyname = 'repository_profiles_isolation'
+                    AND policyname = 'rls_repository_profiles'
                 ) THEN
-                  EXECUTE $policy$
-                    CREATE POLICY repository_profiles_isolation ON repository_profiles
-                      USING      (user_id = (current_setting('app.current_user_id', true))::uuid)
-                      WITH CHECK (user_id = (current_setting('app.current_user_id', true))::uuid)
-                  $policy$;
+                  CREATE POLICY rls_repository_profiles ON repository_profiles
+                    USING      (user_id = current_setting('app.current_user_id', true)::uuid)
+                    WITH CHECK (user_id = current_setting('app.current_user_id', true)::uuid);
                 END IF;
-              END $$;
+              END $do$;
 
-              SELECT 'migration-001: repository_profiles OK' AS status;
+              GRANT SELECT, INSERT, UPDATE, DELETE ON repository_profiles TO tucaken_app;
+
+              -- repository_profile_embeddings ───────────────────────────────
+              CREATE TABLE IF NOT EXISTS repository_profile_embeddings (
+                  id              UUID            PRIMARY KEY DEFAULT gen_random_uuid(),
+                  user_id         UUID            NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                  profile_id      UUID            NOT NULL REFERENCES repository_profiles(id) ON DELETE CASCADE,
+                  chunk_type      TEXT            NOT NULL
+                                                  CHECK (chunk_type IN ('one_liner', 'description', 'highlight')),
+                  content         TEXT            NOT NULL,
+                  content_hash    TEXT            NOT NULL,
+                  embedding       vector(1024)    NOT NULL,
+                  metadata        JSONB           NOT NULL DEFAULT '{}',
+                  last_synced_at  TIMESTAMPTZ     NOT NULL DEFAULT now(),
+                  UNIQUE (profile_id, chunk_type, content_hash)
+              );
+
+              CREATE INDEX IF NOT EXISTS idx_rpe_user_id
+                  ON repository_profile_embeddings (user_id);
+
+              CREATE INDEX IF NOT EXISTS idx_rpe_profile_id
+                  ON repository_profile_embeddings (profile_id);
+
+              CREATE INDEX IF NOT EXISTS idx_rpe_chunk_type
+                  ON repository_profile_embeddings (chunk_type);
+
+              CREATE INDEX IF NOT EXISTS idx_rpe_hnsw
+                  ON repository_profile_embeddings
+                  USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+
+              ALTER TABLE repository_profile_embeddings ENABLE ROW LEVEL SECURITY;
+
+              DO $do$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_policies
+                  WHERE schemaname = 'public'
+                    AND tablename  = 'repository_profile_embeddings'
+                    AND policyname = 'rls_repository_profile_embeddings'
+                ) THEN
+                  CREATE POLICY rls_repository_profile_embeddings ON repository_profile_embeddings
+                    USING      (user_id = current_setting('app.current_user_id', true)::uuid)
+                    WITH CHECK (user_id = current_setting('app.current_user_id', true)::uuid);
+                END IF;
+              END $do$;
+
+              GRANT SELECT, INSERT, UPDATE, DELETE ON repository_profile_embeddings TO tucaken_app;
+
+              -- coerce_classification_default trigger ──────────────────────
+              -- Ingestion upserts classification=NULL before LLM extraction
+              -- completes. PostgreSQL DEFAULT only fires when the column is
+              -- omitted; this trigger coerces explicit NULLs to 'project'.
+              CREATE OR REPLACE FUNCTION coerce_classification_default()
+              RETURNS TRIGGER LANGUAGE plpgsql AS $fn$
+              BEGIN
+                IF NEW.classification IS NULL THEN
+                  NEW.classification := 'project';
+                END IF;
+                RETURN NEW;
+              END;
+              $fn$;
+
+              DO $do$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_trigger
+                  WHERE tgname   = 'coerce_classification_default'
+                    AND tgrelid  = 'repository_profiles'::regclass
+                ) THEN
+                  CREATE TRIGGER coerce_classification_default
+                    BEFORE INSERT ON repository_profiles
+                    FOR EACH ROW EXECUTE FUNCTION coerce_classification_default();
+                END IF;
+              END $do$;
+
+              SELECT 'migration-001: repository_profiles + embeddings OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 002 — prompt_invocations: add import_id + repo_name columns
+#
+# recordBedrockCost (shared/src/rds/bedrock-cost.ts) inserts import_id (UUID,
+# nullable, foreign key to resume_imports) and repo_name (TEXT, nullable) to
+# correlate Bedrock cost records with the ingestion repo or import job that
+# triggered them. Both columns are optional (NULL-safe) so existing rows are
+# unaffected.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-002-prompt-invocations-cols
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: add import_id + repo_name to prompt_invocations"
+  labels:
+    app: platform-rds-migration
+    migration: "002"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "002"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              ALTER TABLE prompt_invocations
+                ADD COLUMN IF NOT EXISTS import_id UUID,
+                ADD COLUMN IF NOT EXISTS repo_name TEXT;
+
+              CREATE INDEX IF NOT EXISTS idx_prompt_invocations_import_id
+                ON prompt_invocations (import_id)
+                WHERE import_id IS NOT NULL;
+
+              CREATE INDEX IF NOT EXISTS idx_prompt_invocations_repo_name
+                ON prompt_invocations (repo_name)
+                WHERE repo_name IS NOT NULL;
+
+              SELECT 'migration-002: prompt_invocations columns OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 003 — prompt_invocations: cost columns INTEGER → NUMERIC(12,6)
+#
+# recordBedrockCost computes fractional cents (e.g. 0.87232 for a typical
+# haiku-4-5 invocation). The original INTEGER columns reject such values.
+# NUMERIC(12,6) accepts the fractional representation while remaining
+# compatible with existing integer rows.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-003-prompt-invocations-cost-type
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: alter cost columns to NUMERIC(12,6) in prompt_invocations"
+  labels:
+    app: platform-rds-migration
+    migration: "003"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "003"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              ALTER TABLE prompt_invocations
+                ALTER COLUMN input_cost_cents  TYPE NUMERIC(12,6),
+                ALTER COLUMN output_cost_cents TYPE NUMERIC(12,6),
+                ALTER COLUMN total_cost_cents  TYPE NUMERIC(12,6);
+
+              SELECT 'migration-003: prompt_invocations cost columns OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 004 — user_token_budgets table
+#
+# recordBedrockCost (shared/src/rds/bedrock-cost.ts) reads and upserts rows
+# into user_token_budgets to enforce per-user monthly Bedrock spend limits.
+# monthly_limit_cents defaults to 500 cents ($5.00/month).
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-004-user-token-budgets
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: create user_token_budgets table"
+  labels:
+    app: platform-rds-migration
+    migration: "004"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "004"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              CREATE TABLE IF NOT EXISTS user_token_budgets (
+                  user_id             UUID          PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                  monthly_limit_cents NUMERIC(12,6) NOT NULL DEFAULT 500,
+                  alert_threshold_pct INTEGER       NOT NULL DEFAULT 80
+                                                    CHECK (alert_threshold_pct BETWEEN 1 AND 100),
+                  created_at          TIMESTAMPTZ   NOT NULL DEFAULT now(),
+                  updated_at          TIMESTAMPTZ   NOT NULL DEFAULT now()
+              );
+
+              GRANT SELECT, INSERT, UPDATE, DELETE ON user_token_budgets TO tucaken_app;
+
+              SELECT 'migration-004: user_token_budgets OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 005 — resume_import_corrections
+#
+# Captures (extracted_value, corrected_value) pairs when a user edits a
+# career entry post-import. Eval dataset for extraction-prompt iteration.
+# Mirrors ai-applications migration 016. Idempotent.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-005-resume-import-corrections
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: resume_import_corrections table + indexes"
+  labels:
+    app: platform-rds-migration
+    migration: "005"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "005"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              CREATE TABLE IF NOT EXISTS resume_import_corrections (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                import_id       UUID NOT NULL REFERENCES resume_imports(id)      ON DELETE CASCADE,
+                career_entry_id UUID NOT NULL REFERENCES user_career_history(id) ON DELETE CASCADE,
+                user_id         UUID NOT NULL REFERENCES users(id)               ON DELETE CASCADE,
+                entry_type      TEXT NOT NULL,
+                field_path      TEXT NOT NULL,
+                extracted_value JSONB,
+                corrected_value JSONB,
+                model_id        TEXT,
+                prompt_version  TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+              );
+
+              CREATE INDEX IF NOT EXISTS idx_corrections_user_created
+                ON resume_import_corrections (user_id, created_at DESC);
+              CREATE INDEX IF NOT EXISTS idx_corrections_entry
+                ON resume_import_corrections (career_entry_id);
+              CREATE INDEX IF NOT EXISTS idx_corrections_entry_field
+                ON resume_import_corrections (entry_type, field_path);
+
+              GRANT SELECT, INSERT, UPDATE, DELETE ON resume_import_corrections TO tucaken_app;
+
+              SELECT 'migration-005: resume_import_corrections OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 006 — tavily_cache
+#
+# Memoises non-empty Tavily result sets (role-research dedup, 7-day TTL at
+# read time). Mirrors ai-applications migration 017. Idempotent.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-006-tavily-cache
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: tavily_cache table + index"
+  labels:
+    app: platform-rds-migration
+    migration: "006"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "006"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              CREATE TABLE IF NOT EXISTS tavily_cache (
+                query_hash   TEXT PRIMARY KEY,
+                query_text   TEXT NOT NULL,
+                max_results  SMALLINT NOT NULL,
+                results      JSONB NOT NULL,
+                fetched_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                hit_count    INTEGER     NOT NULL DEFAULT 0
+              );
+
+              CREATE INDEX IF NOT EXISTS idx_tavily_cache_fetched_at
+                ON tavily_cache (fetched_at);
+
+              GRANT SELECT, INSERT, UPDATE, DELETE ON tavily_cache TO tucaken_app;
+
+              SELECT 'migration-006: tavily_cache OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 007 — resume_imports active-index widening
+#
+# Splits the import pipeline added 'analyzing' (gap analysis, A3) and
+# 'confirmed' (enrichment dispatch, A2) states. Widen the active-imports
+# partial index so an import stuck in either stays visible to monitoring.
+# Supersedes ai-applications migration 018 (which added 'confirmed' only).
+# DROP IF EXISTS + CREATE makes it idempotent.
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-007-resume-imports-active-index
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: widen idx_resume_imports_status_active"
+  labels:
+    app: platform-rds-migration
+    migration: "007"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "007"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              DROP INDEX IF EXISTS idx_resume_imports_status_active;
+
+              CREATE INDEX idx_resume_imports_status_active
+                ON resume_imports (status)
+                WHERE status IN ('queued', 'parsing', 'extracting_career',
+                                 'analyzing', 'confirmed', 'enriching');
+
+              SELECT 'migration-007: idx_resume_imports_status_active OK' AS status;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+# =============================================================================
+# Migration 008 — resume_imports gap-analysis report columns
+#
+# Phase-1 gap-analysis artifact. gap_report is nullable (gap analysis is
+# non-fatal); gap_report_generated_at is the artifact-ready signal the
+# admin-api progress endpoint exposes. Mirrors ai-applications migration
+# 019. Idempotent (ADD COLUMN IF NOT EXISTS).
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-008-resume-imports-gap-report
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: resume_imports gap_report columns"
+  labels:
+    app: platform-rds-migration
+    migration: "008"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "008"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql "$DATABASE_URL" <<'SQL'
+
+              ALTER TABLE resume_imports
+                ADD COLUMN IF NOT EXISTS gap_report              JSONB,
+                ADD COLUMN IF NOT EXISTS gap_report_generated_at TIMESTAMPTZ;
+
+              SELECT 'migration-008: resume_imports gap_report OK' AS status;
               SQL
           env:
             - name: DATABASE_URL

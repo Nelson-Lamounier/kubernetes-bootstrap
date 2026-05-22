@@ -88,6 +88,15 @@ runs:
         # fetching the commit author-date for lead-time calculation.
         GH_TOKEN:         ${{ env.GITHUB_TOKEN || github.token }}
       run: |
+        # Best-effort wrapper around the entire script body: any failure
+        # inside the subshell (jq missing, gh api 500, curl beyond the
+        # already-handled cases, set -u trip on a future code change)
+        # emits a warning and the step returns 0. This is the third
+        # layer of "marker must never amplify a workflow failure",
+        # complementing per-curl `|| echo` and caller-side
+        # `continue-on-error: true`. The build + ECR push that callers
+        # actually care about ran in an earlier job with its own status.
+        (
         set -uo pipefail
         if [[ -z "${LOKI_URL:-}" || -z "${LOKI_AUTH:-}" ]]; then
           echo "::warning::LOKI_PUSH_URL or LOKI_PUSH_BASIC_AUTH unset — skipping deploy marker."
@@ -186,3 +195,7 @@ runs:
                "$PGW_PATH" \
             || echo "::warning::Pushgateway push failed (non-fatal)"
         fi
+        ) || {
+          echo "::warning::deploy marker step hit an unexpected error (non-fatal) — see logs for the failing line."
+          exit 0
+        }

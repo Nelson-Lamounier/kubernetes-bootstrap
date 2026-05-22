@@ -1,0 +1,27 @@
+# @format
+# Dev overrides for redis-broker.
+
+redis:
+  master:
+    persistence:
+      size: 4Gi
+    resources:
+      requests:
+        memory: 256Mi
+        cpu:    50m
+      limits:
+        memory: 512Mi
+        cpu:    250m
+    configuration: |-
+      maxmemory 350mb
+      maxmemory-policy noeviction
+      save ""
+      appendonly yes
+      appendfsync everysec
+      auto-aof-rewrite-percentage 100
+      auto-aof-rewrite-min-size 64mb
+      timeout 0
+      tcp-keepalive 60
+  metrics:
+    serviceMonitor:
+      enabled: false

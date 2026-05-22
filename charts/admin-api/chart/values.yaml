@@ -63,6 +63,18 @@ replicas: 1
 # Port 3002 — admin-api (public-api uses 3001)
 port: 3002
 
+# CIDRs of the subnets that host the internet-facing ALB ENIs. The ALB
+# Ingress uses target-type: ip, so traffic reaches the pod directly from
+# these ranges. Once VPC CNI network-policy enforcement is enabled, the
+# admin-api NetworkPolicy must allow this source or the ALB data/health
+# path to :{{ .Values.port }} is dropped and the site goes down. These are
+# the cluster's two public subnets (pods share them, so this also admits
+# in-subnet pods on the port — acceptable for an internet-facing service
+# whose real boundary is the ALB + WAF). Empty list disables the rule.
+albSourceCidrs:
+  - 10.0.0.0/24
+  - 10.0.1.0/24
+
 # ── Node scheduling ───────────────────────────────────────────────────────────
 nodeSelector: {}
 
@@ -121,6 +133,10 @@ enrichmentModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 # Bedrock cross-region inference profile ID forwarded to job-strategist K8s Jobs as RESEARCH_MODEL.
 # Kept separate from enrichmentModelId so the two pipelines can diverge to different models independently.
 researchModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+# Bedrock cross-region inference profile ID forwarded to article-pipeline K8s Jobs as FOUNDATION_MODEL
+# (writer agent) and QA_MODEL (QA agent). Claude Sonnet 4.x uses the date-free profile format.
+foundationModelId: "eu.anthropic.claude-sonnet-4-6"
 
 # ── ServiceAccount ────────────────────────────────────────────────────────────
 # Named SA so the cross-namespace RoleBinding in the ingestion namespace
@@ -232,3 +248,29 @@ rollout:
     errorRateThreshold: 0.05      # < 5% 5xx
     latencyThresholdMs: 1500      # admin-api routes are pure PG / K8s-API calls
                                   # — tighter than nextjs (which renders pages)
+
+# ── Account-deletion sweep (CronJob) ──────────────────────────────────────────
+# Daily hard-delete pass for users whose 30-day soft-delete grace has
+# expired. See charts/admin-api/chart/templates/account-sweep-cronjob.yaml
+# and admin-api/src/scripts/account-sweep.ts in the tucaken-app repo.
+#
+# Enabled 2026-05-20 after cdk-monitoring EksPodIdentity-development
+# deployed cognito-idp:Admin{Disable,Enable,Delete}User on the admin-api IRSA.
+# Verify CronJob health: kubectl -n admin-api get cronjob account-sweep
+accountSweep:
+  enabled:    true
+  # 03:00 UTC every day — quietest period for the cluster.
+  schedule:   "0 3 * * *"
+  graceDays:  30
+
+# ---------------------------------------------------------------------------
+# Redis read cache (BFF hot-key cache; see kubernetes-bootstrap/CONTEXT.md)
+# HOST/PORT/TLS are stable cluster coordinates → static env literals.
+# REDIS_CACHE_PASSWORD is synced by external-secrets/admin-api-redis-cache.yaml
+# and consumed via envFrom (optional). Host unset ⇒ cache disabled (fail-open).
+# ---------------------------------------------------------------------------
+redisCache:
+  host: redis-cache-master.redis-cache.svc.cluster.local
+  port: 6379
+  tls: false
+  defaultTtlSeconds: 3600

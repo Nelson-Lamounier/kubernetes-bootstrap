@@ -1,0 +1,38 @@
+{{- if .Values.alloy.kubernetesEvents.enabled }}
+# Cluster-wide read perms for the loki.source.kubernetes_events component.
+# Watches every event in every namespace so panels can filter by namespace
+# label downstream. No write access — Alloy only ships events to Loki.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alloy
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alloy-events-reader
+  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["events", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alloy-events-reader
+  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind:     ClusterRole
+  name:     alloy-events-reader
+subjects:
+  - kind:      ServiceAccount
+    name:      alloy
+    namespace: {{ .Values.namespace }}
+{{- end }}

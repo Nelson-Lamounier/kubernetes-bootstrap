@@ -23,6 +23,23 @@ spec:
     - Egress
 
   ingress:
+    # Allow the internet-facing ALB (Ingress class alb, target-type: ip) to
+    # reach pods directly. ALB ENIs live in the public subnets; with the VPC
+    # CNI network-policy agent this path is denied unless explicitly allowed,
+    # which would take admin.nelsonlamounier.com down. Pods share these
+    # subnets, so this also admits in-subnet pods on the port — acceptable
+    # for an internet-facing service fronted by ALB + WAF.
+    {{- with .Values.albSourceCidrs }}
+    - from:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.port }}
+    {{- end }}
+
     # Allow Traefik ingress controller from kube-system
     - from:
         - namespaceSelector:

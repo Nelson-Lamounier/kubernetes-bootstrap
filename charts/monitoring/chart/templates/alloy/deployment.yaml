@@ -18,6 +18,9 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/alloy/configmap.yaml") . | sha256sum }}
       labels: {{- include "monitoring.fullLabels" "alloy" | nindent 8 }}
     spec:
+      {{- if .Values.alloy.kubernetesEvents.enabled }}
+      serviceAccountName: alloy
+      {{- end }}
       securityContext:
         runAsUser: 65534
         runAsNonRoot: true

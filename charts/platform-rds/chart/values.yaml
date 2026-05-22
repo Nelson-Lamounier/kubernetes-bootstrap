@@ -14,6 +14,22 @@ pgbouncer:
   maxClientConn: 200
   defaultPoolSize: 20
   replicas: 1
+  # ── PgBouncer listen port (non-default override) ──────────────────────
+  # PgBouncer's documented default is 6432. This chart deliberately uses
+  # 5432 so consumer Pods, ExternalSecrets, and Grafana datasources can
+  # use the canonical "Postgres port" without an extra translation step.
+  #
+  # CONSEQUENCES — read before port-forwarding or editing probes:
+  #   • Service port  = 5432  (clients connect to :5432, not :6432)
+  #   • Container port = 5432 (env PGBOUNCER_PORT=5432 overrides default)
+  #   • Service `targetPort: 5432` (NOT 6432 like upstream Bitnami chart)
+  #   • Run `kubectl get svc pgbouncer -n platform -o yaml` to verify —
+  #     do not assume PgBouncer's default in any debugging session.
+  #
+  # The override is surfaced via the
+  # `nelsonlamounier.com/upstream-port-override` annotation on the
+  # Service so `kubectl describe svc` shows the deviation at a glance.
+  port: 5432
 
 bootstrap:
   # Disabled until the platform-rds-bootstrap ECR image exists.

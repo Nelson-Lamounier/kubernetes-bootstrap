@@ -1,0 +1,20 @@
+# @format
+apiVersion: v2
+name: redis-cache
+description: Cluster Redis instance (cache profile — ephemeral, allkeys-lru, no persistence)
+type: application
+version: 0.1.0
+appVersion: "7.4"
+
+# Bitnami redis as a versioned dependency. ArgoCD runs `helm dependency build`
+# on sync; the chart tarball is fetched from the configured repository.
+#
+# NOTE — bitnami image purge (Sept 2025):
+#   Bitnami removed most public images from docker.io/bitnami/* and moved
+#   archived tags to docker.io/bitnamilegacy/*. The chart's default
+#   `image.repository: bitnami/redis` no longer pulls. Override is in
+#   values.yaml. Review for a maintained alternative before next major bump.
+dependencies:
+  - name: redis
+    version: "20.6.2"
+    repository: https://charts.bitnami.com/bitnami

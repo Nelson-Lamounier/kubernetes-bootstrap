@@ -55,7 +55,7 @@ spec:
         # platform-rds-credentials on RDS password rotation, or Cognito
         # value rotation. selfHeal must NOT revert this annotation —
         # argocd-apps/admin-api.yaml ignoreDifferences handles that.
-        secret.reloader.stakater.com/reload: "admin-api-secrets,admin-api-bedrock,admin-api-job-images,admin-api-github,platform-rds-credentials"
+        secret.reloader.stakater.com/reload: "admin-api-secrets,admin-api-bedrock,admin-api-job-images,admin-api-github,platform-rds-credentials,admin-api-redis-cache"
       labels:
         {{- include "admin-api.fullLabels" . | nindent 8 }}
     spec:
@@ -107,6 +107,14 @@ spec:
               value: {{ .Values.dynamodb.gsi2Name | quote }}
             - name: AWS_DEFAULT_REGION
               value: {{ .Values.awsRegion | quote }}
+            - name: REDIS_CACHE_HOST
+              value: {{ .Values.redisCache.host | quote }}
+            - name: REDIS_CACHE_PORT
+              value: {{ .Values.redisCache.port | quote }}
+            - name: REDIS_CACHE_TLS
+              value: {{ .Values.redisCache.tls | quote }}
+            - name: REDIS_CACHE_DEFAULT_TTL_SECONDS
+              value: {{ .Values.redisCache.defaultTtlSeconds | quote }}
             # Bedrock cross-region inference profile — passed into ingestion Jobs
             # created by this pod. Override per-environment in argocd overlay values.
             - name: ENRICHMENT_MODEL_ID
@@ -115,6 +123,9 @@ spec:
             # Kept separate from ENRICHMENT_MODEL_ID to allow independent model changes.
             - name: RESEARCH_MODEL
               value: {{ .Values.researchModelId | quote }}
+            # Bedrock inference profile forwarded to article-pipeline K8s Jobs (writer + QA agents).
+            - name: FOUNDATION_MODEL
+              value: {{ .Values.foundationModelId | quote }}
             # ── Observability (OTel + pino + prom-client) ─────────────────
             # Telemetry preload uses --import in the Dockerfile; the SDK
             # reads these vars at start. Endpoint points at the Alloy
@@ -168,6 +179,9 @@ spec:
                 optional: true
             - secretRef:
                 name: admin-api-github
+                optional: true
+            - secretRef:
+                name: admin-api-redis-cache
                 optional: true
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

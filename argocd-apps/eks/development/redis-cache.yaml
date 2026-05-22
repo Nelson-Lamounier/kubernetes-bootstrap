@@ -1,0 +1,46 @@
+# @format
+# ArgoCD Application: redis-cache (EKS — development)
+#
+# Standalone Redis (cache profile) in namespace `redis-cache`.
+# Ephemeral, allkeys-lru, no persistence. Pair with redis-broker.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: redis-cache-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    kubernetes.io/description: "Redis cache (standalone, ephemeral) on EKS"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/redis-cache/chart
+    helm:
+      releaseName: redis-cache
+      valueFiles:
+        - values-development.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: redis-cache
+  syncPolicy:
+    automated:
+      prune:       true
+      selfHeal:    true
+      allowEmpty:  false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration:    10s
+        factor:      2
+        maxDuration: 5m

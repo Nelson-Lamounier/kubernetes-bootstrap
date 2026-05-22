@@ -277,6 +277,16 @@ alloy:
     otlpHttpPort: 4318
     otlpGrpcPort: 4317
 
+  # ── Kubernetes events → Loki ─────────────────────────────────────────────
+  # Streams every K8s Event cluster-wide to Loki under
+  # job="integrations/kubernetes/eventhandler". Powers the "K8s events"
+  # panels in resume-import / cluster-events dashboards. When enabled,
+  # provisions a dedicated ServiceAccount + ClusterRole (templates/alloy/
+  # rbac.yaml) so Alloy can list/watch events cluster-wide. Without this
+  # block the SA stays as `default` (no events RBAC).
+  kubernetesEvents:
+    enabled: true
+
   # ── AWS log scrapers ────────────────────────────────────────────────────────
   # Alloy polls CloudWatch Log Groups + S3 buckets and forwards to Loki.
   # Required IAM on the EC2 instance profile:
@@ -376,6 +386,14 @@ pushgateway:
   enabled: true
   image: prom/pushgateway:v1.10.0
   replicas: 1
+  # AZ pin: EBS PVC (pushgateway-state) is zonal. The rest of the monitoring
+  # stack (loki, tempo, prometheus, grafana, pyroscope, alertmanager) and the
+  # Karpenter `system` nodepool all live in eu-west-1b. Without this pin
+  # pushgateway can schedule onto an eu-west-1a node, provision its EBS volume
+  # in 1a, then deadlock on the next Recreate rollout (PV in 1a, only 1b
+  # schedulable). Overrides the global .Values.nodeSelector for pushgateway only.
+  nodeSelector:
+    topology.kubernetes.io/zone: eu-west-1b
   resources:
     requests:
       cpu: 25m
@@ -385,6 +403,19 @@ pushgateway:
       memory: 128Mi
   service:
     port: 9091
+  # Persistent state for pushed groups. Without a PVC, push state lives in
+  # the container's /tmp and vanishes on every pod restart (drift eviction,
+  # image roll-out, node replacement) — which makes Grafana panels backed
+  # by Pushgateway counters read "No data" even though Jobs ran.
+  # Persistence interval is the worst-case data loss on hard crash.
+  persistence:
+    enabled:         true
+    size:            1Gi
+    storageClass:    "ebs-sc"
+    # rwOnce: PVC is RWO; deployment uses strategy Recreate to avoid two
+    # pods racing for the same volume during rollouts.
+    flushInterval:   1m
+    mountPath:       /data/pushgateway-state
   # External push endpoint for GH Actions DORA leg. Reuses the Loki
   # push-auth Middleware (same htpasswd, same SSM path) since both surface
   # write-only to the same caller.

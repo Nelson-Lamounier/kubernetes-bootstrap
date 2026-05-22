@@ -2,8 +2,15 @@
 # PgBouncer Deployment
 #
 # Connection pooler in front of Platform RDS.
-# All pods in the cluster connect to pgbouncer.platform.svc.cluster.local:5432 —
+# All pods in the cluster connect to
+#   pgbouncer.platform.svc.cluster.local:{{ "{{ .Values.pgbouncer.port }}" }}
 # NEVER directly to RDS.
+#
+# ⚠ NON-DEFAULT LISTEN PORT — see values.yaml `pgbouncer.port`.
+# PgBouncer's documented default is 6432; this Deployment deliberately
+# binds {{ "{{ .Values.pgbouncer.port }}" }} via env PGBOUNCER_PORT so
+# consumers don't need a translation step. The matching Service
+# annotation `nelsonlamounier.com/upstream-port-override` surfaces this.
 #
 # Pool mode: transaction (correct for stateless HTTP handlers)
 # Max server connections: 20 (well under RDS t4g.micro limit of ~85)
@@ -34,8 +41,11 @@ spec:
       - name: pgbouncer
         image: {{ .Values.pgbouncer.image.repository }}:{{ .Values.pgbouncer.image.tag }}
         ports:
-        - containerPort: 5432
-          name: postgres
+        # Port name `pgbouncer-postgres` matches the Service port name —
+        # makes the connection-pooler indirection visible in
+        # `kubectl get pod/svc -o yaml` and `kubectl describe`.
+        - containerPort: {{ .Values.pgbouncer.port }}
+          name: pgbouncer-postgres
         env:
         - name: POSTGRESQL_HOST
           valueFrom:
@@ -76,9 +86,10 @@ spec:
               optional: false
         # Bitnami legacy 1.23.1 image errors with "PGBOUNCER_PORT: value is
         # not an integer" if this env var is unset, even though the docs
-        # claim a default of 5432. Setting explicitly.
+        # claim a default of 5432. Setting explicitly from values so the
+        # listen port stays in one source of truth (values.pgbouncer.port).
         - name: PGBOUNCER_PORT
-          value: "5432"
+          value: {{ .Values.pgbouncer.port | quote }}
         - name: PGBOUNCER_POOL_MODE
           value: {{ .Values.pgbouncer.poolMode }}
         - name: PGBOUNCER_MAX_CLIENT_CONN
@@ -100,16 +111,34 @@ spec:
           limits:
             cpu: 100m
             memory: 64Mi
+        # End-to-end SELECT 1 round-trip through PgBouncer to RDS.
+        # The previous TCP probe only confirmed PgBouncer was listening,
+        # masking upstream failures — pgbouncer-7fc6b8c79-whj69 sat
+        # Ready=False for 4 straight hours on 2026-05-11 because the
+        # upstream connection broke after pgbouncer started. An exec
+        # probe that actually issues a query catches credential drift,
+        # RDS unavailability, and network partitions immediately.
+        # PGCONNECT_TIMEOUT bounds the probe at 3s so we still fail fast.
         livenessProbe:
-          tcpSocket:
-            port: 5432
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - 'PGCONNECT_TIMEOUT=3 PGPASSWORD="$POSTGRESQL_PASSWORD" /opt/bitnami/postgresql/bin/psql -h 127.0.0.1 -p 5432 -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_DATABASE" -tAc "SELECT 1" >/dev/null'
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - 'PGCONNECT_TIMEOUT=3 PGPASSWORD="$POSTGRESQL_PASSWORD" /opt/bitnami/postgresql/bin/psql -h 127.0.0.1 -p 5432 -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_DATABASE" -tAc "SELECT 1" >/dev/null'
           initialDelaySeconds: 10
           periodSeconds: 10
-        readinessProbe:
-          tcpSocket:
-            port: 5432
-          initialDelaySeconds: 5
-          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
       {{- if .Values.metricsExporter.enabled }}
       # ── PgBouncer metrics exporter (sidecar) ────────────────────────────
       # Connects to the colocated PgBouncer admin console over loopback,

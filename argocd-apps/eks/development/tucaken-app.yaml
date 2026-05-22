@@ -52,6 +52,13 @@ spec:
       jqPathExpressions:
         - .metadata.annotations["alb.ingress.kubernetes.io/wafv2-acl-arn"]
   syncPolicy:
+    # Permits ingress to redis-cache-master per the cache NetworkPolicy
+    # (charts/redis-cache). ArgoCD stamps this on the namespace it manages
+    # via CreateNamespace=true. Add tucaken.com/redis-broker-client when
+    # this app starts consuming the job broker.
+    managedNamespaceMetadata:
+      labels:
+        tucaken.com/redis-cache-client: "true"
     automated:
       prune: true
       selfHeal: true
