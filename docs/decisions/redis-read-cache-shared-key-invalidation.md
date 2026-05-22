@@ -58,6 +58,17 @@ path serves a stale case study.
   subscriber lifecycle and missed-message handling. Rejected as overkill at
   current scale.
 
+## Known gap — asynchronous regeneration
+
+`POST /:id/regenerate` (and `/:id/confirm`) enqueue a Kubernetes Job that
+rewrites the case-study content **later**; admin-api invalidates the key at
+*enqueue* time, not at job completion. A public read arriving in that window
+re-caches the pre-regeneration content, which then persists until the 1h TTL.
+Accepted for now (TTL backstops it; regenerations are infrequent). A complete
+fix would have the regeneration Job — or `platform-job-watcher` — call the same
+invalidation when the new content lands. Tracked as follow-up, not in the first
+slice.
+
 ## Consequence (the trap this prevents)
 
 The shared key scheme is **load-bearing**, like the `redis-client` namespace
