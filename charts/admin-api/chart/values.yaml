@@ -63,6 +63,18 @@ replicas: 1
 # Port 3002 — admin-api (public-api uses 3001)
 port: 3002
 
+# CIDRs of the subnets that host the internet-facing ALB ENIs. The ALB
+# Ingress uses target-type: ip, so traffic reaches the pod directly from
+# these ranges. Once VPC CNI network-policy enforcement is enabled, the
+# admin-api NetworkPolicy must allow this source or the ALB data/health
+# path to :{{ .Values.port }} is dropped and the site goes down. These are
+# the cluster's two public subnets (pods share them, so this also admits
+# in-subnet pods on the port — acceptable for an internet-facing service
+# whose real boundary is the ALB + WAF). Empty list disables the rule.
+albSourceCidrs:
+  - 10.0.0.0/24
+  - 10.0.1.0/24
+
 # ── Node scheduling ───────────────────────────────────────────────────────────
 nodeSelector: {}
 
