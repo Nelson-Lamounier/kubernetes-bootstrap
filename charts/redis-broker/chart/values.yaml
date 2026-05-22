@@ -36,7 +36,10 @@ redis:
     count: 1
     persistence:
       enabled:      true
-      storageClass: gp3
+      # Cluster exposes `ebs-sc` (ebs.csi.aws.com, WaitForFirstConsumer)
+      # and in-tree `gp2`. No `gp3` class. ebs-sc is the CSI-backed
+      # choice; its underlying volume type is set in the StorageClass.
+      storageClass: ebs-sc
       size:         8Gi
       accessModes:
         - ReadWriteOnce
@@ -64,12 +67,14 @@ redis:
   replica:
     replicaCount: 0
 
+  # See charts/redis-cache/chart/values.yaml — metrics off until a
+  # scraper exists and a valid exporter tag is pinned.
   metrics:
-    enabled: true
+    enabled: false
     image:
       registry:   docker.io
       repository: bitnamilegacy/redis-exporter
-      tag:        1.66.0-debian-12-r4
+      tag:        1.76.0-debian-12-r0
     serviceMonitor:
       # Cluster runs Grafana-only (no Prometheus Operator CRDs).
       # Flip on once ServiceMonitor CRD is installed.

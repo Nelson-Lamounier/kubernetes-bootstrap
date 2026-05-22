@@ -78,12 +78,16 @@ redis:
     replicaCount: 0
 
   # ── Metrics ────────────────────────────────────────────────────────────
+  # Disabled: cluster has no Prometheus Operator / scraper, and the
+  # bitnamilegacy/redis-exporter r4 tag was purged (ImagePullBackOff).
+  # Re-enable with a valid tag (e.g. 1.76.0-debian-12-r0) once a scraper
+  # exists. ServiceMonitor stays off until the CRD is installed.
   metrics:
-    enabled: true
+    enabled: false
     image:
       registry:   docker.io
       repository: bitnamilegacy/redis-exporter
-      tag:        1.66.0-debian-12-r4
+      tag:        1.76.0-debian-12-r0
     serviceMonitor:
       # Cluster runs Grafana-only (no Prometheus Operator CRDs).
       # Flip on once ServiceMonitor CRD is installed.
