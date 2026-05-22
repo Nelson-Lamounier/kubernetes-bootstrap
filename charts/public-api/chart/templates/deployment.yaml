@@ -20,6 +20,12 @@ metadata:
   labels:
     app.kubernetes.io/managed-by: {{ .Release.Service }}
     kubernetes.io/metadata.name: {{ .Values.namespace }}
+    # Permits ingress to redis-cache-master per the cache NetworkPolicy
+    # (charts/redis-cache). This chart templates its own Namespace, so the
+    # label lives here rather than in the Application's
+    # managedNamespaceMetadata (which only governs ArgoCD-auto-created
+    # namespaces).
+    tucaken.com/redis-cache-client: "true"
 
 ---
 # ============================================================

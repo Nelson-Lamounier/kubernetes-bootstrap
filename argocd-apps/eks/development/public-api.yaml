@@ -34,13 +34,10 @@ spec:
     server: https://kubernetes.default.svc
     namespace: public-api
   syncPolicy:
-    # Permits ingress to redis-cache-master per the cache NetworkPolicy
-    # (charts/redis-cache). ArgoCD stamps this on the namespace it manages
-    # via CreateNamespace=true. Add tucaken.com/redis-broker-client when
-    # this app starts consuming the job broker.
-    managedNamespaceMetadata:
-      labels:
-        tucaken.com/redis-cache-client: "true"
+    # NOTE: public-api templates its own Namespace (charts/public-api,
+    # deployment.yaml) so the redis-cache-client label lives there, not in
+    # managedNamespaceMetadata — that only governs ArgoCD-auto-created
+    # namespaces, and this one is a chart-managed resource.
     automated:
       prune: true
       selfHeal: true
