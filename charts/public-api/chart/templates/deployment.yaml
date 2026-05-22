@@ -52,7 +52,7 @@ spec:
         # (e.g. SSM rotation, or a Bedrock CDK stack publishing a new key
         # that ESO then syncs in). selfHeal must NOT revert this annotation
         # — argocd-apps/public-api.yaml ignoreDifferences handles that.
-        secret.reloader.stakater.com/reload: "public-api-core,public-api-bedrock,public-api-strategist,public-api-redis-cache"
+        secret.reloader.stakater.com/reload: "public-api-core,platform-rds-credentials,public-api-bedrock,public-api-strategist,public-api-redis-cache"
       labels:
         app.kubernetes.io/name: {{ .Release.Name }}
         platform.engineering/layer: bff
@@ -125,6 +125,8 @@ spec:
           envFrom:
             - secretRef:
                 name: public-api-core
+            - secretRef:
+                name: platform-rds-credentials
             - secretRef:
                 name: public-api-bedrock
                 optional: true
