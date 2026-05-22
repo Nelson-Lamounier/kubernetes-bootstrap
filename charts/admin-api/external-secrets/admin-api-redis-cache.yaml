@@ -1,0 +1,31 @@
+# @format
+# ExternalSecret: admin-api-redis-cache
+#
+# Syncs the redis-cache password into the admin-api namespace so the writer
+# can DEL public-api's read-cache keys. Same SSM SecureString charts/redis-cache
+# reads. Produces Secret `admin-api-redis-cache` with key REDIS_CACHE_PASSWORD.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: admin-api-redis-cache
+  namespace: admin-api
+  annotations:
+    kubernetes.io/description: "redis-cache password for admin-api invalidation — 1h refresh"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: admin-api-redis-cache
+    creationPolicy: Owner
+    deletionPolicy: Delete
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        REDIS_CACHE_PASSWORD: "{{ .password }}"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: /k8s/development/redis-cache-auth
