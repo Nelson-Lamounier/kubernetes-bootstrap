@@ -10,9 +10,11 @@ applies only to app-private cache entries.
 
 ## Context
 
-`redis-cache` is the BFF hot-key read cache (the AI-generation cache lives on
-Postgres+pgvector — see [CONTEXT.md](../../CONTEXT.md)). Its first consumer is
-the **project (case study)** entity:
+`redis-cache` is a shared instance: it hosts the BFF hot-key **read cache**
+(`shared:*`, this decision) alongside the **AI-gen exact cache** (`aigen:*`,
+used by job-strategist), plus there's a separate pgvector **semantic cache** —
+see [CONTEXT.md](../../CONTEXT.md). This decision concerns the read cache, whose
+first consumer is the **project (case study)** entity:
 
 - **public-api** (`@bedrock/shared`, ai-applications repo) reads project detail
   via `getOrCompute`.
