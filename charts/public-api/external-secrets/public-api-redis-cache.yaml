@@ -1,0 +1,33 @@
+# @format
+# ExternalSecret: public-api-redis-cache
+#
+# Syncs the redis-cache password into the public-api namespace so the BFF can
+# authenticate to redis-cache-master.redis-cache.svc. Same SSM SecureString
+# that charts/redis-cache reads — single source of truth. Produces Secret
+# `public-api-redis-cache` with key REDIS_CACHE_PASSWORD, consumed via
+# envFrom (optional). HOST/PORT/TLS are static literals on the Deployment.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: public-api-redis-cache
+  namespace: public-api
+  annotations:
+    kubernetes.io/description: "redis-cache password for public-api — 1h refresh"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: public-api-redis-cache
+    creationPolicy: Owner
+    deletionPolicy: Delete
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        REDIS_CACHE_PASSWORD: "{{ .password }}"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: /k8s/development/redis-cache-auth
