@@ -9,123 +9,353 @@
   "schemaVersion": 39,
   "version": 1,
   "refresh": "1m",
-  "time": { "from": "now-6h", "to": "now" },
+  "time": { "from": "now-7d", "to": "now" },
   "templating": {
     "list": [
-      { "name": "app", "type": "custom", "query": "portfolio,tucaken-app", "current": { "text": "tucaken-app", "value": "tucaken-app" }, "options": [{ "text": "portfolio", "value": "portfolio" }, { "text": "tucaken-app", "value": "tucaken-app" }] }
+      {
+        "name": "app",
+        "label": "App (Faro app_name)",
+        "type": "custom",
+        "query": "portfolio-frontend,portfolio-admin",
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "options": [
+          { "text": "All", "value": "$__all", "selected": true },
+          { "text": "portfolio-frontend", "value": "portfolio-frontend" },
+          { "text": "portfolio-admin (tucaken)", "value": "portfolio-admin" }
+        ]
+      },
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "custom",
+        "query": "production,test",
+        "includeAll": true,
+        "allValue": ".+",
+        "current": { "text": "production", "value": "production" },
+        "options": [
+          { "text": "All", "value": "$__all" },
+          { "text": "production", "value": "production", "selected": true },
+          { "text": "test", "value": "test" }
+        ]
+      }
     ]
   },
   "panels": [
-    { "type": "row", "id": 100, "title": "Core Web Vitals — $app", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+    { "type": "row", "id": 1, "title": "RUM health — app=$app env=$env", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
     {
-      "id": 101, "type": "stat", "title": "LCP p75",
+      "id": 10, "type": "stat", "title": "RUM events (range)",
+      "description": "Total Faro signals (web-vitals, events, exceptions) ingested for the selected app(s)/env over the dashboard range. Zero ⇒ no RUM flowing — check the app's VITE_FARO_* build config and CORS allowlist.",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 1 },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "sum(count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 11, "type": "stat", "title": "Sessions (range)",
+      "description": "Distinct browser sessions (unique session_id) seen in the range.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "count(sum by (session_id) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | session_id!=\"\" [$__range])))" }
+      ]
+    },
+    {
+      "id": 12, "type": "stat", "title": "Page loads (range)",
+      "description": "Full document navigations (faro.performance.navigation events).",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "sum(count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | event_name=\"faro.performance.navigation\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 13, "type": "stat", "title": "JS errors (range)",
+      "description": "Browser exceptions captured by Faro (kind=exception).",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 25 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "sum(count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | kind=\"exception\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 14, "type": "stat", "title": "Receiver ingest rate",
+      "description": "Alloy faro.receiver throughput (logs+measurements+exceptions+events per second). Pipeline-level — not split by app. Confirms the RUM ingestion path is alive.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (instance) (rate(faro_receiver_logs_total[5m]) + rate(faro_receiver_measurements_total[5m]) + rate(faro_receiver_exceptions_total[5m]) + rate(faro_receiver_events_total[5m]))" }
+      ]
+    },
+    {
+      "id": 15, "type": "stat", "title": "Receiver p95 latency",
+      "description": "p95 ingest request duration at the Faro receiver.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum by (le) (rate(faro_receiver_request_duration_seconds_bucket[5m])))" }
+      ]
+    },
+
+    { "type": "row", "id": 2, "title": "Core Web Vitals — p75 (Google thresholds)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 } },
+    {
+      "id": 20, "type": "stat", "title": "LCP p75",
+      "description": "Largest Contentful Paint, 75th percentile. Good ≤ 2.5s, Poor > 4s.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 5, "x": 0, "y": 6 },
       "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 2500 }, { "color": "red", "value": 4000 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"largest_contentful_paint\" | json | unwrap value [5m])" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" | unwrap lcp [$__range])" }
       ]
     },
     {
-      "id": 102, "type": "stat", "title": "INP p75",
+      "id": 21, "type": "stat", "title": "INP p75",
+      "description": "Interaction to Next Paint, 75th percentile. Good ≤ 200ms, Poor > 500ms. Only emitted after a user interaction occurs.",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 1 },
+      "gridPos": { "h": 5, "w": 5, "x": 5, "y": 6 },
       "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 200 }, { "color": "red", "value": 500 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"interaction_to_next_paint\" | json | unwrap value [5m])" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | inp!=\"\" | unwrap inp [$__range])" }
       ]
     },
     {
-      "id": 103, "type": "stat", "title": "CLS p75",
+      "id": 22, "type": "stat", "title": "CLS p75",
+      "description": "Cumulative Layout Shift, 75th percentile (unitless). Good ≤ 0.1, Poor > 0.25.",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 1 },
+      "gridPos": { "h": 5, "w": 5, "x": 10, "y": 6 },
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 3, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 0.25 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"cumulative_layout_shift\" | json | unwrap value [5m])" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | cls!=\"\" | unwrap cls [$__range])" }
       ]
     },
     {
-      "id": 104, "type": "stat", "title": "TTFB p75",
+      "id": 23, "type": "stat", "title": "TTFB p75",
+      "description": "Time to First Byte, 75th percentile. Good ≤ 800ms.",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 1 },
+      "gridPos": { "h": 5, "w": 5, "x": 15, "y": 6 },
       "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 800 }, { "color": "red", "value": 1800 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"time_to_first_byte\" | json | unwrap value [5m])" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | ttfb!=\"\" | unwrap ttfb [$__range])" }
       ]
     },
     {
-      "id": 105, "type": "timeseries", "title": "LCP / INP / CLS / TTFB trend",
+      "id": 24, "type": "stat", "title": "FCP p75",
+      "description": "First Contentful Paint, 75th percentile. Good ≤ 1.8s.",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
-      "fieldConfig": { "defaults": { "min": 0 } },
-      "options": { "legend": { "displayMode": "table", "placement": "right" } },
-      "targets": [
-        { "refId": "A", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"largest_contentful_paint\" | json | unwrap value [5m])", "legendFormat": "LCP" },
-        { "refId": "B", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"interaction_to_next_paint\" | json | unwrap value [5m])", "legendFormat": "INP" },
-        { "refId": "C", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"cumulative_layout_shift\" | json | unwrap value [5m])", "legendFormat": "CLS" },
-        { "refId": "D", "expr": "quantile_over_time(0.75, {job=\"faro\", app=\"$app\"} |= \"time_to_first_byte\" | json | unwrap value [5m])", "legendFormat": "TTFB" }
-      ]
-    },
-    { "type": "row", "id": 200, "title": "JS errors + sessions", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 } },
-    {
-      "id": 201, "type": "stat", "title": "JS errors / 5m",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 15 },
-      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 50 }] } } },
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1800 }, { "color": "red", "value": 3000 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "expr": "sum(count_over_time({job=\"faro\", app=\"$app\"} | json | level=\"error\" [5m]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | fcp!=\"\" | unwrap fcp [$__range])" }
       ]
     },
     {
-      "id": 202, "type": "stat", "title": "Active sessions (5m)",
+      "id": 25, "type": "timeseries", "title": "Loading vitals p75 trend (ms)",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 15 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 11 },
+      "fieldConfig": { "defaults": { "unit": "ms", "min": 0, "custom": { "spanNulls": true, "showPoints": "auto", "lineInterpolation": "smooth" } } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "LCP", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" | unwrap lcp [$__auto])" },
+        { "refId": "B", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "INP", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | inp!=\"\" | unwrap inp [$__auto])" },
+        { "refId": "C", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "TTFB", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | ttfb!=\"\" | unwrap ttfb [$__auto])" },
+        { "refId": "D", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "FCP", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | fcp!=\"\" | unwrap fcp [$__auto])" }
+      ]
+    },
+    {
+      "id": 26, "type": "timeseries", "title": "CLS p75 trend",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 11 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 3, "min": 0, "custom": { "spanNulls": true, "showPoints": "auto", "lineInterpolation": "smooth", "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 0.25 }] } } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "CLS", "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | cls!=\"\" | unwrap cls [$__auto])" }
+      ]
+    },
+
+    { "type": "row", "id": 3, "title": "Web Vitals rating distribution (good / needs-improvement / poor)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 } },
+    {
+      "id": 30, "type": "piechart", "title": "LCP rating split",
+      "description": "Faro's per-measurement context_rating for LCP. The share of 'good' is the headline CWV pass-rate.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed" } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "good" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+        { "matcher": { "id": "byName", "options": "needs-improvement" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+        { "matcher": { "id": "byName", "options": "poor" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+      ] },
+      "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 31, "type": "piechart", "title": "INP rating split",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed" } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "good" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+        { "matcher": { "id": "byName", "options": "needs-improvement" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+        { "matcher": { "id": "byName", "options": "poor" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+      ] },
+      "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | inp!=\"\" [$__range]))" }
+      ]
+    },
+    {
+      "id": 32, "type": "piechart", "title": "CLS rating split",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed" } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "good" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+        { "matcher": { "id": "byName", "options": "needs-improvement" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+        { "matcher": { "id": "byName", "options": "poor" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+      ] },
+      "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | cls!=\"\" [$__range]))" }
+      ]
+    },
+
+    { "type": "row", "id": 4, "title": "Slowest pages", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 } },
+    {
+      "id": 40, "type": "table", "title": "LCP p75 by page",
+      "description": "Worst Largest Contentful Paint per URL — where to optimise first.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "filterable": true }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 2500 }, { "color": "red", "value": 4000 }] }, "color": { "mode": "thresholds" } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "displayName", "value": "LCP p75" }] }
+      ] },
+      "options": { "sortBy": [{ "displayName": "LCP p75", "desc": true }], "showHeader": true },
+      "transformations": [{ "id": "labelsToFields", "options": {} }],
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "format": "table", "instant": true, "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" | unwrap lcp [$__range]) by (page_url)" }
+      ]
+    },
+    {
+      "id": 41, "type": "table", "title": "Page loads by page",
+      "description": "Navigation volume per URL in the range.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "filterable": true } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "Page loads" }] }
+      ] },
+      "options": { "sortBy": [{ "displayName": "Page loads", "desc": true }], "showHeader": true },
+      "transformations": [{ "id": "labelsToFields", "options": {} }],
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "format": "table", "instant": true, "expr": "sum by (page_url) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | event_name=\"faro.performance.navigation\" [$__range]))" }
+      ]
+    },
+
+    { "type": "row", "id": 5, "title": "Errors", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 } },
+    {
+      "id": 50, "type": "timeseries", "title": "JS errors over time",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 37 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "custom": { "drawStyle": "bars", "fillOpacity": 60, "spanNulls": false } } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{type}}", "expr": "sum by (type) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | kind=\"exception\" [$__auto]))" }
+      ]
+    },
+    {
+      "id": 51, "type": "logs", "title": "Recent exceptions",
+      "description": "Each line carries trace context — copy trace_id and pivot to Tempo.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 37 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact", "enableLogDetails": true, "sortOrder": "Descending" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "expr": "{job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | kind=\"exception\"" }
+      ]
+    },
+
+    { "type": "row", "id": 6, "title": "Audience — browser / OS / device", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 } },
+    {
+      "id": 60, "type": "piechart", "title": "Browser",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 46 },
       "fieldConfig": { "defaults": { "unit": "short" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": { "pieType": "pie", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "expr": "count(count_over_time({job=\"faro\", app=\"$app\"} | json | __error__=\"\" | session_id != \"\" [5m]) by (session_id))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{browser_name}}", "expr": "sum by (browser_name) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_name!=\"\" [$__range]))" }
       ]
     },
     {
-      "id": 203, "type": "stat", "title": "Page views (5m)",
+      "id": 61, "type": "piechart", "title": "Operating system",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 15 },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 46 },
       "fieldConfig": { "defaults": { "unit": "short" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": { "pieType": "pie", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "expr": "sum(count_over_time({job=\"faro\", app=\"$app\"} |= \"view_changed\" [5m]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{browser_os}}", "expr": "sum by (browser_os) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_os!=\"\" [$__range]))" }
       ]
     },
     {
-      "id": 204, "type": "stat", "title": "Long tasks / 5m",
+      "id": 62, "type": "piechart", "title": "Device (mobile vs desktop)",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 15 },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 46 },
       "fieldConfig": { "defaults": { "unit": "short" } },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "expr": "sum(count_over_time({job=\"faro\", app=\"$app\"} |= \"long_task\" [5m]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "mobile={{browser_mobile}}", "expr": "sum by (browser_mobile) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_mobile!=\"\" [$__range]))" }
+      ]
+    },
+
+    { "type": "row", "id": 7, "title": "Faro ingestion / pipeline health (Alloy receiver)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 53 } },
+    {
+      "id": 70, "type": "timeseries", "title": "Receiver throughput by signal",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 54 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 20, "stacking": { "mode": "normal" } } } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "logs", "expr": "sum by (instance) (rate(faro_receiver_logs_total[$__rate_interval]))" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "measurements", "expr": "sum by (instance) (rate(faro_receiver_measurements_total[$__rate_interval]))" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "exceptions", "expr": "sum by (instance) (rate(faro_receiver_exceptions_total[$__rate_interval]))" },
+        { "refId": "D", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "events", "expr": "sum by (instance) (rate(faro_receiver_events_total[$__rate_interval]))" }
       ]
     },
     {
-      "id": 205, "type": "logs", "title": "Recent JS errors",
-      "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
-      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact" },
+      "id": 71, "type": "timeseries", "title": "Receiver latency + payload size (p50/p95)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 54 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [
+        { "matcher": { "id": "byRegexp", "options": ".*payload.*" }, "properties": [{ "id": "unit", "value": "bytes" }, { "id": "custom.axisPlacement", "value": "right" }] }
+      ] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } },
       "targets": [
-        { "refId": "A", "expr": "{job=\"faro\", app=\"$app\"} | json | level=\"error\"" }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "latency p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(faro_receiver_request_duration_seconds_bucket[$__rate_interval])))" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "latency p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(faro_receiver_request_duration_seconds_bucket[$__rate_interval])))" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "payload p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(faro_receiver_request_message_bytes_bucket[$__rate_interval])))" }
       ]
     },
-    { "type": "row", "id": 300, "title": "Browser → SSR trace correlation", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 } },
+
+    { "type": "row", "id": 8, "title": "Browser → SSR → admin-api trace correlation", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 62 } },
     {
-      "id": 301, "type": "text", "title": "How to follow a slow page load",
+      "id": 80, "type": "text", "title": "How to follow a slow page load",
       "datasource": null,
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 31 },
-      "options": { "mode": "markdown", "content": "1. Find a slow LCP / INP entry in the trend above.\n2. Faro injected `traceparent` on outbound fetches (admin-api / SSR origin) — copy the `trace_id` from the log line.\n3. Pivot to **Tempo** with that `trace_id` → see the full waterfall: browser → SSR (`tucaken-app`) → admin-api → pg.\n4. From any backend span, click **Profile this span** → Pyroscope flame graph for the same time window." }
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 63 },
+      "options": { "mode": "markdown", "content": "**Pivot from RUM symptom → backend root cause:**\n\n1. Spot a slow LCP/INP entry in the trend, or an exception in *Recent exceptions*.\n2. Faro's `TracingInstrumentation` injects `traceparent` on same-origin/admin-api fetches — copy the `trace_id` from the log line.\n3. Open **Tempo** with that `trace_id` → full waterfall: browser → SSR (`tucaken-app`) → `admin-api` → pg.\n4. From any backend span, **Profile this span** → Pyroscope flame graph for the same window.\n\n**Faro data model (for editing queries):** signals arrive as **logfmt** under `{job=\"faro\"}`. The app is the in-line field `app_name` (`portfolio-frontend`, `portfolio-admin`), **not** a stream label. Web vitals are `type=\"web-vitals\"` with one measurement per line keyed `lcp`/`inp`/`cls`/`ttfb`/`fcp` (+ `context_rating`). Errors are `kind=\"exception\"`.\n\n**tucaken (`portfolio-admin`) shows no data until** its RUM is enabled: SSM `/tucaken-app/{env}/vite/VITE_FARO_ENABLED=true` + `VITE_FARO_URL`, the tucaken host added to the Alloy `corsAllowedOrigins` allowlist, and a redeploy (these are baked in at `vite build`)." }
     }
   ]
 }
