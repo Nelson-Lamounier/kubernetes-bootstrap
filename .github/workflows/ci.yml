@@ -155,3 +155,29 @@ jobs:
             bash -n "$script" && echo "  ✓ $script"
           done <<< "$SCRIPTS"
           echo "All shell scripts pass syntax check"
+
+  # ---------------------------------------------------------------------------
+  # Prometheus rules — unit-test the observability-pipeline alerts with promtool
+  # (renders the Helm rules ConfigMap, then runs promtool test rules).
+  # ---------------------------------------------------------------------------
+  promtool-rules:
+    name: Prometheus Rules (promtool)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Install promtool
+        run: |
+          PROM_VERSION=3.1.0
+          curl -sSL "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz" \
+            | tar -xz --strip-components=1 -C /usr/local/bin "prometheus-${PROM_VERSION}.linux-amd64/promtool"
+          promtool --version
+
+      - name: Render rules + run promtool unit tests
+        working-directory: charts/monitoring
+        run: bash tests/promtool/run.sh
