@@ -11,9 +11,13 @@ Postgres **semantic cache**.
 
 **redis-cache**:
 Standalone Redis tuned as a cache (ephemeral, `allkeys-lru`, no persistence).
-Its job is an exact-key, hot-path **read cache** for BFF read endpoints — not
-AI-generation caching. Lives in namespace `redis-cache`.
-_Avoid_: "the cache" (ambiguous — say "read cache" or "semantic cache").
+A **shared instance** serving two distinct caches, separated by key prefix:
+the **AI-gen exact cache** (`aigen:*`, used by job-strategist) and the BFF
+**read cache** (`shared:*`, used by public-api). Lives in namespace
+`redis-cache`. Both share the client/config in `@bedrock/shared`'s
+`redis-client.ts`.
+_Avoid_: "the cache" (ambiguous — say "read cache", "AI-gen exact cache", or
+"semantic cache").
 
 **redis-broker**:
 Standalone Redis tuned as a durable job queue / pub-sub (AOF on, `noeviction`,
@@ -21,17 +25,20 @@ EBS PVC). Backs the AI-pipeline job workers. Lives in namespace `redis-broker`.
 _Avoid_: calling it "cache" — it never evicts and must not lose data.
 
 **Read cache**:
-The exact-key get-or-compute layer over **redis-cache** that wraps expensive
-BFF reads. Keyed by entity identity (e.g. `{domain}:{entity}:{id}:v{schema}`).
-To be built; no application code consumes redis-cache yet.
+The exact-key get-or-compute layer over **redis-cache** (`RedisReadCache`) that
+wraps expensive BFF reads. Keyed by entity identity (e.g.
+`shared:{domain}:{entity}:{id}:v{schema}`). Consumed by public-api (project
+case studies); admin-api invalidates on writes.
 _Avoid_: "semantic cache" (different mechanism and backing store).
 
 **Semantic cache** (`PgSemanticCache`):
-Postgres + pgvector cosine-similarity cache for Bedrock/chatbot AI-generation
-responses. Backed by `platform-rds`, **not** Redis. It replaced an earlier
-`RedisExactCache` (the AI-gen exact cache), which is why redis-cache no longer
-serves the AI-generation path.
-_Avoid_: conflating with the Redis read cache.
+Postgres + pgvector **cosine-similarity** cache for Bedrock/chatbot
+AI-generation responses. Backed by `platform-rds`, **not** Redis. Complements
+the **AI-gen exact cache** (`RedisExactCache` on redis-cache): the exact cache
+is a cheap hash hit; the semantic cache matches near-duplicate prompts. Distinct
+from the Redis **read cache** (BFF reads).
+_Avoid_: conflating the three — semantic (pgvector), AI-gen exact (redis
+`aigen:*`), and read cache (redis `shared:*`).
 
 **Shared cache key**:
 A read-cache key for an entity that one app writes and another reads (e.g. a

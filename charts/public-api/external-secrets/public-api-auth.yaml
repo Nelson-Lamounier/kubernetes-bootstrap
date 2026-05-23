@@ -1,0 +1,46 @@
+# @format
+# ExternalSecret: public-api-auth
+#
+# Provides the two ARN identifiers public-api's config.ts requires at boot:
+#   OAUTH_TOKEN_KMS_KEY_ARN  — KMS CMK for oauth_connections token envelope
+#                              encryption (SSM /oauth/token-encryption-key-arn,
+#                              published by ai-applications data-stack).
+#   GITHUB_APP_SECRET_ARN    — Secrets Manager secret holding the GitHub App
+#                              { appId, privateKeyPem, webhookSecret }
+#                              (SSM /k8s/development/public-api-github-app-arn).
+#
+# These are non-secret identifiers; the protected material behind them is
+# fetched at runtime via the node instance profile (KMS Decrypt / SM
+# GetSecretValue grants on the workload node role). Consumed via envFrom.
+#
+# NOTE: both SSM params only exist after `cdk deploy Data-development`; until
+# then this ExternalSecret stays NotReady and the pod won't boot (required).
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: public-api-auth
+  namespace: public-api
+  annotations:
+    kubernetes.io/description: "public-api oauth KMS + GitHub App secret ARNs from SSM — 1h refresh"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: public-api-auth
+    creationPolicy: Owner
+    deletionPolicy: Delete
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        OAUTH_TOKEN_KMS_KEY_ARN: "{{ .oauthKmsArn }}"
+        GITHUB_APP_SECRET_ARN: "{{ .githubAppArn }}"
+  data:
+    - secretKey: oauthKmsArn
+      remoteRef:
+        key: /oauth/token-encryption-key-arn
+    - secretKey: githubAppArn
+      remoteRef:
+        key: /k8s/development/public-api-github-app-arn
