@@ -109,4 +109,41 @@ data:
                 /:id/complete) in the last hour but resume_import_runs_total did
                 not increase — Job pods are not starting, crashing before
                 pushFinalMetrics(), or cannot reach Pushgateway.
+
+      - name: observability:synthetic
+        rules:
+          # The synthetic monitor (CronJob) drives the real workflow and pushes
+          # synthetic_check_success{workflow=...} = 1/0. A sustained 0 means the
+          # end-to-end path the dashboards depend on is actually broken.
+          - alert: SyntheticCheckFailing
+            expr: synthetic_check_success == 0
+            for: 30m
+            labels:
+              severity: warning
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "Synthetic check failing: {{`{{ $labels.workflow }}`}}"
+              description: >
+                The synthetic monitor reported workflow
+                "{{`{{ $labels.workflow }}`}}" as failing for 30m — the
+                end-to-end path (UI/API → Prometheus) is broken. Check the
+                synthetic-monitor CronJob logs in the monitoring namespace.
+
+          # The probe itself stopped reporting — CronJob not scheduling, image
+          # pull failing, or Pushgateway unreachable. Without this, a dead probe
+          # looks identical to "all green".
+          - alert: SyntheticCheckAbsent
+            expr: absent(synthetic_check_success)
+            for: 1h
+            labels:
+              severity: warning
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "Synthetic monitor is not reporting"
+              description: >
+                No synthetic_check_success series for 1h. The synthetic-monitor
+                CronJob is not running or cannot push to Pushgateway, so the
+                auth + resume-import dashboards are no longer being validated.
 {{- end }}

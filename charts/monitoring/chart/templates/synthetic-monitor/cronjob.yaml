@@ -1,0 +1,80 @@
+{{- if .Values.syntheticMonitor.enabled }}
+# ---------------------------------------------------------------------------
+# Synthetic monitor — API-level probe of the auth + resume-import workflows.
+#
+# Drives the real admin-api (Cognito auth -> /me; upload-url -> S3 -> /complete
+# -> poll progress) then asserts Prometheus reflects it (returning counter,
+# per-import run + non-zero step_duration, no double-scrape). Emits
+# synthetic_check_success{workflow=...} to Pushgateway; the
+# SyntheticCheck* alerts (rules-observability) page when it fails or stops.
+#
+# Prereqs: ExternalSecret synthetic-monitor-secret (Cognito creds) and a
+# ConfigMap `synthetic-resume-fixture` holding sample-resume.pdf (binaryData),
+# e.g. kubectl -n monitoring create configmap synthetic-resume-fixture \
+#        --from-file=sample-resume.pdf=./fixtures/sample-resume.pdf
+# ---------------------------------------------------------------------------
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: synthetic-monitor
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "synthetic-monitor" | nindent 4 }}
+spec:
+  schedule: {{ .Values.syntheticMonitor.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .Values.syntheticMonitor.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: 600
+      template:
+        metadata:
+          labels: {{- include "monitoring.selectorLabels" "synthetic-monitor" | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          nodeSelector: {{- toYaml .Values.nodeSelector | nindent 12 }}
+          {{- with .Values.tolerations }}
+          tolerations: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: synthetic-monitor
+              image: {{ .Values.syntheticMonitor.image | quote }}
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: ADMIN_API_URL
+                  value: {{ .Values.syntheticMonitor.adminApiUrl | quote }}
+                - name: PROMETHEUS_URL
+                  value: {{ .Values.syntheticMonitor.prometheusUrl | quote }}
+                - name: PUSHGATEWAY_URL
+                  value: {{ .Values.syntheticMonitor.pushgatewayUrl | quote }}
+                - name: AWS_REGION
+                  value: {{ .Values.syntheticMonitor.awsRegion | quote }}
+                - name: FIXTURE_PATH
+                  value: /fixtures/sample-resume.pdf
+                - name: POLL_TIMEOUT_MS
+                  value: {{ .Values.syntheticMonitor.pollTimeoutMs | quote }}
+              envFrom:
+                - secretRef:
+                    name: synthetic-monitor-secret
+              volumeMounts:
+                - name: fixture
+                  mountPath: /fixtures
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+          volumes:
+            - name: fixture
+              configMap:
+                name: synthetic-resume-fixture
+{{- end }}
