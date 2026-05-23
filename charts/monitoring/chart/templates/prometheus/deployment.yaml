@@ -21,6 +21,7 @@ spec:
         checksum/rules: {{ include (print $.Template.BasePath "/prometheus/rules-configmap.yaml") . | sha256sum }}
         checksum/rules-cost: {{ include (print $.Template.BasePath "/prometheus/rules-cost-configmap.yaml") . | sha256sum }}
         checksum/rules-dora: {{ include (print $.Template.BasePath "/prometheus/rules-dora-configmap.yaml") . | sha256sum }}
+        checksum/rules-observability: {{ include (print $.Template.BasePath "/prometheus/rules-observability-configmap.yaml") . | sha256sum }}
       labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 8}}
     spec:
       serviceAccountName: prometheus
@@ -97,6 +98,9 @@ spec:
                   optional: true
               - configMap:
                   name: prometheus-rules-dora
+                  optional: true
+              - configMap:
+                  name: prometheus-rules-observability
                   optional: true
         - name: data
           persistentVolumeClaim:
