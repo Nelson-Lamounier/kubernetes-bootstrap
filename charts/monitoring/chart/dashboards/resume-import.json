@@ -34,10 +34,10 @@
     "tucaken",
     "admin-api"
   ],
-  "title": "Resume Import — Upload to Career Entries",
+  "title": "Resume Import \u2014 Upload to Career Entries",
   "uid": "resume-import",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -70,14 +70,26 @@
       },
       {
         "name": "importId",
-        "type": "textbox",
+        "type": "query",
         "label": "Import ID",
-        "query": "",
-        "current": {
-          "text": "",
-          "value": ""
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
         },
-        "description": "Filter per-import drill-down panels to a single importId (UUID)."
+        "definition": "label_values(resume_import_runs_total, instance)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(resume_import_runs_total, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "regex": "/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/",
+        "sort": 1,
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": {},
+        "options": [],
+        "description": "Pick an importId (UUID). Sourced from resume_import_runs_total instance labels; the regex hides the Pushgateway address pseudo-instance (e.g. 10.0.1.60:9091)."
       }
     ]
   },
@@ -85,7 +97,7 @@
     {
       "type": "row",
       "id": 100,
-      "title": "Funnel — upload → dispatch → job outcome (24 h)",
+      "title": "Funnel \u2014 upload \u2192 dispatch \u2192 job outcome (24 h)",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -98,7 +110,7 @@
       "id": 101,
       "type": "stat",
       "title": "Presigned URLs issued",
-      "description": "Successful GET /upload-url — presigned PUT URL returned, resume_imports row created (status=awaiting_upload).",
+      "description": "Successful GET /upload-url \u2014 presigned PUT URL returned, resume_imports row created (status=awaiting_upload).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -199,7 +211,7 @@
       "id": 103,
       "type": "stat",
       "title": "Uploads dispatched",
-      "description": "POST /:id/complete returned 202 — S3 PUT succeeded and K8s Job was created.",
+      "description": "POST /:id/complete returned 202 \u2014 S3 PUT succeeded and K8s Job was created.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -347,7 +359,7 @@
       "id": 106,
       "type": "stat",
       "title": "Job dispatch errors (502)",
-      "description": "POST /:id/complete returned 502 — K8s Job creation failed. Causes: image not resolved (ESO not yet synced), RBAC error, or namespace ResourceQuota exceeded.",
+      "description": "POST /:id/complete returned 502 \u2014 K8s Job creation failed. Causes: image not resolved (ESO not yet synced), RBAC error, or namespace ResourceQuota exceeded.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -400,7 +412,7 @@
     {
       "type": "row",
       "id": 150,
-      "title": "Infrastructure prerequisites — secrets, pod health, K8s job states",
+      "title": "Infrastructure prerequisites \u2014 secrets, pod health, K8s job states",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -413,7 +425,7 @@
       "id": 151,
       "type": "stat",
       "title": "Secrets in resume-import ns",
-      "description": "Secrets present in the resume-import namespace (from kube-state-metrics). Expected: 2 required (platform-rds-credentials, admin-api-bedrock) + 1 optional (resume-import-secrets). Job pods use envFrom.secretRef — absent secrets cause CreateContainerConfigError. The 2026-05-09 incident: 0 secrets, fixed by applying ExternalSecret manifests.",
+      "description": "Secrets present in the resume-import namespace (from kube-state-metrics). Expected: 2 required (platform-rds-credentials, admin-api-bedrock) + 1 optional (resume-import-secrets). Job pods use envFrom.secretRef \u2014 absent secrets cause CreateContainerConfigError. The 2026-05-09 incident: 0 secrets, fixed by applying ExternalSecret manifests.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -798,7 +810,7 @@
     {
       "type": "row",
       "id": 200,
-      "title": "Step-by-step — request rates through the upload flow",
+      "title": "Step-by-step \u2014 request rates through the upload flow",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -810,8 +822,8 @@
     {
       "id": 201,
       "type": "timeseries",
-      "title": "GET /upload-url — rate by status code",
-      "description": "200 = URL issued + DB row created. 429 = free-tier quota hit. 415 = unsupported MIME. 413 = file too large. 503 = S3 bucket not configured (ASSETS_BUCKET_NAME unset — ESO not synced).",
+      "title": "GET /upload-url \u2014 rate by status code",
+      "description": "200 = URL issued + DB row created. 429 = free-tier quota hit. 415 = unsupported MIME. 413 = file too large. 503 = S3 bucket not configured (ASSETS_BUCKET_NAME unset \u2014 ESO not synced).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -846,7 +858,7 @@
     {
       "id": 202,
       "type": "timeseries",
-      "title": "POST /:id/complete — rate by status code",
+      "title": "POST /:id/complete \u2014 rate by status code",
       "description": "202 = K8s Job dispatched. 404 = import not found or already in progress. 502 = Job creation failed. A gap between /upload-url 200s and /complete 202s means the S3 PUT failed (CORS, expiry, network).",
       "datasource": {
         "type": "prometheus",
@@ -882,7 +894,7 @@
     {
       "type": "row",
       "id": 250,
-      "title": "Full pipeline chain — combined log view (admin-api → job pod)",
+      "title": "Full pipeline chain \u2014 combined log view (admin-api \u2192 job pod)",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -894,8 +906,8 @@
     {
       "id": 251,
       "type": "logs",
-      "title": "Full chain — admin-api + job pod (time-ordered)",
-      "description": "Combined log stream from both admin-api (upload-url, complete, poll) and resume-import job pods. Shows the complete sequence: presign → dispatch → pod start → extraction → enrichment → completion. Use this panel to identify exactly where the pipeline stalled. Filter by trace_id to follow a single import end-to-end.",
+      "title": "Full chain \u2014 admin-api + job pod (time-ordered)",
+      "description": "Combined log stream from both admin-api (upload-url, complete, poll) and resume-import job pods. Shows the complete sequence: presign \u2192 dispatch \u2192 pod start \u2192 extraction \u2192 enrichment \u2192 completion. Use this panel to identify exactly where the pipeline stalled. Filter by trace_id to follow a single import end-to-end.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -923,8 +935,8 @@
     {
       "id": 252,
       "type": "logs",
-      "title": "K8s events — resume-import namespace",
-      "description": "Kubernetes Events for the resume-import namespace from eventrouter/Loki. Shows: FailedCreate (quota exceeded), CreateContainerConfigError (missing secret — fix: apply ExternalSecrets), BackOff (image pull failure), SuccessfulCreate (job pod started). Critical for diagnosing pre-start failures that never appear in the pod logs.",
+      "title": "K8s events \u2014 resume-import namespace",
+      "description": "Kubernetes Events for the resume-import namespace from eventrouter/Loki. Shows: FailedCreate (quota exceeded), CreateContainerConfigError (missing secret \u2014 fix: apply ExternalSecrets), BackOff (image pull failure), SuccessfulCreate (job pod started). Critical for diagnosing pre-start failures that never appear in the pod logs.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -951,8 +963,8 @@
     {
       "id": 253,
       "type": "logs",
-      "title": "ESO controller — ExternalSecret sync events",
-      "description": "External Secrets Operator controller logs filtered to resume-import namespace. Shows SecretSynced (healthy), SecretSyncedError (store unreachable or SSM path missing), and NotFound errors. The 2026-05-09 incident: ExternalSecret CRDs existed on disk but were never applied to the cluster — ESO had nothing to sync.",
+      "title": "ESO controller \u2014 ExternalSecret sync events",
+      "description": "External Secrets Operator controller logs filtered to resume-import namespace. Shows SecretSynced (healthy), SecretSyncedError (store unreachable or SSM path missing), and NotFound errors. The 2026-05-09 incident: ExternalSecret CRDs existed on disk but were never applied to the cluster \u2014 ESO had nothing to sync.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -979,7 +991,7 @@
     {
       "type": "row",
       "id": 300,
-      "title": "Job processor — durations and pipeline outcomes",
+      "title": "Job processor \u2014 durations and pipeline outcomes",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -992,7 +1004,7 @@
       "id": 301,
       "type": "timeseries",
       "title": "Job outcome rate (Pushgateway)",
-      "description": "resume_import_runs_total from Pushgateway. Only populated after a Job completes (success or caught-error). Jobs that crash before main() (MODULE_NOT_FOUND, CreateContainerConfigError) never reach the finally block and never push — use K8s job status panels above to detect those failures.",
+      "description": "resume_import_runs_total from Pushgateway. Only populated after a Job completes (success or caught-error). Jobs that crash before main() (MODULE_NOT_FOUND, CreateContainerConfigError) never reach the finally block and never push \u2014 use K8s job status panels above to detect those failures.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1105,7 +1117,7 @@
       "id": 304,
       "type": "timeseries",
       "title": "Enrichment entries processed",
-      "description": "resume_import_enrichment_entries_total. enriched = Bedrock + Tavily complete. skipped = no search results (null return from enrichRole). failed = enrichRole threw.",
+      "description": "resume_import_enrichment_entries_total. enriched = Bedrock + Tavily complete. skipped = no search results (null return from enrichRole). failed = enrichRole threw. NOTE: produced by the enrichment Job, which runs only AFTER the user confirms the review. Zero/blank at 'ready_for_review' is expected, not a failure.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1140,7 +1152,7 @@
     {
       "type": "row",
       "id": 400,
-      "title": "Status polling — frontend progress updates",
+      "title": "Status polling \u2014 frontend progress updates",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1152,8 +1164,8 @@
     {
       "id": 401,
       "type": "timeseries",
-      "title": "GET /:id — status poll rate",
-      "description": "Frontend polls every 2-3 s from status=queued until completed or failed. A sustained high rate with no job completion indicates a stuck or crashed Job. If the job crashed before main(), the import stays at status=queued indefinitely — look for kube_job_status_failed > 0 and manually reset status=failed to unblock the retry endpoint.",
+      "title": "GET /:id/progress \u2014 status poll rate",
+      "description": "Frontend polls every 2-3 s from status=queued until completed or failed. A sustained high rate with no job completion indicates a stuck or crashed Job. If the job crashed before main(), the import stays at status=queued indefinitely \u2014 look for kube_job_status_failed > 0 and manually reset status=failed to unblock the retry endpoint.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1180,7 +1192,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (status_code) (rate(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id\"}[5m]))",
+          "expr": "sum by (status_code) (rate(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/progress\"}[5m]))",
           "legendFormat": "{{status_code}}"
         }
       ]
@@ -1229,7 +1241,7 @@
     {
       "type": "row",
       "id": 500,
-      "title": "Logs — per service",
+      "title": "Logs \u2014 per service",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1241,7 +1253,7 @@
     {
       "id": 501,
       "type": "logs",
-      "title": "admin-api — resume-import routes only",
+      "title": "admin-api \u2014 resume-import routes only",
       "description": "Filtered to /api/admin/resume-imports/* routes. Shows upload-url requests (with presign timing), complete dispatch calls, retry calls, and poll responses. Use trace_id to correlate with the processor logs.",
       "datasource": {
         "type": "loki",
@@ -1270,7 +1282,7 @@
     {
       "id": 502,
       "type": "logs",
-      "title": "resume-import-processor — K8s Job pod logs",
+      "title": "resume-import-processor \u2014 K8s Job pod logs",
       "description": "Logs from processor Job pods. Key messages: 'starting' (env vars loaded, pipeline begins), '[run-import] fetching from S3' (S3 download step), 'completed' (success, includes totalEmbeddings count), 'fatal error' (PIPELINE_ERROR, includes full err stack). Empty = pod never started (check K8s events panel).",
       "datasource": {
         "type": "loki",
@@ -1299,7 +1311,7 @@
     {
       "type": "row",
       "id": 600,
-      "title": "Traces — pod-level Tempo pivot (admin-api + processor)",
+      "title": "Traces \u2014 pod-level Tempo pivot (admin-api + processor)",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1311,7 +1323,7 @@
     {
       "id": 601,
       "type": "traces",
-      "title": "admin-api — /api/admin/resume-imports/* spans",
+      "title": "admin-api \u2014 /api/admin/resume-imports/* spans",
       "description": "TraceQL for resume-import spans originating in admin-api. Covers: GET /upload-url (quota check + DB INSERT + S3 presign), POST /complete (status update + K8s Job create), GET /:id (poll). Click a trace to expand spans and see DB query timing and K8s API call duration.",
       "datasource": {
         "type": "tempo",
@@ -1335,7 +1347,7 @@
     {
       "id": 602,
       "type": "traces",
-      "title": "resume-import-processor — pod-level pipeline spans",
+      "title": "resume-import-processor \u2014 pod-level pipeline spans",
       "description": "TraceQL for spans from the resume-import-processor Job pod itself (OTEL_SERVICE_NAME=resume-import-processor, pushed via OTLP to alloy.monitoring.svc.cluster.local:4318). Each trace represents one Job run. Spans cover: s3_download, pdf_parse, bedrock_extract, enrichment_per_role, embed_persist. Empty when job crashes before OTel initialises (MODULE_NOT_FOUND, CreateContainerConfigError).",
       "datasource": {
         "type": "tempo",
@@ -1359,7 +1371,7 @@
     {
       "id": 700,
       "type": "row",
-      "title": "Per-import drill-down — set $importId variable above",
+      "title": "Per-import drill-down \u2014 set $importId variable above",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -1557,7 +1569,7 @@
       "id": 705,
       "type": "stat",
       "title": "Bedrock enrich sec",
-      "description": "Bedrock enrich_role duration (sum across all roles).",
+      "description": "Bedrock enrich_role duration (sum across all roles). NOTE: produced by the enrichment Job, which runs only AFTER the user confirms the review. Zero/blank at 'ready_for_review' is expected, not a failure.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1603,7 +1615,7 @@
       "id": 706,
       "type": "stat",
       "title": "Embed + persist sec",
-      "description": "Embedding generation + Postgres insert time.",
+      "description": "Embedding generation + Postgres insert time. NOTE: produced by the enrichment Job, which runs only AFTER the user confirms the review. Zero/blank at 'ready_for_review' is expected, not a failure.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1646,10 +1658,56 @@
       ]
     },
     {
+      "id": 707,
+      "type": "stat",
+      "title": "Bedrock gap-analysis sec",
+      "description": "Bedrock gap-analysis duration for this import (extraction Job, step 5). Runs before review, so this should be non-zero on a successful import.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 102
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(resume_import_bedrock_duration_seconds_sum{instance=\"$importId\",purpose=\"gap_analysis\"})"
+        }
+      ]
+    },
+    {
       "id": 710,
       "type": "logs",
-      "title": "$importId — full pipeline timeline (Loki)",
-      "description": "All log lines from admin-api + processor for this importId / trace. Order ascending so the waterfall reads top → bottom.",
+      "title": "$importId \u2014 full pipeline timeline (Loki)",
+      "description": "All log lines from admin-api + processor for this importId / trace. Order ascending so the waterfall reads top \u2192 bottom.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -1677,7 +1735,7 @@
     {
       "id": 711,
       "type": "traces",
-      "title": "$importId — Tempo span waterfall",
+      "title": "$importId \u2014 Tempo span waterfall",
       "description": "Full distributed trace for resource.service.name=resume-import-processor with the chosen importId. Click into spans to see Textract / Bedrock / Postgres timing.",
       "datasource": {
         "type": "tempo",
@@ -1715,7 +1773,7 @@
       "id": 801,
       "type": "timeseries",
       "title": "Textract OCR duration p50/p95",
-      "description": "Histogram of Textract round-trip (StartDocumentTextDetection → completed).",
+      "description": "Histogram of Textract round-trip (StartDocumentTextDetection \u2192 completed).",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1882,7 +1940,7 @@
       "id": 901,
       "type": "table",
       "title": "Bedrock spend by import (last 24 h)",
-      "description": "Joins resume_imports × prompt_invocations (pipeline='resume-import'). Sums input/output tokens and total_cost_cents per import, converts to USD. Source: RDS tucaken DB.",
+      "description": "Joins resume_imports \u00d7 prompt_invocations (pipeline='resume-import'). Sums input/output tokens and total_cost_cents per import, converts to USD. Source: RDS tucaken DB.",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "rds-postgres"
@@ -1984,7 +2042,9 @@
           "refId": "A",
           "namespace": "AWS/Textract",
           "metricName": "SuccessfulRequestCount",
-          "dimensions": { "Operation": "*" },
+          "dimensions": {
+            "Operation": "*"
+          },
           "statistic": "Sum",
           "period": "300",
           "region": "eu-west-1"
@@ -1993,7 +2053,9 @@
           "refId": "B",
           "namespace": "AWS/Textract",
           "metricName": "UserErrorCount",
-          "dimensions": { "Operation": "*" },
+          "dimensions": {
+            "Operation": "*"
+          },
           "statistic": "Sum",
           "period": "300",
           "region": "eu-west-1"
@@ -2002,7 +2064,9 @@
           "refId": "C",
           "namespace": "AWS/Textract",
           "metricName": "ResponseTime",
-          "dimensions": { "Operation": "*" },
+          "dimensions": {
+            "Operation": "*"
+          },
           "statistic": "Average",
           "period": "300",
           "region": "eu-west-1"
@@ -2013,7 +2077,7 @@
       "id": 904,
       "type": "timeseries",
       "title": "Career entries extracted + embeddings created (24 h rate)",
-      "description": "Throughput of the pipeline — entries split by type, plus embedding row counter.",
+      "description": "Throughput of the pipeline \u2014 entries split by type, plus embedding row counter.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -2053,7 +2117,7 @@
     {
       "id": 1000,
       "type": "row",
-      "title": "Failure modes — split by reason / error_code / event",
+      "title": "Failure modes \u2014 split by reason / error_code / event",
       "collapsed": false,
       "gridPos": {
         "h": 1,
