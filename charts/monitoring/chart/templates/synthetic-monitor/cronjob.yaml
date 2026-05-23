@@ -44,7 +44,7 @@ spec:
             runAsUser: 1000
           containers:
             - name: synthetic-monitor
-              image: {{ .Values.syntheticMonitor.image | quote }}
+              image: "{{ .Values.syntheticMonitor.image.repository }}:{{ .Values.syntheticMonitor.image.tag }}"
               imagePullPolicy: IfNotPresent
               env:
                 - name: ADMIN_API_URL
