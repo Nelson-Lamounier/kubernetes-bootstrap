@@ -59,4 +59,15 @@ spec:
       ports:
         - port: 12347
           protocol: TCP
+    # faro-proxy (nginx) — ALB target for the public /faro endpoint. The ALB
+    # (target-type ip) sends health checks + RUM traffic to the pod on 8080
+    # from the ALB ENI, which is neither a pod nor in-namespace, so only the
+    # ipBlock rules apply. ENIs live in the VPC, so the VPC CIDR is sufficient.
+    # Without this the target reports Target.Timeout and /faro returns 504.
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/16
+      ports:
+        - port: 8080
+          protocol: TCP
 {{- end }}
