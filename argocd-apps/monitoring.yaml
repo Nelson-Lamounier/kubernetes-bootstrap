@@ -25,6 +25,16 @@ metadata:
   annotations:
     kubernetes.io/description: "ArgoCD application for the monitoring stack (Prometheus, Grafana, Loki, Tempo)"
     argocd.argoproj.io/sync-wave: "3"
+    # ArgoCD Image Updater — roll the synthetic-monitor CronJob image on each CI
+    # push to ECR. Writes the new tag into syntheticMonitor.image.{repository,tag}
+    # via a git write-back (chart/.argocd-source-monitoring.yaml).
+    argocd-image-updater.argoproj.io/image-list: "synthmon=771826808455.dkr.ecr.eu-west-1.amazonaws.com/synthetic-monitor"
+    argocd-image-updater.argoproj.io/synthmon.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/synthmon.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+    argocd-image-updater.argoproj.io/synthmon.helm.image-name: syntheticMonitor.image.repository
+    argocd-image-updater.argoproj.io/synthmon.helm.image-tag: syntheticMonitor.image.tag
+    argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
+    argocd-image-updater.argoproj.io/git-branch: "main"
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: argocd

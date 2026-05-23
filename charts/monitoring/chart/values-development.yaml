@@ -139,3 +139,7 @@ githubActionsExporter:
 # Steampipe — cloud inventory and compliance queries
 steampipe:
   replicas: 1
+
+# Enable the synthetic monitor in development.
+syntheticMonitor:
+  enabled: true

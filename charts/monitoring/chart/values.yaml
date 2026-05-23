@@ -523,3 +523,24 @@ networkPolicy:
   enabled: true
 
 
+
+# ---------------------------------------------------------------------------
+# Synthetic monitor — API-level probe of the auth + resume-import workflows.
+# Disabled by default; enable per-environment (see values-development.yaml).
+# ---------------------------------------------------------------------------
+syntheticMonitor:
+  enabled: false
+  # Built + pushed from ai-applications/applications/synthetic-monitor.
+  # repository/tag are split so ArgoCD Image Updater can write the new tag
+  # (helm.image-name -> .repository, helm.image-tag -> .tag) on each CI push.
+  image:
+    repository: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/synthetic-monitor"
+    tag: "latest"
+  schedule: "*/15 * * * *"
+  activeDeadlineSeconds: 300
+  pollTimeoutMs: "180000"
+  awsRegion: "eu-west-1"
+  # In-cluster service DNS (overridable per env).
+  adminApiUrl:    "http://admin-api.admin-api.svc.cluster.local:3002"
+  prometheusUrl:  "http://prometheus.monitoring.svc.cluster.local:9090/prometheus"
+  pushgatewayUrl: "http://pushgateway.monitoring.svc.cluster.local:9091"
