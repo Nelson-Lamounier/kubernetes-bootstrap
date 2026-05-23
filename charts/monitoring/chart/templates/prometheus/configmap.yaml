@@ -133,6 +133,24 @@ data:
             target_label: __address__
             replacement: ${1}:9100
 
+      # AWS VPC CNI (aws-node DaemonSet) — exposes awscni_* IPAM metrics on
+      # :61678 per node: ENI/IP-pool utilisation, IP exhaustion, AWS API
+      # latency. Replaces the retired Calico felix_* metrics on EKS.
+      - job_name: aws-node
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [kube-system]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_k8s_app]
+            action: keep
+            regex: aws-node
+          - source_labels: [__meta_kubernetes_pod_ip]
+            target_label: __address__
+            replacement: ${1}:61678
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+
       - job_name: nextjs-app
         metrics_path: /api/metrics
         static_configs:
