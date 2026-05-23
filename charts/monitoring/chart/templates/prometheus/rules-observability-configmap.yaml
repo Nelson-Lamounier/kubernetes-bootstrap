@@ -146,4 +146,82 @@ data:
                 No synthetic_check_success series for 1h. The synthetic-monitor
                 CronJob is not running or cannot push to Pushgateway, so the
                 auth + resume-import dashboards are no longer being validated.
+
+      - name: observability:redis
+        rules:
+          # ── Redis server health (redis_exporter) ──────────────────────────
+          - alert: RedisDown
+            expr: redis_up == 0
+            for: 5m
+            labels: { severity: critical, team: platform, area: redis }
+            annotations:
+              summary: "Redis instance down ({{`{{ $labels.namespace }}`}})"
+              description: >
+                redis_up == 0 for 5m in {{`{{ $labels.namespace }}`}}. The cache
+                or broker is unreachable; cache reads fail open to Bedrock calls.
+
+          - alert: RedisMemoryHigh
+            expr: |
+              redis_memory_used_bytes / clamp_min(redis_memory_max_bytes, 1) > 0.85
+              and redis_memory_max_bytes > 0
+            for: 15m
+            labels: { severity: warning, team: platform, area: redis }
+            annotations:
+              summary: "Redis memory >85% of maxmemory ({{`{{ $labels.namespace }}`}})"
+              description: >
+                Used memory is over 85% of maxmemory for 15m — evictions are
+                imminent (or already happening). Raise maxmemory or investigate
+                key growth in {{`{{ $labels.namespace }}`}}.
+
+          - alert: RedisEvictionsSpiking
+            expr: sum by (namespace) (rate(redis_evicted_keys_total[5m])) > 0
+            for: 15m
+            labels: { severity: warning, team: platform, area: redis }
+            annotations:
+              summary: "Redis evicting keys ({{`{{ $labels.namespace }}`}})"
+              description: >
+                Sustained key eviction for 15m in {{`{{ $labels.namespace }}`}} —
+                the working set exceeds maxmemory; cache hit ratio will drop.
+
+          - alert: RedisPersistenceFailing
+            expr: redis_rdb_last_bgsave_status == 0 or redis_aof_last_write_status == 0
+            for: 10m
+            labels: { severity: warning, team: platform, area: redis }
+            annotations:
+              summary: "Redis persistence failing ({{`{{ $labels.namespace }}`}})"
+              description: >
+                Last RDB save or AOF write failed for 10m in
+                {{`{{ $labels.namespace }}`}} — risk of data loss on restart
+                (matters for redis-broker, which is AOF-backed).
+
+          # ── Cache effectiveness (app counters) ────────────────────────────
+          - alert: RedisCacheDisabled
+            expr: redis_cache_enabled == 0
+            for: 15m
+            labels: { severity: warning, team: platform, area: redis }
+            annotations:
+              summary: "Cache disabled (fail-open) for {{`{{ $labels.cache }}`}}"
+              description: >
+                redis_cache_enabled == 0 for {{`{{ $labels.cache }}`}} — the cache
+                is in fail-open no-op mode (REDIS_CACHE_HOST unset), so every
+                request hits Bedrock. Wire the Redis config for this workload.
+
+          - alert: RedisCacheIneffective
+            expr: |
+              (sum by (cache) (increase(redis_cache_requests_total{result=~"hit|miss"}[1h])) > 50)
+              and
+              (
+                sum by (cache) (increase(redis_cache_requests_total{result="hit"}[1h]))
+                / clamp_min(sum by (cache) (increase(redis_cache_requests_total{result=~"hit|miss"}[1h])), 1)
+                < 0.05
+              )
+            for: 30m
+            labels: { severity: warning, team: platform, area: redis }
+            annotations:
+              summary: "Cache {{`{{ $labels.cache }}`}} almost never hits"
+              description: >
+                {{`{{ $labels.cache }}`}} served >50 requests in the last hour with
+                a <5% hit ratio — caching is effectively broken (key mismatch,
+                TTL too short, or inputs not actually repeating). It should be
+                caching but isn't.
 {{- end }}
