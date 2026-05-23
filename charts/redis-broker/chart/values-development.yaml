@@ -23,5 +23,8 @@ redis:
       timeout 0
       tcp-keepalive 60
   metrics:
+    # Enable the redis_exporter sidecar in dev; scraped via the annotation
+    # path configured in values.yaml (prometheus.io/scrape on the metrics svc).
+    enabled: true
     serviceMonitor:
       enabled: false

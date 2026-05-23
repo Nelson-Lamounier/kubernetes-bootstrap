@@ -78,19 +78,29 @@ redis:
     replicaCount: 0
 
   # ── Metrics ────────────────────────────────────────────────────────────
-  # Disabled: cluster has no Prometheus Operator / scraper, and the
-  # bitnamilegacy/redis-exporter r4 tag was purged (ImagePullBackOff).
-  # Re-enable with a valid tag (e.g. 1.76.0-debian-12-r0) once a scraper
-  # exists. ServiceMonitor stays off until the CRD is installed.
+  # redis_exporter sidecar. Image is upstream oliver006/redis_exporter, NOT
+  # bitnami: Broadcom moved the maintained Bitnami catalog behind a paid
+  # subscription (Aug 2025) and the free tags were relocated to bitnamilegacy/
+  # and then purged — which is what ImagePullBackOff'd the old r4 tag. oliver006
+  # is the original upstream the chart repackages, with stable tags.
+  #
+  # No Prometheus Operator in this cluster, so scraping is annotation-driven:
+  # the metrics Service carries prometheus.io/scrape so the generic
+  # kubernetes-service-endpoints job picks it up at port 9121. ServiceMonitor
+  # stays off (no CRD). Enabled per-env (true in values-development.yaml).
   metrics:
     enabled: false
     image:
       registry:   docker.io
-      repository: bitnamilegacy/redis-exporter
-      tag:        1.76.0-debian-12-r0
+      repository: oliver006/redis_exporter
+      tag:        v1.67.0-alpine
+    service:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9121"
+        prometheus.io/path:   "/metrics"
     serviceMonitor:
       # Cluster runs Grafana-only (no Prometheus Operator CRDs).
-      # Flip on once ServiceMonitor CRD is installed.
       enabled:   false
       namespace: monitoring
       honorLabels: true
