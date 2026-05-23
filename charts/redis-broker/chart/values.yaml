@@ -67,17 +67,24 @@ redis:
   replica:
     replicaCount: 0
 
-  # See charts/redis-cache/chart/values.yaml — metrics off until a
-  # scraper exists and a valid exporter tag is pinned.
+  # redis_exporter sidecar — upstream oliver006 image (bitnamilegacy tags were
+  # purged after Broadcom's Aug-2025 Bitnami catalog change). Annotation-driven
+  # scrape (no Prometheus Operator): the metrics Service carries
+  # prometheus.io/scrape so the kubernetes-service-endpoints job scrapes port
+  # 9121. Enabled per-env (true in values-development.yaml).
   metrics:
     enabled: false
     image:
       registry:   docker.io
-      repository: bitnamilegacy/redis-exporter
-      tag:        1.76.0-debian-12-r0
+      repository: oliver006/redis_exporter
+      tag:        v1.67.0-alpine
+    service:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9121"
+        prometheus.io/path:   "/metrics"
     serviceMonitor:
       # Cluster runs Grafana-only (no Prometheus Operator CRDs).
-      # Flip on once ServiceMonitor CRD is installed.
       enabled:     false
       namespace:   monitoring
       honorLabels: true
