@@ -1,0 +1,141 @@
+# promtool unit tests for the observability-pipeline integrity rules.
+#
+# Run:
+#   helm template m chart -f chart/values.yaml -f chart/values-development.yaml \
+#     --show-only templates/prometheus/rules-observability-configmap.yaml \
+#   | yq '.data."observability.yml"' > tests/promtool/observability.rules.yml
+#   promtool test rules tests/promtool/observability.test.yml
+#
+# (the render step is wrapped by tests/promtool/run.sh)
+rule_files:
+  - observability.rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # ── PushgatewayDoubleScrape ────────────────────────────────────────────────
+  - name: double-scrape fires when exported_instance is present
+    interval: 1m
+    input_series:
+      - series: 'resume_import_runs_total{outcome="success",exported_instance="33bb5332",exported_job="resume-import-processor",instance="10.0.1.60:9091",job="kubernetes-service-endpoints"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PushgatewayDoubleScrape
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+              area: observability
+            exp_annotations:
+              summary: "Pushgateway is being scraped twice (honor_labels lost)"
+              description: "resume_import_runs_total has series with an exported_instance label, meaning a non-honor_labels job is scraping the pushgateway Service in addition to the dedicated `pushgateway` job. Every Job metric is double-counted and per-import drill-downs are broken. Remove prometheus.io/scrape from the pushgateway Service (see charts/monitoring/chart/templates/pushgateway/service.yaml).\n"
+
+  - name: double-scrape does NOT fire for cleanly-scraped series
+    interval: 1m
+    input_series:
+      - series: 'resume_import_runs_total{outcome="success",instance="33bb5332",job="resume-import-processor"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PushgatewayDoubleScrape
+        exp_alerts: []
+
+  # ── AuthProvisionMetricAbsent ──────────────────────────────────────────────
+  - name: auth metric absent fires the auth-dashboard guard
+    interval: 1m
+    input_series:
+      - series: 'up{job="prometheus"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: AuthProvisionMetricAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: admin-api
+              team: platform
+              area: observability
+            exp_annotations:
+              summary: "auth_provision_total is absent — auth dashboard is blank"
+              description: "No auth_provision_total series for 30m. admin-api is not exporting the auth provisioning counter; the auth dashboard and its returning/new_user/error panels render no data.\n"
+
+  - name: auth metric present does NOT fire the guard
+    interval: 1m
+    input_series:
+      - series: 'auth_provision_total{outcome="returning"}'
+        values: '5x40'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: AuthProvisionMetricAbsent
+        exp_alerts: []
+
+  # ── ResumeImportFunnelStalled ──────────────────────────────────────────────
+  - name: funnel stalled fires when dispatched but no Job outcomes
+    interval: 1m
+    input_series:
+      # 202s climb each minute → increase[1h] > 0
+      - series: 'http_requests_total{service="admin-api",route="/api/admin/resume-imports/:id/complete",status_code="202"}'
+        values: '0+1x100'
+      # runs flat → increase[1h] == 0
+      - series: 'resume_import_runs_total{outcome="success",instance="x",job="resume-import-processor"}'
+        values: '5x100'
+    alert_rule_test:
+      - eval_time: 95m
+        alertname: ResumeImportFunnelStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: resume-import-processor
+              team: platform
+              area: observability
+            exp_annotations:
+              summary: "Resume imports dispatched but no Job outcomes recorded"
+              description: "admin-api accepted resume-import dispatches (202 on /:id/complete) in the last hour but resume_import_runs_total did not increase — Job pods are not starting, crashing before pushFinalMetrics(), or cannot reach Pushgateway.\n"
+
+  # ── SyntheticCheckFailing ──────────────────────────────────────────────────
+  - name: synthetic failing fires per workflow with a templated summary
+    interval: 1m
+    input_series:
+      - series: 'synthetic_check_success{workflow="resume_import"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: SyntheticCheckFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+              area: observability
+              workflow: resume_import
+            exp_annotations:
+              summary: "Synthetic check failing: resume_import"
+              description: "The synthetic monitor reported workflow \"resume_import\" as failing for 30m — the end-to-end path (UI/API → Prometheus) is broken. Check the synthetic-monitor CronJob logs in the monitoring namespace.\n"
+
+  - name: synthetic passing does NOT fire
+    interval: 1m
+    input_series:
+      - series: 'synthetic_check_success{workflow="auth"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: SyntheticCheckFailing
+        exp_alerts: []
+
+  # ── SyntheticCheckAbsent ───────────────────────────────────────────────────
+  - name: synthetic absent fires when the probe stops reporting
+    interval: 1m
+    input_series:
+      - series: 'up{job="prometheus"}'
+        values: '1x70'
+    alert_rule_test:
+      - eval_time: 61m
+        alertname: SyntheticCheckAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+              area: observability
+            exp_annotations:
+              summary: "Synthetic monitor is not reporting"
+              description: "No synthetic_check_success series for 1h. The synthetic-monitor CronJob is not running or cannot push to Pushgateway, so the auth + resume-import dashboards are no longer being validated.\n"

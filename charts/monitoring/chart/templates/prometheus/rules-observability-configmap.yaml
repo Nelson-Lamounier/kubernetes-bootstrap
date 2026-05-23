@@ -1,0 +1,149 @@
+{{- if .Values.infra.alertsEnabled }}
+# ---------------------------------------------------------------------------
+# Observability-pipeline integrity rules.
+#
+# These alerts test that the telemetry the dashboards depend on is actually
+# flowing and correctly shaped — i.e. they guard the dashboards themselves,
+# not the apps. They encode, as continuously-evaluated invariants, the exact
+# failure modes that previously made the auth + resume-import dashboards show
+# wrong/blank data:
+#   · a duplicate non-honor_labels scrape stamping pushgateway series with the
+#     pod IP (exported_instance present) and double-counting every Job metric
+#   · instrumentation disappearing entirely (absent series → blank panels)
+#   · the resume-import funnel stalling (uploads dispatched, no Job outcomes)
+#
+# Rendered into /etc/prometheus/rules/observability.yml inside the prometheus
+# pod (projected into the `rules` volume by templates/prometheus/deployment.yaml).
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules-observability
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 4 }}
+data:
+  observability.yml: |
+    groups:
+      - name: observability:pipeline_integrity
+        rules:
+          # Pushgateway double-scrape regression. Job metrics pushed with a
+          # per-run {instance=<importId>} grouping must be scraped ONLY by the
+          # dedicated honor_labels pushgateway job. If the generic
+          # kubernetes-service-endpoints job also scrapes the pushgateway
+          # Service (because someone re-adds prometheus.io/scrape), the pushed
+          # labels get renamed to exported_* and instance becomes the pod IP —
+          # duplicating + double-counting every series and breaking the
+          # dashboard's {instance="$importId"} drill-downs.
+          - alert: PushgatewayDoubleScrape
+            expr: |
+              count(resume_import_runs_total{exported_instance!=""}) > 0
+            for: 15m
+            labels:
+              severity: warning
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "Pushgateway is being scraped twice (honor_labels lost)"
+              description: >
+                resume_import_runs_total has series with an exported_instance
+                label, meaning a non-honor_labels job is scraping the pushgateway
+                Service in addition to the dedicated `pushgateway` job. Every Job
+                metric is double-counted and per-import drill-downs are broken.
+                Remove prometheus.io/scrape from the pushgateway Service (see
+                charts/monitoring/chart/templates/pushgateway/service.yaml).
+
+          # Auth dashboard has no data source. auth_provision_total is the only
+          # metric behind "Auth — Sign-In / Sign-Up Workflow"; if it vanishes,
+          # admin-api stopped emitting it (middleware/registry regression).
+          - alert: AuthProvisionMetricAbsent
+            expr: absent(auth_provision_total)
+            for: 30m
+            labels:
+              severity: warning
+              service:  admin-api
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "auth_provision_total is absent — auth dashboard is blank"
+              description: >
+                No auth_provision_total series for 30m. admin-api is not
+                exporting the auth provisioning counter; the auth dashboard and
+                its returning/new_user/error panels render no data.
+
+          # Resume-import dashboard has no data source. Pushgateway persists
+          # state on EBS, so absence means no Job has ever pushed (or the
+          # pushgateway/scrape is down).
+          - alert: ResumeImportMetricAbsent
+            expr: absent(resume_import_runs_total)
+            for: 1h
+            labels:
+              severity: warning
+              service:  resume-import-processor
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "resume_import_runs_total is absent — resume dashboard is blank"
+              description: >
+                No resume_import_runs_total series for 1h. Either no import Job
+                has pushed to Pushgateway, or the Pushgateway / its scrape is
+                down. The resume-import dashboard renders no Job data.
+
+          # Funnel stalled: uploads were dispatched to the Job (202 on
+          # /:id/complete) but no Job outcomes were recorded — Jobs are failing
+          # to start or never reaching their pushFinalMetrics() call.
+          - alert: ResumeImportFunnelStalled
+            expr: |
+              sum(increase(http_requests_total{service="admin-api",route="/api/admin/resume-imports/:id/complete",status_code="202"}[1h])) > 0
+              and
+              sum(increase(resume_import_runs_total[1h])) == 0
+            for: 30m
+            labels:
+              severity: warning
+              service:  resume-import-processor
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "Resume imports dispatched but no Job outcomes recorded"
+              description: >
+                admin-api accepted resume-import dispatches (202 on
+                /:id/complete) in the last hour but resume_import_runs_total did
+                not increase — Job pods are not starting, crashing before
+                pushFinalMetrics(), or cannot reach Pushgateway.
+
+      - name: observability:synthetic
+        rules:
+          # The synthetic monitor (CronJob) drives the real workflow and pushes
+          # synthetic_check_success{workflow=...} = 1/0. A sustained 0 means the
+          # end-to-end path the dashboards depend on is actually broken.
+          - alert: SyntheticCheckFailing
+            expr: synthetic_check_success == 0
+            for: 30m
+            labels:
+              severity: warning
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "Synthetic check failing: {{`{{ $labels.workflow }}`}}"
+              description: >
+                The synthetic monitor reported workflow
+                "{{`{{ $labels.workflow }}`}}" as failing for 30m — the
+                end-to-end path (UI/API → Prometheus) is broken. Check the
+                synthetic-monitor CronJob logs in the monitoring namespace.
+
+          # The probe itself stopped reporting — CronJob not scheduling, image
+          # pull failing, or Pushgateway unreachable. Without this, a dead probe
+          # looks identical to "all green".
+          - alert: SyntheticCheckAbsent
+            expr: absent(synthetic_check_success)
+            for: 1h
+            labels:
+              severity: warning
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "Synthetic monitor is not reporting"
+              description: >
+                No synthetic_check_success series for 1h. The synthetic-monitor
+                CronJob is not running or cannot push to Pushgateway, so the
+                auth + resume-import dashboards are no longer being validated.
+{{- end }}

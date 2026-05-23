@@ -5,15 +5,14 @@ metadata:
   name: pushgateway
   namespace: {{ .Values.namespace }}
   labels: {{- include "monitoring.fullLabels" "pushgateway" | nindent 4 }}
-  annotations:
-    # Self-scrape so Pushgateway's own /metrics flow into Prometheus and
-    # the pushed Job counters land on every scrape interval.
-    prometheus.io/scrape: "true"
-    prometheus.io/port:   {{ .Values.pushgateway.service.port | quote }}
-    prometheus.io/path:   "/metrics"
-    # honor_labels needed so pushed `instance` labels (per-Job UUID)
-    # aren't overwritten with the Pushgateway pod IP.
-    prometheus.io/honor_labels: "true"
+  # NO prometheus.io/scrape annotation here on purpose. Pushgateway is scraped
+  # exclusively by the dedicated `pushgateway` job in the Prometheus configmap,
+  # which sets honor_labels: true so pushed {job,instance}=<importId> labels are
+  # preserved. The generic `kubernetes-service-endpoints` job does NOT honor
+  # labels and ignores the prometheus.io/honor_labels annotation — letting it
+  # also scrape this Service produced duplicate series stamped with the pod IP
+  # (instance=10.0.1.60:9091, exported_instance=<importId>), double-counting
+  # every Job metric and breaking the dashboard's {instance="$importId"} panels.
 spec:
   type: ClusterIP
   selector:
