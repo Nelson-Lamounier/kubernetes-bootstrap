@@ -78,6 +78,18 @@ redis:
       registry:   docker.io
       repository: oliver006/redis_exporter
       tag:        v1.67.0-alpine
+    # oliver006/redis_exporter (alpine) ships busybox /bin/sh only — no /bin/bash.
+    # The Bitnami chart's default metrics command uses bash + [[ ]], which
+    # StartErrors ("/bin/bash: no such file or directory"). Override with POSIX sh
+    # that reads the auth password file the chart mounts when usePasswordFiles.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -f /secrets/redis-password ]; then
+          export REDIS_PASSWORD="$(cat /secrets/redis-password)"
+        fi
+        exec redis_exporter
     service:
       annotations:
         prometheus.io/scrape: "true"
