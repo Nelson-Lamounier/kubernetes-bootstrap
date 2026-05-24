@@ -139,3 +139,75 @@ tests:
             exp_annotations:
               summary: "Synthetic monitor is not reporting"
               description: "No synthetic_check_success series for 1h. The synthetic-monitor CronJob is not running or cannot push to Pushgateway, so the auth + resume-import dashboards are no longer being validated.\n"
+
+  # ── RedisDown ──────────────────────────────────────────────────────────────
+  - name: redis down fires per instance
+    interval: 1m
+    input_series:
+      - series: 'redis_up{namespace="redis-cache"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: RedisDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: platform
+              area: redis
+              namespace: redis-cache
+            exp_annotations:
+              summary: "Redis instance down (redis-cache)"
+              description: "redis_up == 0 for 5m in redis-cache. The cache or broker is unreachable; cache reads fail open to Bedrock calls.\n"
+
+  # ── RedisCacheDisabled ─────────────────────────────────────────────────────
+  - name: cache disabled fires per cache
+    interval: 1m
+    input_series:
+      - series: 'redis_cache_enabled{cache="aigen:clustering"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: RedisCacheDisabled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+              area: redis
+              cache: aigen:clustering
+            exp_annotations:
+              summary: "Cache disabled (fail-open) for aigen:clustering"
+              description: "redis_cache_enabled == 0 for aigen:clustering — the cache is in fail-open no-op mode (REDIS_CACHE_HOST unset), so every request hits Bedrock. Wire the Redis config for this workload.\n"
+
+  # ── RedisCacheIneffective ──────────────────────────────────────────────────
+  - name: cache ineffective fires on volume with near-zero hit ratio
+    interval: 1m
+    input_series:
+      # 120 misses over the hour (>50 volume), 0 hits -> ratio 0
+      - series: 'redis_cache_requests_total{cache="aigen:case_study",result="miss"}'
+        values: '0+2x90'
+      - series: 'redis_cache_requests_total{cache="aigen:case_study",result="hit"}'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 95m
+        alertname: RedisCacheIneffective
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+              area: redis
+              cache: aigen:case_study
+            exp_annotations:
+              summary: "Cache aigen:case_study almost never hits"
+              description: "aigen:case_study served >50 requests in the last hour with a <5% hit ratio — caching is effectively broken (key mismatch, TTL too short, or inputs not actually repeating). It should be caching but isn't.\n"
+
+  - name: healthy cache does NOT fire ineffective
+    interval: 1m
+    input_series:
+      - series: 'redis_cache_requests_total{cache="project_case_study",result="hit"}'
+        values: '0+2x90'
+      - series: 'redis_cache_requests_total{cache="project_case_study",result="miss"}'
+        values: '0+1x90'
+    alert_rule_test:
+      - eval_time: 95m
+        alertname: RedisCacheIneffective
+        exp_alerts: []
