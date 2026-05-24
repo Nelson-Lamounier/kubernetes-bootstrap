@@ -84,7 +84,7 @@
         },
         "regex": "/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/",
         "sort": 1,
-        "refresh": 2,
+        "refresh": 1,
         "includeAll": false,
         "multi": false,
         "current": {},
@@ -97,7 +97,7 @@
     {
       "type": "row",
       "id": 100,
-      "title": "Funnel \u2014 upload \u2192 dispatch \u2192 job outcome (24 h)",
+      "title": "Funnel \u2014 upload \u2192 dispatch \u2192 job outcome (cumulative)",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -148,7 +148,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\",status_code=\"200\"}[24h]))",
+          "expr": "sum(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\",status_code=\"200\"})",
           "legendFormat": "issued"
         }
       ]
@@ -202,7 +202,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "clamp_min(sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\",status_code=\"200\"}[24h])) - sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"202\"}[24h])), 0)",
+          "expr": "clamp_min(sum(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/upload-url\",status_code=\"200\"}) - sum(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"202\"}), 0)",
           "legendFormat": "lost"
         }
       ]
@@ -249,7 +249,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"202\"}[24h]))",
+          "expr": "sum(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"202\"})",
           "legendFormat": "dispatched"
         }
       ]
@@ -296,7 +296,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(resume_import_runs_total{outcome=\"success\"}[24h]))",
+          "expr": "sum(resume_import_runs_total{outcome=\"success\"})",
           "legendFormat": "success"
         }
       ]
@@ -350,7 +350,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(resume_import_runs_total{outcome=\"failed\"}[24h]))",
+          "expr": "sum(resume_import_runs_total{outcome=\"failed\"})",
           "legendFormat": "failed"
         }
       ]
@@ -404,7 +404,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"502\"}[24h]))",
+          "expr": "sum(http_requests_total{service=\"admin-api\",route=\"/api/admin/resume-imports/:id/complete\",status_code=\"502\"})",
           "legendFormat": "502s"
         }
       ]
@@ -962,12 +962,12 @@
     },
     {
       "id": 253,
-      "type": "logs",
-      "title": "ESO controller \u2014 ExternalSecret sync events",
-      "description": "External Secrets Operator controller logs filtered to resume-import namespace. Shows SecretSynced (healthy), SecretSyncedError (store unreachable or SSM path missing), and NotFound errors. The 2026-05-09 incident: ExternalSecret CRDs existed on disk but were never applied to the cluster \u2014 ESO had nothing to sync.",
+      "type": "timeseries",
+      "title": "ESO-managed secrets present in resume-import ns",
+      "description": "Count of secrets in the resume-import namespace over time, from kube_secret_info (kube-state-metrics). ESO syncs these from SSM/Secrets Manager; a drop to 0 means ExternalSecret sync is broken (store unreachable, SSM path missing, or CRDs not applied \u2014 as in the 2026-05-09 incident). NOTE: the external-secrets controller pod logs are not shipped to Loki (only kube events are), so per-sync log events are unavailable here; this Prometheus signal is the reliable proxy for sync health.",
       "datasource": {
-        "type": "loki",
-        "uid": "loki"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "gridPos": {
         "h": 8,
@@ -975,16 +975,23 @@
         "x": 12,
         "y": 42
       },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
       "options": {
-        "dedupStrategy": "none",
-        "showTime": true,
-        "sortOrder": "Descending",
-        "wrapLogMessage": true
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "{namespace=\"external-secrets\"} |~ \"resume-import\" | json | line_format \"{{.msg}} es={{.ExternalSecret}} ns={{.namespace}}\""
+          "expr": "count(kube_secret_info{namespace=\"resume-import\"})",
+          "legendFormat": "secrets present"
         }
       ]
     },
@@ -1031,7 +1038,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (outcome) (increase(resume_import_runs_total[24h]))",
+          "expr": "sum by (outcome) (resume_import_runs_total)",
           "legendFormat": "{{outcome}}"
         }
       ]
@@ -1144,7 +1151,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (outcome) (increase(resume_import_enrichment_entries_total[24h]))",
+          "expr": "sum by (outcome) (resume_import_enrichment_entries_total)",
           "legendFormat": "{{outcome}}"
         }
       ]
@@ -1800,12 +1807,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(resume_import_textract_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (resume_import_textract_duration_seconds_bucket))",
           "legendFormat": "p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(resume_import_textract_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (resume_import_textract_duration_seconds_bucket))",
           "legendFormat": "p95"
         }
       ]
@@ -1841,7 +1848,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(resume_import_tavily_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (resume_import_tavily_duration_seconds_bucket))",
           "legendFormat": "{{outcome}}"
         }
       ]
@@ -1877,7 +1884,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le, purpose) (rate(resume_import_bedrock_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, purpose) (resume_import_bedrock_duration_seconds_bucket))",
           "legendFormat": "{{purpose}}"
         }
       ]
@@ -1913,12 +1920,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(resume_import_embed_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (resume_import_embed_duration_seconds_bucket))",
           "legendFormat": "embed p95"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, op) (rate(resume_import_persist_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, op) (resume_import_persist_duration_seconds_bucket))",
           "legendFormat": "persist {{op}} p95"
         }
       ]
@@ -2104,12 +2111,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (type) (increase(resume_import_career_entries_total[1h]))",
+          "expr": "sum by (type) (resume_import_career_entries_total)",
           "legendFormat": "entries {{type}}"
         },
         {
           "refId": "B",
-          "expr": "sum(increase(resume_import_embeddings_created_total[1h]))",
+          "expr": "sum(resume_import_embeddings_created_total)",
           "legendFormat": "embeddings"
         }
       ]
@@ -2158,7 +2165,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (error_code) (increase(resume_import_runs_total{outcome=\"failed\"}[24h]))",
+          "expr": "sum by (error_code) (resume_import_runs_total{outcome=\"failed\"})",
           "legendFormat": "{{error_code}}"
         }
       ]
@@ -2194,7 +2201,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (reason) (increase(resume_import_textract_fallback_total[1h]))",
+          "expr": "sum by (reason) (resume_import_textract_fallback_total)",
           "legendFormat": "{{reason}}"
         }
       ]
@@ -2318,7 +2325,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(resume_import_free_tier_capped_total[24h]))"
+          "expr": "sum(resume_import_free_tier_capped_total)"
         }
       ]
     },
@@ -2364,7 +2371,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(resume_import_career_entries_total[24h]))"
+          "expr": "sum(resume_import_career_entries_total)"
         }
       ]
     },
@@ -2410,7 +2417,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(resume_import_embeddings_created_total[24h]))"
+          "expr": "sum(resume_import_embeddings_created_total)"
         }
       ]
     },
@@ -2456,7 +2463,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(resume_import_textract_fallback_total[24h])) / clamp_min(sum(increase(resume_import_runs_total[24h])), 1)"
+          "expr": "sum(resume_import_textract_fallback_total) / clamp_min(sum(resume_import_runs_total), 1)"
         }
       ]
     }
