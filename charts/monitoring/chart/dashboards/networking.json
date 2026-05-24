@@ -20,7 +20,7 @@
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
-        { "refId": "A", "namespace": "AWS/ApplicationELB", "metricName": "RequestCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "requests" }
+        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "RequestCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "requests" }
       ]
     },
     {
@@ -29,7 +29,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
       "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
       "targets": [
-        { "refId": "A", "namespace": "AWS/ApplicationELB", "metricName": "TargetResponseTime", "statistic": "p95", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "p95" }
+        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "TargetResponseTime", "statistic": "p95", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "p95" }
       ]
     },
     {
@@ -39,9 +39,9 @@
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
-        { "refId": "A", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_2XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "2xx" },
-        { "refId": "B", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_4XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "4xx" },
-        { "refId": "C", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_5XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "5xx" }
+        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_2XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "2xx" },
+        { "refId": "B", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_4XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "4xx" },
+        { "refId": "C", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_5XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "5xx" }
       ]
     },
     {
@@ -50,38 +50,38 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
       "targets": [
-        { "refId": "A", "namespace": "AWS/ApplicationELB", "metricName": "ActiveConnectionCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "active" },
-        { "refId": "B", "namespace": "AWS/ApplicationELB", "metricName": "NewConnectionCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "new" }
+        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "ActiveConnectionCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "active" },
+        { "refId": "B", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "NewConnectionCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "new" }
       ]
     },
     {
       "id": 105, "type": "stat", "title": "ALB 5xx (ELB-generated, Sum)",
       "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
       "gridPos": { "h": 4, "w": 8, "x": 0, "y": 17 },
-      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 }] } } },
+      "fieldConfig": { "defaults": { "unit": "short", "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_ELB_5XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true }
+        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_ELB_5XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true }
       ]
     },
     {
       "id": 106, "type": "stat", "title": "Rejected connections (Sum)",
       "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
       "gridPos": { "h": 4, "w": 8, "x": 8, "y": 17 },
-      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "fieldConfig": { "defaults": { "unit": "short", "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "namespace": "AWS/ApplicationELB", "metricName": "RejectedConnectionCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true }
+        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "RejectedConnectionCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true }
       ]
     },
     {
       "id": 107, "type": "stat", "title": "Target connection errors (Sum)",
       "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
       "gridPos": { "h": 4, "w": 8, "x": 16, "y": 17 },
-      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 }] } } },
+      "fieldConfig": { "defaults": { "unit": "short", "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "namespace": "AWS/ApplicationELB", "metricName": "TargetConnectionErrorCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true }
+        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "TargetConnectionErrorCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true }
       ]
     },
 
@@ -98,10 +98,10 @@
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
-        { "refId": "A", "namespace": "AWS/ApplicationELB", "metricName": "RequestCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "requests" },
-        { "refId": "B", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_2XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "2xx" },
-        { "refId": "C", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_4XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "4xx" },
-        { "refId": "D", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_5XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "5xx" }
+        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "RequestCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "requests" },
+        { "refId": "B", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_2XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "2xx" },
+        { "refId": "C", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_4XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "4xx" },
+        { "refId": "D", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_5XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "5xx" }
       ]
     },
     {
@@ -115,9 +115,9 @@
         ]
       },
       "targets": [
-        { "refId": "A", "namespace": "AWS/ApplicationELB", "metricName": "HealthyHostCount", "statistic": "Average", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "healthy" },
-        { "refId": "B", "namespace": "AWS/ApplicationELB", "metricName": "UnHealthyHostCount", "statistic": "Average", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "unhealthy" },
-        { "refId": "C", "namespace": "AWS/ApplicationELB", "metricName": "TargetResponseTime", "statistic": "p95", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "p95 latency" }
+        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HealthyHostCount", "statistic": "Average", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "healthy" },
+        { "refId": "B", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "UnHealthyHostCount", "statistic": "Average", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "unhealthy" },
+        { "refId": "C", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "TargetResponseTime", "statistic": "p95", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "p95 latency" }
       ]
     },
     {
@@ -217,12 +217,12 @@
       ]
     },
     {
-      "id": 303, "type": "stat", "title": "Nodes with no available IPs",
+      "id": 303, "type": "stat", "title": "Nodes at IP exhaustion",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 62 },
-      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "fieldConfig": { "defaults": { "unit": "short", "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
-      "targets": [{ "refId": "A", "expr": "sum(awscni_no_available_ip_addresses)" }]
+      "targets": [{ "refId": "A", "expr": "count((awscni_total_ip_addresses - awscni_assigned_ip_addresses) <= 0)" }]
     },
     {
       "id": 304, "type": "stat", "title": "Max IP utilisation %",
@@ -249,9 +249,19 @@
       "targets": [{ "refId": "A", "expr": "sum(rate(awscni_reconcile_count[5m]))" }]
     },
     {
+      "id": 311, "type": "timeseries", "title": "IP-assignment failures /sec (per node)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 66 },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "sum by (node) (rate(awscni_no_available_ip_addresses[5m]))", "legendFormat": "{{node}}" }
+      ]
+    },
+    {
       "id": 307, "type": "timeseries", "title": "Node network throughput (rx / tx)",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 66 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 74 },
       "fieldConfig": { "defaults": { "unit": "Bps", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
@@ -262,7 +272,7 @@
     {
       "id": 308, "type": "timeseries", "title": "CoreDNS query rate by rcode",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 66 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 74 },
       "fieldConfig": { "defaults": { "unit": "ops", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
@@ -272,7 +282,7 @@
     {
       "id": 309, "type": "timeseries", "title": "CoreDNS p95 latency",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 74 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 82 },
       "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
       "targets": [
         { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(coredns_dns_request_duration_seconds_bucket[5m])))", "legendFormat": "p95" }
@@ -281,17 +291,17 @@
     {
       "id": 310, "type": "timeseries", "title": "VPC CNI — AWS API latency (avg)",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 74 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 82 },
       "fieldConfig": { "defaults": { "unit": "ms", "min": 0 } },
       "targets": [
         { "refId": "A", "expr": "sum(rate(awscni_aws_api_latency_ms_sum[5m])) / clamp_min(sum(rate(awscni_aws_api_latency_ms_count[5m])), 1)", "legendFormat": "avg" }
       ]
     },
 
-    { "type": "row", "id": 400, "title": "Extending this dashboard", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 82 } },
+    { "type": "row", "id": 400, "title": "Extending this dashboard", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 90 } },
     {
       "id": 401, "type": "text", "title": "How to add panels",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 83 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 91 },
       "options": { "mode": "markdown", "content": "### Adding panels\n\n**Datasource UIDs:** `prometheus`, `loki`, `cloudwatch` (eu-west-1), `cloudwatch-edge` (us-east-1), `tempo`.\n\n**Panel-ID convention:** rows are hundreds — `100` ALB, `200` Faro, `300` VPC CNI / DNS, `400` docs. Panels in a row continue from the row ID. Start a new section at the next free hundred (`500`, `600`, …) and keep `gridPos.x/w` on the 24-col grid.\n\n**Where the metrics come from:**\n- **ALB / target groups** → CloudWatch `AWS/ApplicationELB`. Dimensions are **env-specific**: LB `app/k8s-public-f8655bfb7e/78080c3d6ec33605`, faro TG `targetgroup/k8s-monitori-faroprox-25fb7e8eec/…`. Update both when adding a prod overlay.\n- **Faro pipeline** → Prometheus `faro_receiver_*` (scrape job `alloy`); RUM logs/Web-Vitals → Loki `{job=\"faro\"}` (see the **Frontend & RUM** dashboard).\n- **VPC CNI** → Prometheus `awscni_*` (scrape job `aws-node`, pod IP `:61678`).\n- **DNS / node net** → `coredns_*`, `node_network_*`.\n\n**Removed in the EKS migration** (series no longer exist): Traefik `traefik_service_*` / `traefik_tls_*`, Calico `felix_*`, `kubeproxy_sync_*`. Traefik still serves internal IngressRoutes behind its own NLB — add a dedicated section if that path needs visibility (`traefik_entrypoint_*` and CloudWatch `AWS/NetworkELB` are still emitted)." }
     }
   ]
