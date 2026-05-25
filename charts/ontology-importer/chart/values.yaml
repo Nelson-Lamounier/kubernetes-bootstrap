@@ -1,0 +1,36 @@
+# @format
+namespace: ontology-importer
+
+serviceAccount:
+  name: ontology-importer-sa
+
+# Built + pushed from ai-applications/applications/ontology-importer.
+# repository/tag split so ArgoCD Image Updater writes the new tag on each CI push.
+image:
+  repository: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/ontology-importer"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Monthly full import (registry pull → categorize → LLM batch for the tail).
+import:
+  schedule: "0 2 1 * *"
+  activeDeadlineSeconds: 3600
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits:   { cpu: "2000m", memory: "4Gi" }
+
+# 30-min poller that retrieves completed LLM batches and routes results.
+followup:
+  schedule: "*/30 * * * *"
+  activeDeadlineSeconds: 900
+  resources:
+    requests: { cpu: "250m", memory: "512Mi" }
+    limits:   { cpu: "1000m", memory: "1Gi" }
+
+env:
+  triggeredBy: "cronjob"
+  deactivationThreshold: "3"
+  logLevel: "info"
+
+nodeSelector: {}
+tolerations: []
