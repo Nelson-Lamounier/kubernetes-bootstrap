@@ -1,0 +1,51 @@
+# @format
+# ArgoCD Application: ontology-importer (EKS — Development)
+#
+# Tier 2 ontology auto-importer chart: namespace + SA + two self-scheduled
+# CronJobs (monthly registry import + LLM batch tail, and a 30-min batch
+# follow-up poller). Unlike tech-extractor, the importer is NOT dispatched by
+# admin-api — the CronJobs run on their own schedules. Image Updater watches
+# ECR and writes the latest commit-sha tag back to the chart values so every
+# push to ai-applications:ontology-importer auto-deploys.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ontology-importer-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    kubernetes.io/description: "ontology-importer CronJobs + SA on EKS"
+    # ── ArgoCD Image Updater ──────────────────────────────────────────
+    argocd-image-updater.argoproj.io/image-list: ontology-importer=771826808455.dkr.ecr.eu-west-1.amazonaws.com/ontology-importer
+    argocd-image-updater.argoproj.io/ontology-importer.allow-tags: regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$
+    argocd-image-updater.argoproj.io/ontology-importer.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/ontology-importer.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/ontology-importer.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/argocd-image-updater-writeback-key
+    argocd-image-updater.argoproj.io/git-branch: main
+    argocd-image-updater.argoproj.io/git-repository: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/ontology-importer/chart
+    helm:
+      releaseName: ontology-importer
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ontology-importer
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
