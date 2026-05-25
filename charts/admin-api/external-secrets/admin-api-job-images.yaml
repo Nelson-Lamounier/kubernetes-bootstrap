@@ -54,6 +54,9 @@ spec:
     - secretKey: ingestion
       remoteRef:
         key: /k8s/development/job-images/ingestion
+    - secretKey: tech-extractor
+      remoteRef:
+        key: /k8s/development/job-images/tech-extractor
     - secretKey: article-pipeline
       remoteRef:
         key: /k8s/development/job-images/article-pipeline

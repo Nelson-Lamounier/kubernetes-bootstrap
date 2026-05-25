@@ -1,0 +1,7 @@
+# @format
+apiVersion: v2
+name: tech-extractor
+description: Tech-extractor namespace infra — ServiceAccount + RBAC. Jobs are created programmatically by admin-api (Layer 1 deterministic technology extraction).
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
