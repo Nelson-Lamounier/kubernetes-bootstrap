@@ -1,0 +1,58 @@
+# @format
+# 30-minute LLM batch follow-up poller.
+#
+# Polls the Anthropic Batch API for batches submitted by the monthly import
+# CronJob, retrieves completed results, and routes them (promote / alias /
+# review-queue / skip). Self-scheduled (NOT admin-api dispatched).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ontology-importer-followup
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: ontology-importer
+    component: followup
+spec:
+  schedule: {{ .Values.followup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ .Values.followup.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: ontology-importer
+            component: followup
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ .Values.serviceAccount.name }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+          nodeSelector: {{- toYaml .Values.nodeSelector | nindent 12 }}
+          {{- with .Values.tolerations }}
+          tolerations: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: followup
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["node", "dist/run-llm-batch-followup.js"]
+              env:
+                - name: TRIGGERED_BY
+                  value: {{ .Values.env.triggeredBy | quote }}
+                - name: DEACTIVATION_THRESHOLD
+                  value: {{ .Values.env.deactivationThreshold | quote }}
+                - name: LOG_LEVEL
+                  value: {{ .Values.env.logLevel | quote }}
+              envFrom:
+                - secretRef:
+                    name: platform-rds-credentials
+                - secretRef:
+                    name: ontology-importer-secrets
+              resources: {{- toYaml .Values.followup.resources | nindent 16 }}

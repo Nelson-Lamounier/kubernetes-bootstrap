@@ -1,0 +1,7 @@
+# @format
+apiVersion: v2
+name: ontology-importer
+description: Tier 2 ontology auto-importer — monthly CronJob (registry import + LLM tail) + 30-min batch follow-up CronJob.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
