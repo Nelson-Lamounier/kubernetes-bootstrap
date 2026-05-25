@@ -1,0 +1,39 @@
+# @format
+# ArgoCD Application: tech-extractor (EKS — Development)
+#
+# Job-only chart: namespace + SA + RBAC for tech-extractor Jobs created
+# by admin-api (Layer 1 deterministic technology extraction), alongside
+# ingestion. No Job/Deployment template — admin-api POSTs Jobs to the API.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tech-extractor-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    kubernetes.io/description: "tech-extractor namespace + RBAC on EKS"
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/tech-extractor/chart
+    helm:
+      releaseName: tech-extractor
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tech-extractor
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
