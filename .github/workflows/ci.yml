@@ -24,7 +24,7 @@ jobs:
     name: TypeScript Typecheck (infra)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v4
         with:
@@ -42,6 +42,9 @@ jobs:
           key: infra-deps-${{ runner.os }}-node22-${{ hashFiles('infra/yarn.lock') }}
           restore-keys: infra-deps-${{ runner.os }}-node22-
 
+      # infra is a standalone Yarn project (own .yarnrc.yml + yarn.lock),
+      # so it must be installed in-place — root workspace install does not
+      # create infra/.yarn/install-state.gz.
       - name: Install dependencies
         run: yarn install --immutable
         working-directory: infra
@@ -57,7 +60,7 @@ jobs:
     name: TypeScript Lint (infra)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v4
         with:
@@ -75,6 +78,7 @@ jobs:
           key: infra-deps-${{ runner.os }}-node22-${{ hashFiles('infra/yarn.lock') }}
           restore-keys: infra-deps-${{ runner.os }}-node22-
 
+      # infra is a standalone Yarn project — install in-place (see ts-typecheck).
       - name: Install dependencies
         run: yarn install --immutable
         working-directory: infra
@@ -90,7 +94,7 @@ jobs:
     name: TypeScript Typecheck (argocd bootstrap)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js and install dependencies
         uses: ./.github/actions/setup-node-yarn
@@ -107,7 +111,7 @@ jobs:
     name: TypeScript Tests (vitest)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js and install dependencies
         uses: ./.github/actions/setup-node-yarn
@@ -125,7 +129,7 @@ jobs:
     name: YAML Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install yamllint
         run: pip install yamllint
@@ -140,7 +144,7 @@ jobs:
     name: Shell Script Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Syntax check shell scripts
         run: |
@@ -164,7 +168,7 @@ jobs:
     name: Prometheus Rules (promtool)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Helm
         uses: azure/setup-helm@v4
