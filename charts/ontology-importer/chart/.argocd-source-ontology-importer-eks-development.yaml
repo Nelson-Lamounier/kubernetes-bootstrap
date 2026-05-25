@@ -1,0 +1,8 @@
+helm:
+  parameters:
+  - name: image.repository
+    value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/ontology-importer
+    forcestring: true
+  - name: image.tag
+    value: 36d69ea3174c7b1b030f9965d50f99e4cab6ee64-r1
+    forcestring: true
