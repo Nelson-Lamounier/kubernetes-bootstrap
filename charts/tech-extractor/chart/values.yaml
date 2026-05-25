@@ -1,0 +1,14 @@
+# @format
+namespace: tech-extractor
+
+# ServiceAccount used by tech-extractor Job pods. Unlike ingestion, tech-extractor
+# calls NO Bedrock — it reads/writes the platform RDS and fetches GitHub via the
+# per-Job installation token. So this SA needs NO AWS Pod Identity association.
+techExtractorServiceAccount:
+  name: tech-extractor-sa
+
+# admin-api creates tech-extractor Jobs in this namespace. The Role below grants
+# its ServiceAccount permission to create/list/get Jobs and read pod logs.
+adminApi:
+  serviceAccountName: admin-api
+  namespace: admin-api
