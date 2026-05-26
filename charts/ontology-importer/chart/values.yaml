@@ -44,6 +44,5 @@ bedrock:
   modelId: "anthropic.claude-haiku-4-5-20251001-v1:0"
   batchBucket: "ontology-importer-batch-development"
   batchPrefix: "batch"
-  # Fill from SSM /shared/ontology-importer/development/batch-role-arn after cdk deploys.
-  batchRoleArn: "REPLACE_WITH_CDK_SSM_OUTPUT"
+  batchRoleArn: "arn:aws:iam::771826808455:role/EksPodIdentity-developmen-OntologyImporterBedrockBa-7mY81wxaUqVs"
   minRecords: "100"
