@@ -1418,3 +1418,85 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+---
+# =============================================================================
+#
+# Adds a `prose_safe` BOOLEAN tag to technology_aliases so the README parser
+# (ReadmeParser v2, tech-extractor) knows which aliases are safe to match in
+# free-form prose vs. which must be confined to structured contexts (imports,
+# manifests, code blocks). Mirrors ai-applications migration 037
+# (applications/platform-rds-bootstrap/migrations/037_alias_prose_safe.sql).
+#
+# Bootstrap (one-shot Bedrock Converse tagger) fills the NULL values after
+# this migration applies. Re-runs are no-ops.
+#
+# Builds on migration-009 (technology_aliases). Expand-only, idempotent
+# (ADD COLUMN IF NOT EXISTS).
+# =============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-012-alias-prose-safe
+  namespace: {{ .Values.namespace }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    kubernetes.io/description: "DDL: technology_aliases.prose_safe column (ai-applications mig 037)"
+  labels:
+    app: platform-rds-migration
+    migration: "012"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    metadata:
+      labels:
+        app: platform-rds-migration
+        migration: "012"
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.bootstrap.serviceAccountName }}
+      containers:
+        - name: migrate
+          image: postgres:17-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              psql -v ON_ERROR_STOP=1 "$DATABASE_URL" <<'SQL'
+
+              BEGIN;
+
+              ALTER TABLE technology_aliases
+                  ADD COLUMN IF NOT EXISTS prose_safe BOOLEAN;
+
+              COMMENT ON COLUMN technology_aliases.prose_safe IS
+                  'NULL=unclassified; true=safe to match in free-form prose; false=structured-context only';
+
+              CREATE INDEX IF NOT EXISTS idx_technology_aliases_prose_safe
+                  ON technology_aliases (alias)
+               WHERE prose_safe = true;
+
+              SELECT 'migration-012: alias prose_safe OK' AS status;
+
+              COMMIT;
+              SQL
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(PGUSER):$(PGPASSWORD)@$(PGHOST):$(PGPORT)/$(PGDATABASE)"
+          envFrom:
+            - secretRef:
+                name: platform-rds-credentials
+                optional: false
+            - secretRef:
+                name: platform-rds-config
+                optional: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
