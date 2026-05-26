@@ -51,9 +51,19 @@ spec:
                   value: {{ .Values.env.deactivationThreshold | quote }}
                 - name: LOG_LEVEL
                   value: {{ .Values.env.logLevel | quote }}
+                - name: AWS_REGION
+                  value: {{ .Values.bedrock.region | quote }}
+                - name: BEDROCK_MODEL_ID
+                  value: {{ .Values.bedrock.modelId | quote }}
+                - name: BATCH_S3_BUCKET
+                  value: {{ .Values.bedrock.batchBucket | quote }}
+                - name: BATCH_S3_PREFIX
+                  value: {{ .Values.bedrock.batchPrefix | quote }}
+                - name: BEDROCK_BATCH_ROLE_ARN
+                  value: {{ .Values.bedrock.batchRoleArn | quote }}
+                - name: MIN_BATCH_RECORDS
+                  value: {{ .Values.bedrock.minRecords | quote }}
               envFrom:
                 - secretRef:
                     name: platform-rds-credentials
-                - secretRef:
-                    name: ontology-importer-secrets
               resources: {{- toYaml .Values.import.resources | nindent 16 }}
