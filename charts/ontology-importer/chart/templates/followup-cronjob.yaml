@@ -54,15 +54,17 @@ spec:
                   value: {{ .Values.bedrock.region | quote }}
                 - name: BEDROCK_MODEL_ID
                   value: {{ .Values.bedrock.modelId | quote }}
-                - name: BATCH_S3_BUCKET
-                  value: {{ .Values.bedrock.batchBucket | quote }}
                 - name: BATCH_S3_PREFIX
                   value: {{ .Values.bedrock.batchPrefix | quote }}
-                - name: BEDROCK_BATCH_ROLE_ARN
-                  value: {{ .Values.bedrock.batchRoleArn | quote }}
                 - name: MIN_BATCH_RECORDS
                   value: {{ .Values.bedrock.minRecords | quote }}
               envFrom:
                 - secretRef:
                     name: platform-rds-credentials
+                # BEDROCK_BATCH_ROLE_ARN + BATCH_S3_BUCKET — synced from SSM
+                # ParameterStore (/shared/ontology-importer/{env}/batch-role-arn
+                # and /batch-bucket) by the ontology-importer-batch-config
+                # ExternalSecret in external-secrets/. Single source of truth: CDK.
+                - secretRef:
+                    name: ontology-importer-batch-config
               resources: {{- toYaml .Values.followup.resources | nindent 16 }}

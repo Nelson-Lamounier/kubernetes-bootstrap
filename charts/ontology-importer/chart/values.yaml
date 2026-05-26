@@ -36,14 +36,14 @@ nodeSelector: {}
 tolerations: []
 
 # Bedrock Batch Inference (Layer-4 LLM classifier). Replaces the Anthropic API.
-# The pod authenticates via Pod Identity (cdk-monitoring eks-pod-identity-stack);
-# the batchRoleArn is the Bedrock-trusted service role provisioned by CDK and
-# published to SSM /shared/ontology-importer/{env}/batch-role-arn.
+# The pod authenticates via Pod Identity (cdk-monitoring eks-pod-identity-stack).
+#
+# Note: BEDROCK_BATCH_ROLE_ARN and BATCH_S3_BUCKET are NOT in values — they are
+# synced from SSM ParameterStore (single source of truth: CDK) by the
+# ontology-importer-batch-config ExternalSecret in external-secrets/, and
+# consumed by both CronJobs via envFrom.
 bedrock:
   region: "eu-west-1"
   modelId: "anthropic.claude-haiku-4-5-20251001-v1:0"
-  batchBucket: "ontology-importer-batch-development"
   batchPrefix: "batch"
-  # Fill from SSM /shared/ontology-importer/development/batch-role-arn after cdk deploys.
-  batchRoleArn: "REPLACE_WITH_CDK_SSM_OUTPUT"
   minRecords: "100"

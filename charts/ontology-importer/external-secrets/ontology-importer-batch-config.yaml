@@ -1,0 +1,39 @@
+# @format
+# ExternalSecret: ontology-importer-batch-config
+#
+# Pulls the CDK-published Bedrock batch infra coordinates from SSM Parameter
+# Store into a K8s Secret consumed by both ontology-importer CronJobs via
+# envFrom. Single source of truth: CDK (cdk-monitoring eks-pod-identity-stack +
+# shared vpc-stack) writes the values; ESO syncs them every 15m. If the Bedrock
+# batch service role is ever recreated or the bucket renamed, ESO refreshes the
+# Secret without a chart PR.
+#
+# ESO store:   aws-ssm (ClusterSecretStore, ParameterStore provider, eu-west-1)
+# SSM paths:   /shared/ontology-importer/development/batch-role-arn
+#              /shared/ontology-importer/development/batch-bucket
+# Namespace:   ontology-importer
+# Consumers:   ontology-importer-import + ontology-importer-followup CronJobs
+#              (BEDROCK_BATCH_ROLE_ARN, BATCH_S3_BUCKET)
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: ontology-importer-batch-config
+  namespace: ontology-importer
+  annotations:
+    kubernetes.io/description: "Bedrock batch role ARN + S3 bucket — synced from SSM ParameterStore"
+spec:
+  refreshInterval: 15m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: ontology-importer-batch-config
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: BEDROCK_BATCH_ROLE_ARN
+      remoteRef:
+        key: /shared/ontology-importer/development/batch-role-arn
+    - secretKey: BATCH_S3_BUCKET
+      remoteRef:
+        key: /shared/ontology-importer/development/batch-bucket
