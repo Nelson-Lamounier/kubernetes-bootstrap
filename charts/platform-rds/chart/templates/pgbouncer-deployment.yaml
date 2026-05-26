@@ -41,11 +41,11 @@ spec:
       - name: pgbouncer
         image: {{ .Values.pgbouncer.image.repository }}:{{ .Values.pgbouncer.image.tag }}
         ports:
-        # Port name `pgbouncer-postgres` matches the Service port name —
+        # Port name `pgbouncer-pg` matches the Service port name —
         # makes the connection-pooler indirection visible in
         # `kubectl get pod/svc -o yaml` and `kubectl describe`.
         - containerPort: {{ .Values.pgbouncer.port }}
-          name: pgbouncer-postgres
+          name: pgbouncer-pg
         env:
         - name: POSTGRESQL_HOST
           valueFrom:

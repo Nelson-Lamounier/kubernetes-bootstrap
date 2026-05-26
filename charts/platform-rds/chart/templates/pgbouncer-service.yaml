@@ -37,10 +37,10 @@ spec:
   selector:
     app: pgbouncer
   ports:
-  # Port name `pgbouncer-postgres` makes the indirection visible in
+  # Port name `pgbouncer-pg` makes the indirection visible in
   # `kubectl get svc -o yaml` (vs the previous bare `postgres` which
   # masked the fact that traffic flows through a connection pooler).
-  - name: pgbouncer-postgres
+  - name: pgbouncer-pg
     port: {{ .Values.pgbouncer.port }}
     targetPort: {{ .Values.pgbouncer.port }}
     protocol: TCP
