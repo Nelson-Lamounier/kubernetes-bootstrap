@@ -1,0 +1,94 @@
+{{- if .Values.reconcileGithubInstallations.enabled }}
+# @format
+# K8s CronJob: reconcile-github-installations
+#
+# Backstop for orphaned GitHub App installations. Source:
+# admin-api/src/scripts/reconcile-github-installations.ts.
+#
+# Compares GitHub's App-wide installation list against the installation_ids
+# stored in RDS (active users only) and uninstalls any orphan — an install
+# that survived an RDS deletion (hard-delete cascade, manual DELETE, or a
+# failed best-effort revoke at account termination).
+#
+# Destructive action is OPT-IN. With `apply: false` (default) the Job only
+# logs the orphans it WOULD uninstall. Review a dry-run before flipping
+# `apply: true` in values.yaml.
+#
+# Runs as the admin-api ServiceAccount with the same admin-api-secrets
+# (GITHUB_APP_ID / GITHUB_PRIVATE_KEY) + platform-rds-credentials as the API
+# rollout — no extra IAM beyond the outbound GitHub API call.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reconcile-github-installations
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: reconcile-github-installations
+    app.kubernetes.io/part-of: admin-api
+spec:
+  schedule: {{ .Values.reconcileGithubInstallations.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    metadata:
+      labels:
+        app: reconcile-github-installations
+    spec:
+      ttlSecondsAfterFinished: 86400
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: reconcile-github-installations
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ .Values.serviceAccount.name }}
+          containers:
+            - name: reconcile
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+              command: ["node", "dist/scripts/reconcile-github-installations.js"]
+              {{- if .Values.reconcileGithubInstallations.apply }}
+              args: ["--apply"]
+              {{- end }}
+              env:
+                - name: RECONCILE_GRACE_HOURS
+                  value: {{ .Values.reconcileGithubInstallations.graceHours | default 1 | quote }}
+                - name: DEPLOY_ENV
+                  value: {{ .Values.observability.env | quote }}
+                - name: LOG_LEVEL
+                  value: {{ .Values.observability.logLevel | default "info" | quote }}
+                - name: OTEL_SERVICE_NAME
+                  value: "reconcile-github-installations"
+                - name: PUSHGATEWAY_URL
+                  value: "http://pushgateway.monitoring.svc.cluster.local:9091"
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: "http://alloy.monitoring.svc.cluster.local:4318"
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: "deployment.environment={{ .Values.observability.env }},k8s.namespace.name={{ .Values.namespace }},job.kind=reconcile-github-installations"
+                - name: AWS_REGION
+                  value: {{ .Values.awsRegion | default "eu-west-1" | quote }}
+              envFrom:
+                # GITHUB_APP_ID / GITHUB_PRIVATE_KEY live in admin-api-secrets;
+                # PG_* in platform-rds-credentials — same as the API rollout.
+                - secretRef:
+                    name: {{ .Values.secrets.name }}
+                - secretRef:
+                    name: platform-rds-credentials
+              resources:
+                requests:
+                  cpu: "20m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
+{{- end }}
