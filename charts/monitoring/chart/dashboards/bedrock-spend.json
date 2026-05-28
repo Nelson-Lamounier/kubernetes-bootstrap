@@ -1,0 +1,213 @@
+{
+  "uid": "bedrock-spend",
+  "title": "Bedrock Spend — billed (CE) vs recorded (RDS)",
+  "tags": ["bedrock", "cost", "finops", "rds", "steampipe", "tucaken"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "## Two sources, two questions\n\n- **GROUND TRUTH (Steampipe → AWS Cost Explorer):** what AWS actually billed. Grouped by the **per-model service lines** (`Claude Haiku 4.5 (Amazon Bedrock Edition)`, `Claude Sonnet 4.6 (Amazon Bedrock Edition)`, `Amazon Bedrock` = Titan only). **Never filter on `SERVICE = Amazon Bedrock`** — that hides ~99% of spend. Requires `ce:GetCostAndUsage` on the Steampipe IAM identity.\n- **ATTRIBUTION (RDS `prompt_invocations`):** which user / pipeline caused the cost — computed from recorded tokens × price map. Only as complete as `recordBedrockCost` coverage. The gap between the two rows below = **unrecorded spend** (apps invoking Bedrock without booking cost)."
+      }
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "Ground truth — AWS billed (Cost Explorer via Steampipe)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 4 }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "AWS-billed Bedrock spend by service line (30 d)",
+      "description": "Authoritative — sums Cost Explorer unblended cost per per-model service line. If this panel errors with AccessDenied, the Steampipe IAM identity is missing ce:GetCostAndUsage.",
+      "datasource": { "uid": "steampipe", "type": "grafana-postgresql-datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "usd_30d" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "color", "value": { "mode": "continuous-GrYlRd" } }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "usd_30d", "desc": true }] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "uid": "steampipe", "type": "grafana-postgresql-datasource" },
+          "rawSql": "SELECT\n  service,\n  round(sum(unblended_cost_amount::numeric), 2) AS usd_30d\nFROM aws_cost_by_service_daily\nWHERE period_start >= (current_date - interval '30 days')\n  AND (service ILIKE '%bedrock%' OR service ILIKE '%claude%' OR service ILIKE '%titan%')\nGROUP BY service\nORDER BY usd_30d DESC"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "AWS-billed Bedrock spend — daily by service line",
+      "datasource": { "uid": "steampipe", "type": "grafana-postgresql-datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": { "drawStyle": "bars", "fillOpacity": 70, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": { "uid": "steampipe", "type": "grafana-postgresql-datasource" },
+          "rawSql": "SELECT\n  period_start AS time,\n  service AS metric,\n  unblended_cost_amount::float AS value\nFROM aws_cost_by_service_daily\nWHERE period_start >= (current_date - interval '30 days')\n  AND (service ILIKE '%bedrock%' OR service ILIKE '%claude%' OR service ILIKE '%titan%')\nORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Attribution — recorded in RDS (prompt_invocations)",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Recorded spend by pipeline + agent (24 h)",
+      "datasource": { "uid": "rds-postgres", "type": "grafana-postgresql-datasource" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "usd" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "color", "value": { "mode": "continuous-GrYlRd" } }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "usd", "desc": true }] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "uid": "rds-postgres", "type": "grafana-postgresql-datasource" },
+          "rawSql": "SELECT pipeline, agent,\n  COUNT(*) AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens), 0) AS in_tokens,\n  COALESCE(SUM(output_tokens), 0) AS out_tokens,\n  ROUND(SUM(total_cost_cents) / 100, 4) AS usd,\n  ROUND(AVG(latency_ms)::numeric, 0) AS avg_latency_ms\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\nGROUP BY pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Recorded spend by user (24 h)",
+      "datasource": { "uid": "rds-postgres", "type": "grafana-postgresql-datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "usd" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "color", "value": { "mode": "continuous-GrYlRd" } }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "usd", "desc": true }] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "uid": "rds-postgres", "type": "grafana-postgresql-datasource" },
+          "rawSql": "SELECT COALESCE(u.email, pi.user_id::text) AS user_email,\n  COUNT(*) AS invocations,\n  COALESCE(SUM(pi.user_message_tokens + pi.system_prompt_tokens), 0) AS in_tokens,\n  COALESCE(SUM(pi.output_tokens), 0) AS out_tokens,\n  ROUND(SUM(pi.total_cost_cents) / 100, 4) AS usd\nFROM prompt_invocations pi\nLEFT JOIN users u ON u.id = pi.user_id\nWHERE pi.invoked_at > NOW() - INTERVAL '24 hours'\nGROUP BY user_email\nORDER BY usd DESC NULLS LAST\nLIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Recorded spend by day + pipeline (30 d)",
+      "datasource": { "uid": "rds-postgres", "type": "grafana-postgresql-datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "usd" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "color", "value": { "mode": "continuous-GrYlRd" } }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "uid": "rds-postgres", "type": "grafana-postgresql-datasource" },
+          "rawSql": "SELECT invoked_at::date AS day, pipeline,\n  COUNT(*) AS invocations,\n  ROUND(SUM(total_cost_cents) / 100, 4) AS usd\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '30 days'\nGROUP BY day, pipeline\nORDER BY day DESC, usd DESC NULLS LAST"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Recorded daily spend by pipeline (USD, dashboard range)",
+      "datasource": { "uid": "rds-postgres", "type": "grafana-postgresql-datasource" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 30 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": { "uid": "rds-postgres", "type": "grafana-postgresql-datasource" },
+          "rawSql": "SELECT $__timeGroupAlias(invoked_at, '1d'),\n  pipeline AS metric,\n  ROUND(SUM(total_cost_cents) / 100, 4) AS usd\nFROM prompt_invocations\nWHERE $__timeFilter(invoked_at)\nGROUP BY 1, pipeline\nORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

@@ -264,6 +264,25 @@ accountSweep:
   graceDays:  30
 
 # ---------------------------------------------------------------------------
+# GitHub installation reconciliation sweep
+# ---------------------------------------------------------------------------
+# Backstop for orphaned GitHub App installations (live on GitHub, no active
+# owner in RDS). Source: admin-api/src/scripts/reconcile-github-installations.ts.
+# Destructive action is opt-in: `apply: false` runs dry (logs orphans only).
+# Flip `apply: true` only after reviewing a dry-run's logged orphan list.
+# Uses the same admin-api-secrets (GITHUB_APP_ID / GITHUB_PRIVATE_KEY) + RDS
+# credentials as the API rollout. Verify: kubectl -n admin-api get cronjob
+# reconcile-github-installations
+reconcileGithubInstallations:
+  enabled:    true
+  # 03:30 UTC daily — after account-sweep (which revokes on hard-delete).
+  schedule:   "30 3 * * *"
+  # Dry-run by default. Set true to actually uninstall orphans.
+  apply:      false
+  # Skip installations younger than this (races the connect flow).
+  graceHours: 1
+
+# ---------------------------------------------------------------------------
 # Redis read cache (BFF hot-key cache; see kubernetes-bootstrap/CONTEXT.md)
 # HOST/PORT/TLS are stable cluster coordinates → static env literals.
 # REDIS_CACHE_PASSWORD is synced by external-secrets/admin-api-redis-cache.yaml
