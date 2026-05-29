@@ -60,14 +60,25 @@
       },
       {
         "name": "repoInstance",
-        "type": "textbox",
+        "type": "query",
         "label": "Pushgateway instance",
-        "query": "",
-        "current": {
-          "text": "",
-          "value": ""
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
         },
-        "description": "Pushgateway grouping label: <userId>_<owner>_<repo> (slashes replaced with underscores). Used by Prom panels scoped to one ingestion run. e.g. 31f4686a-...-22a1e71cec59_Nelson-Lamounier_ai-applications. Grafana does not support regex replacement in variable interpolation, so enter this explicitly."
+        "definition": "label_values(ingestion_runs_total, instance)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(ingestion_runs_total, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {},
+        "options": [],
+        "description": "Pushgateway grouping label <userId>_<owner>_<repo> for a single ingestion run. Populated from ingestion_runs_total instance labels — pick from the dropdown. Used by the per-repo drill-down panels."
       }
     ]
   },
@@ -75,7 +86,7 @@
     {
       "id": 100,
       "type": "row",
-      "title": "Health at a glance — last 24 h",
+      "title": "Health at a glance — cumulative (Pushgateway)",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -125,7 +136,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(ingestion_runs_total{outcome=\"success\"}[24h]))"
+          "expr": "sum(ingestion_runs_total{outcome=\"success\"})"
         }
       ]
     },
@@ -170,7 +181,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(ingestion_runs_total{outcome=\"failed\"}[24h]))"
+          "expr": "sum(ingestion_runs_total{outcome=\"failed\"})"
         }
       ]
     },
@@ -222,7 +233,7 @@
     {
       "id": 104,
       "type": "stat",
-      "title": "Chunks embedded (24 h)",
+      "title": "Chunks embedded (total)",
       "description": "ingestion_chunks_total{phase=embedded} — newly-written vector rows.",
       "datasource": {
         "type": "prometheus",
@@ -260,14 +271,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(ingestion_chunks_total{phase=\"embedded\"}[24h]))"
+          "expr": "sum(ingestion_chunks_total{phase=\"embedded\"})"
         }
       ]
     },
     {
       "id": 105,
       "type": "stat",
-      "title": "Chunks skipped (24 h)",
+      "title": "Chunks skipped (total)",
       "description": "Files already up-to-date (content hash unchanged).",
       "datasource": {
         "type": "prometheus",
@@ -305,14 +316,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(ingestion_chunks_total{phase=\"skipped\"}[24h]))"
+          "expr": "sum(ingestion_chunks_total{phase=\"skipped\"})"
         }
       ]
     },
     {
       "id": 106,
       "type": "stat",
-      "title": "Chunks pruned (24 h)",
+      "title": "Chunks pruned (total)",
       "description": "Files removed from vector store because they no longer exist in the repo.",
       "datasource": {
         "type": "prometheus",
@@ -350,7 +361,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(ingestion_chunks_total{phase=\"pruned\"}[24h]))"
+          "expr": "sum(ingestion_chunks_total{phase=\"pruned\"})"
         }
       ]
     },
@@ -692,7 +703,7 @@
     {
       "id": 300,
       "type": "row",
-      "title": "Sub-stage latencies (fleet, [5m] rolling)",
+      "title": "Sub-stage latencies (fleet, cumulative)",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -731,12 +742,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_profile_extract_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (ingestion_profile_extract_duration_seconds_bucket))",
           "legendFormat": "p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_profile_extract_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (ingestion_profile_extract_duration_seconds_bucket))",
           "legendFormat": "p95"
         }
       ]
@@ -771,7 +782,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_profile_collect_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (ingestion_profile_collect_duration_seconds_bucket))",
           "legendFormat": "p95"
         }
       ]
@@ -806,7 +817,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_profile_embed_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (ingestion_profile_embed_duration_seconds_bucket))",
           "legendFormat": "p95"
         }
       ]
@@ -841,7 +852,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(ingestion_chunk_ingest_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (ingestion_chunk_ingest_duration_seconds_bucket))",
           "legendFormat": "{{outcome}}"
         }
       ]
@@ -876,12 +887,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (ingestion_duration_seconds_bucket))",
           "legendFormat": "p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (ingestion_duration_seconds_bucket))",
           "legendFormat": "p95"
         }
       ]
@@ -916,17 +927,17 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_kb_quality_score_bucket[1h])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (ingestion_kb_quality_score_bucket))",
           "legendFormat": "median"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.25, sum by (le) (rate(ingestion_kb_quality_score_bucket[1h])))",
+          "expr": "histogram_quantile(0.25, sum by (le) (ingestion_kb_quality_score_bucket))",
           "legendFormat": "p25"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.75, sum by (le) (rate(ingestion_kb_quality_score_bucket[1h])))",
+          "expr": "histogram_quantile(0.75, sum by (le) (ingestion_kb_quality_score_bucket))",
           "legendFormat": "p75"
         }
       ]
@@ -1018,7 +1029,7 @@
     {
       "id": 403,
       "type": "timeseries",
-      "title": "Chunk-phase throughput (1 h rate)",
+      "title": "Chunk-phase throughput (cumulative)",
       "description": "ingestion_chunks_total split by phase — embedded vs skipped vs pruned. A high skipped ratio = warm cache; high pruned = repo shrinking.",
       "datasource": {
         "type": "prometheus",
@@ -1045,7 +1056,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (phase) (increase(ingestion_chunks_total[1h]))",
+          "expr": "sum by (phase) (ingestion_chunks_total)",
           "legendFormat": "{{phase}}"
         }
       ]
@@ -1053,7 +1064,7 @@
     {
       "id": 404,
       "type": "timeseries",
-      "title": "Profile-extract calls by outcome (1 h rate)",
+      "title": "Profile-extract calls by outcome (cumulative)",
       "description": "ingestion_profile_extract_calls_total — success vs failed. Distinct from end-to-end run outcome since profile-extraction is just Phase 0.",
       "datasource": {
         "type": "prometheus",
@@ -1080,7 +1091,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (outcome) (increase(ingestion_profile_extract_calls_total[1h]))",
+          "expr": "sum by (outcome) (ingestion_profile_extract_calls_total)",
           "legendFormat": "{{outcome}}"
         }
       ]
@@ -1127,7 +1138,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (outcome) (increase(ingestion_runs_total[1h]))",
+          "expr": "sum by (outcome) (ingestion_runs_total)",
           "legendFormat": "{{outcome}}"
         }
       ]
