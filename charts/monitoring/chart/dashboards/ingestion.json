@@ -981,7 +981,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  pipeline,\n  agent,\n  COUNT(*)                                            AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens), 0) AS in_tokens,\n  COALESCE(SUM(output_tokens), 0)                              AS out_tokens,\n  ROUND(SUM(total_cost_cents) / 100, 4)               AS usd,\n  ROUND(AVG(latency_ms)::numeric, 0)                  AS avg_latency_ms\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\nGROUP BY pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 50"
+          "rawSql": "SELECT\n  pipeline,\n  agent,\n  COUNT(*)                                            AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens), 0) AS in_tokens,\n  COALESCE(SUM(output_tokens), 0)                              AS out_tokens,\n  ROUND(SUM(total_cost_cents) / 100, 4)               AS usd,\n  ROUND(AVG(latency_ms)::numeric, 0)                  AS avg_latency_ms,\n  to_char(MAX(invoked_at), 'YYYY-MM-DD HH24:MI') AS last_run\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\nGROUP BY pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 50"
         }
       ]
     },
