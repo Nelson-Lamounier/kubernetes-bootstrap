@@ -564,7 +564,7 @@
     {
       "id": 50,
       "type": "row",
-      "title": "Duration distribution (Pushgateway histograms)",
+      "title": "Run duration — how long jobs take (average per run)",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -575,9 +575,9 @@
     },
     {
       "id": 51,
-      "type": "timeseries",
-      "title": "Ingestion duration p50/p95",
-      "description": "Per-run wall-clock from Pushgateway histogram. Watch for the gap between p50 and p95 widening — that's when a slow repo (lots of files / large diff) drags fleet latency.",
+      "type": "stat",
+      "title": "Ingestion — typical run time",
+      "description": "Average end-to-end wall-clock per ingestion run (ingestion_duration_seconds_sum / _count). A plain mean across all runs — green under 5 min, amber 5-15 min, red over 15 min.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -591,34 +591,40 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "min": 0
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 300 },
+              { "color": "red", "value": 900 }
+            ]
+          }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (ingestion_duration_seconds_bucket))",
-          "legendFormat": "p50"
-        },
-        {
-          "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (ingestion_duration_seconds_bucket))",
-          "legendFormat": "p95"
+          "expr": "sum(ingestion_duration_seconds_sum) / clamp_min(sum(ingestion_duration_seconds_count), 1)"
         }
       ]
     },
     {
       "id": 52,
-      "type": "timeseries",
-      "title": "Resume-import duration p50/p95",
-      "description": "Same as ingestion but for resume_import_duration_seconds. The resume-import dashboard breaks this down per sub-step.",
+      "type": "stat",
+      "title": "Resume-import — typical run time",
+      "description": "Average end-to-end wall-clock per resume-import run (resume_import_duration_seconds_sum / _count). Plain mean across all runs — green under 5 min, amber 5-15 min, red over 15 min. The resume-import dashboard breaks this down per sub-step.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -632,26 +638,32 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "min": 0
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 300 },
+              { "color": "red", "value": 900 }
+            ]
+          }
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (resume_import_duration_seconds_bucket))",
-          "legendFormat": "p50"
-        },
-        {
-          "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (resume_import_duration_seconds_bucket))",
-          "legendFormat": "p95"
+          "expr": "sum(resume_import_duration_seconds_sum) / clamp_min(sum(resume_import_duration_seconds_count), 1)"
         }
       ]
     },
