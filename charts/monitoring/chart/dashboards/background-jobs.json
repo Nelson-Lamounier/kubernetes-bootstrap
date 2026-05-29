@@ -555,7 +555,8 @@
       },
       "targets": [
         {
-          "queryType": "traceId",
+          "refId": "A",
+          "queryType": "traceql",
           "query": "${trace_id}"
         }
       ]
