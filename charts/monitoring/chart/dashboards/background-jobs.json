@@ -458,7 +458,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (namespace) (rate({namespace=~\"ingestion|resume-import\"} | json | __error__=\"\" | level=\"error\" [5m]))",
+          "expr": "sum by (namespace) (rate({namespace=~\"ingestion|resume-import\"} |~ `(?i)\\b(error|exception|fatal)\\b|schema invalid|truncated` [5m]))",
           "legendFormat": "{{namespace}}"
         }
       ]
@@ -484,7 +484,7 @@
       },
       "targets": [
         {
-          "expr": "{namespace=~\"ingestion|resume-import\"} | json | __error__=\"\" | level=\"error\"",
+          "expr": "{namespace=~\"ingestion|resume-import\"} |~ `(?i)\\b(error|exception|fatal)\\b|schema invalid|truncated`",
           "maxLines": 20
         }
       ]
