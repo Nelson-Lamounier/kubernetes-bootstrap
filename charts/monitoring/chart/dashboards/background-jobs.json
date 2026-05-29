@@ -423,10 +423,12 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{ resource.service.name =~ \"ingestion|ingestion-worker|resume-import-processor\" }"
+          "query": "{ resource.service.name =~ \"ingestion|ingestion-worker|resume-import-processor\" } | select(resource.service.name, name, span:duration)",
+          "tableType": "traces",
+          "limit": 50
         }
       ],
-      "description": "TraceQL across ingestion + resume-import. Filter to one via the $pipeline variable. Click any trace to open the waterfall in Tempo."
+      "description": "TraceQL search across ingestion + resume-import, listed as a traces table (tableType=traces). Click any trace to open the span waterfall in Tempo."
     },
     {
       "type": "row",
