@@ -91,7 +91,7 @@
   "panels": [
     {
       "type": "row",
-      "title": "Health at a Glance — last 24 h",
+      "title": "Health at a Glance — cumulative (Pushgateway)",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -143,7 +143,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(ingestion_runs_total{outcome=\"success\"}[$__range]))",
+          "expr": "sum(ingestion_runs_total{outcome=\"success\"})",
           "legendFormat": "success"
         }
       ]
@@ -194,7 +194,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(ingestion_runs_total{outcome=\"failed\"}[$__range]))",
+          "expr": "sum(ingestion_runs_total{outcome=\"failed\"})",
           "legendFormat": "failed"
         }
       ]
@@ -241,7 +241,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(resume_import_runs_total{outcome=\"success\"}[$__range]))",
+          "expr": "sum(resume_import_runs_total{outcome=\"success\"})",
           "legendFormat": "success"
         }
       ]
@@ -292,7 +292,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(resume_import_runs_total{outcome=\"failed\"}[$__range]))",
+          "expr": "sum(resume_import_runs_total{outcome=\"failed\"})",
           "legendFormat": "failed"
         }
       ]
@@ -347,7 +347,7 @@
     },
     {
       "type": "stat",
-      "title": "Chunks embedded today",
+      "title": "Chunks embedded (total)",
       "id": 7,
       "gridPos": {
         "h": 4,
@@ -388,7 +388,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(ingestion_chunks_total[$__range])) + sum(increase(resume_import_embeddings_created_total[$__range]))",
+          "expr": "sum(ingestion_chunks_total{phase=\"embedded\"}) + sum(resume_import_embeddings_created_total)",
           "legendFormat": "chunks + embeddings"
         }
       ]
@@ -601,12 +601,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (ingestion_duration_seconds_bucket))",
           "legendFormat": "p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ingestion_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (ingestion_duration_seconds_bucket))",
           "legendFormat": "p95"
         }
       ]
@@ -642,12 +642,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(resume_import_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (resume_import_duration_seconds_bucket))",
           "legendFormat": "p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(resume_import_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (resume_import_duration_seconds_bucket))",
           "legendFormat": "p95"
         }
       ]
@@ -701,7 +701,7 @@
     {
       "id": 54,
       "type": "timeseries",
-      "title": "Throughput — chunks + embeddings created (1 h rate)",
+      "title": "Throughput — chunks + embeddings created (cumulative)",
       "description": "Sum of ingestion_chunks_total + resume_import_embeddings_created_total. Both pipelines create vector store rows; this is the unified throughput signal.",
       "datasource": {
         "type": "prometheus",
@@ -729,12 +729,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(ingestion_chunks_total[1h]))",
+          "expr": "sum(ingestion_chunks_total{phase=\"embedded\"})",
           "legendFormat": "ingestion chunks"
         },
         {
           "refId": "B",
-          "expr": "sum(increase(resume_import_embeddings_created_total[1h]))",
+          "expr": "sum(resume_import_embeddings_created_total)",
           "legendFormat": "resume embeddings"
         }
       ]
