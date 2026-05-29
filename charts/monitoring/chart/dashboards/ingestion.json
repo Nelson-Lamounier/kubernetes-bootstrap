@@ -368,7 +368,7 @@
     {
       "id": 200,
       "type": "row",
-      "title": "Per-repo drill-down — set $userId + $repoFullName variables",
+      "title": "Per-repo drill-down — pick $repoInstance for metrics; $repoFullName + $userId drive the Loki/Tempo panels",
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -380,8 +380,8 @@
     {
       "id": 201,
       "type": "stat",
-      "title": "Total duration",
-      "description": "ingestion_duration_seconds_sum for this instance (success or failed).",
+      "title": "Avg run duration",
+      "description": "ingestion_duration_seconds_sum / _count for this instance — average wall-clock per run. Uses _sum/_count because metrics are pushAdd'd to Pushgateway (re-runs of the same userId+repo accumulate), so bare _sum would be the total across all runs, not one run's time.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -418,14 +418,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(ingestion_duration_seconds_sum{instance=\"$repoInstance\"})"
+          "expr": "sum(ingestion_duration_seconds_sum{instance=\"$repoInstance\"}) / clamp_min(sum(ingestion_duration_seconds_count{instance=\"$repoInstance\"}), 1)"
         }
       ]
     },
     {
       "id": 202,
       "type": "stat",
-      "title": "Profile collect sec",
+      "title": "Profile collect sec (avg)",
       "description": "GitHub fetch time for profile-input files (README, package.json, etc.).",
       "datasource": {
         "type": "prometheus",
@@ -463,14 +463,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(ingestion_profile_collect_duration_seconds_sum{instance=\"$repoInstance\"})"
+          "expr": "sum(ingestion_profile_collect_duration_seconds_sum{instance=\"$repoInstance\"}) / clamp_min(sum(ingestion_profile_collect_duration_seconds_count{instance=\"$repoInstance\"}), 1)"
         }
       ]
     },
     {
       "id": 203,
       "type": "stat",
-      "title": "Profile extract sec",
+      "title": "Profile extract sec (avg)",
       "description": "Bedrock InvokeModel time for repository profile extraction.",
       "datasource": {
         "type": "prometheus",
@@ -508,14 +508,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(ingestion_profile_extract_duration_seconds_sum{instance=\"$repoInstance\"})"
+          "expr": "sum(ingestion_profile_extract_duration_seconds_sum{instance=\"$repoInstance\"}) / clamp_min(sum(ingestion_profile_extract_duration_seconds_count{instance=\"$repoInstance\"}), 1)"
         }
       ]
     },
     {
       "id": 204,
       "type": "stat",
-      "title": "Profile embed sec",
+      "title": "Profile embed sec (avg)",
       "description": "Titan embedding time for profile (one_liner + description + highlights).",
       "datasource": {
         "type": "prometheus",
@@ -553,14 +553,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(ingestion_profile_embed_duration_seconds_sum{instance=\"$repoInstance\"})"
+          "expr": "sum(ingestion_profile_embed_duration_seconds_sum{instance=\"$repoInstance\"}) / clamp_min(sum(ingestion_profile_embed_duration_seconds_count{instance=\"$repoInstance\"}), 1)"
         }
       ]
     },
     {
       "id": 205,
       "type": "stat",
-      "title": "Chunk-ingest sec",
+      "title": "Chunk-ingest sec (avg)",
       "description": "orchestrator.ingestRepo wall-clock — chunk + enrich + embed + persist.",
       "datasource": {
         "type": "prometheus",
@@ -598,7 +598,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(ingestion_chunk_ingest_duration_seconds_sum{instance=\"$repoInstance\"})"
+          "expr": "sum(ingestion_chunk_ingest_duration_seconds_sum{instance=\"$repoInstance\"}) / clamp_min(sum(ingestion_chunk_ingest_duration_seconds_count{instance=\"$repoInstance\"}), 1)"
         }
       ]
     },
@@ -672,7 +672,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{namespace=\"ingestion\"} | json | repo_full_name=\"$repoFullName\" | line_format \"{{.time}} [{{.level}}] event={{.event}} {{.msg}} embedded={{.embedded}} pruned={{.pruned}} dur_ms={{.duration_ms}} err={{.err}}\""
+          "expr": "{namespace=\"ingestion\", service_name=\"ingestion-worker\"} | json | __error__=\"\" | repo_full_name=\"$repoFullName\" | line_format \"{{.time}} [{{.level}}] event={{.event}} {{.msg}} embedded={{.embedded}} pruned={{.pruned}} dur_ms={{.duration_ms}} err={{.err}}\""
         }
       ]
     },
