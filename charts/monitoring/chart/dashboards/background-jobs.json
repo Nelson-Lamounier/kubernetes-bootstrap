@@ -522,7 +522,7 @@
       },
       "targets": [
         {
-          "expr": "{namespace=~\"admin-api|ingestion|resume-import\"} | json | trace_id=~\"${trace_id:pipe}\" | user_id=~\"${user_id:pipe}\"",
+          "expr": "{namespace=~\"admin-api|ingestion|resume-import\"} | json | __error__=\"\" | trace_id=~\"${trace_id:pipe}\" | user_id=~\"${user_id:pipe}\"",
           "maxLines": 200
         }
       ]
