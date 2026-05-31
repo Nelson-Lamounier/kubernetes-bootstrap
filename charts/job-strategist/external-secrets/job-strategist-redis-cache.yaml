@@ -1,0 +1,39 @@
+# @format
+# ExternalSecret: job-strategist-redis-cache
+#
+# Syncs the redis-cache password into the job-strategist namespace so the
+# case-study + clustering K8s Jobs can authenticate to
+# redis-cache-master.redis-cache.svc and use the AI-generation exact cache
+# (RedisExactCache). Without it the Jobs fail-open to "cache disabled" and
+# re-invoke Sonnet/Haiku on every run.
+#
+# Same SSM SecureString that charts/redis-cache and public-api read — single
+# source of truth. Produces Secret `job-strategist-redis-cache` with key
+# REDIS_CACHE_PASSWORD, mounted by the dispatched Jobs via envFromSecretRefs.
+# HOST/PORT/TLS are static literals set as plain env on the Job by admin-api's
+# dispatchCaseStudyJob / clustering dispatch.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: job-strategist-redis-cache
+  namespace: job-strategist
+  annotations:
+    kubernetes.io/description: "redis-cache password for job-strategist Jobs — 1h refresh"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: job-strategist-redis-cache
+    creationPolicy: Owner
+    deletionPolicy: Delete
+    template:
+      engineVersion: v2
+      type: Opaque
+      data:
+        REDIS_CACHE_PASSWORD: "{{ .password }}"
+  data:
+    - secretKey: password
+      remoteRef:
+        key: /k8s/development/redis-cache-auth
