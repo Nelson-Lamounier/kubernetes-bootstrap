@@ -13,9 +13,11 @@ observability:
 bootstrap:
   enabled: true
   image:
-    # ECR image for the DDL bootstrap Job.
-    # URI published to SSM by deploy-platform-rds-bootstrap.yml; tag kept in
-    # sync here manually until ArgoCD Image Updater is wired to this chart.
+    # ECR image for the DDL bootstrap / migration PostSync hook.
+    # AUTO-MANAGED by ArgoCD Image Updater (see argocd-apps/eks/development/platform-rds.yaml).
+    # Image Updater git-writes the newest platform-rds-bootstrap tag here on each new
+    # ECR push; do NOT hand-edit the tag. (Break-glass manual apply: ai-applications
+    # `just db-bootstrap-run`.)
     repository: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-rds-bootstrap"
     tag: "c0e075f08ce78a87e45f0e0d9e65a5707baed7e6-r1"
 
