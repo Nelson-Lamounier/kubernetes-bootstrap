@@ -13,6 +13,14 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "7"
     kubernetes.io/description: "platform-rds (PgBouncer) on EKS (Plan 5b)"
+    argocd-image-updater.argoproj.io/image-list: platform-rds-bootstrap=771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-rds-bootstrap
+    argocd-image-updater.argoproj.io/platform-rds-bootstrap.allow-tags: regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$
+    argocd-image-updater.argoproj.io/platform-rds-bootstrap.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/platform-rds-bootstrap.helm.image-name: bootstrap.image.repository
+    argocd-image-updater.argoproj.io/platform-rds-bootstrap.helm.image-tag: bootstrap.image.tag
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/argocd-image-updater-writeback-key
+    argocd-image-updater.argoproj.io/git-branch: main
+    argocd-image-updater.argoproj.io/git-repository: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
   labels:
     app.kubernetes.io/part-of: argocd
     cluster: eks
