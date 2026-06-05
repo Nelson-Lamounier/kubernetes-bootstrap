@@ -2,7 +2,9 @@
 # platform-job-watcher — Development environment overrides
 image:
   repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-job-watcher
-  # tag: written by ArgoCD Image Updater
+  # Seed tag so the first deploy has a valid image; ArgoCD Image Updater
+  # writes newer tags back from here on each ECR push.
+  tag: "be8314767c3cf82baa346eaaff07b11c65a6ad0c-r1"
 
 namespace: platform
 
