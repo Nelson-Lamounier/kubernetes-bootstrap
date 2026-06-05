@@ -26,9 +26,30 @@ config:
     - namespace:         resume-import
       dbTable:           resume_imports
       staleAfterMinutes: 15
+    # pipeline_runs has no started_at/completed_at/error_code and uses 'complete'
+    # (not 'completed') for success — override fields REQUIRED, else the defaults
+    # error + would mark successful runs failed.
     - namespace:         article-pipeline
       dbTable:           pipeline_runs
       staleAfterMinutes: 30
+      statusColumn:      status
+      staleColumn:       created_at
+      errorColumn:       error_message
+      completedColumn:   updated_at
+      failedValue:       failed
+      errorValue:        "Pipeline timed out or was interrupted before completion"
+      terminalStatuses:
+        - complete
+        - failed
     - namespace:         job-strategist
       dbTable:           pipeline_runs
       staleAfterMinutes: 30
+      statusColumn:      status
+      staleColumn:       created_at
+      errorColumn:       error_message
+      completedColumn:   updated_at
+      failedValue:       failed
+      errorValue:        "Pipeline timed out or was interrupted before completion"
+      terminalStatuses:
+        - complete
+        - failed

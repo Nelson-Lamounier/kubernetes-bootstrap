@@ -13,4 +13,28 @@ data:
       - namespace: {{ .namespace }}
         dbTable: {{ .dbTable }}
         staleAfterMinutes: {{ .staleAfterMinutes }}
+        {{- with .statusColumn }}
+        statusColumn: {{ . }}
+        {{- end }}
+        {{- with .staleColumn }}
+        staleColumn: {{ . }}
+        {{- end }}
+        {{- with .errorColumn }}
+        errorColumn: {{ . }}
+        {{- end }}
+        {{- with .completedColumn }}
+        completedColumn: {{ . }}
+        {{- end }}
+        {{- with .failedValue }}
+        failedValue: {{ . | quote }}
+        {{- end }}
+        {{- with .errorValue }}
+        errorValue: {{ . | quote }}
+        {{- end }}
+        {{- with .terminalStatuses }}
+        terminalStatuses:
+          {{- range . }}
+          - {{ . | quote }}
+          {{- end }}
+        {{- end }}
     {{- end }}
