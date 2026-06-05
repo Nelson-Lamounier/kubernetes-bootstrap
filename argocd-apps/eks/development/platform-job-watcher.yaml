@@ -1,0 +1,65 @@
+# @format
+# ArgoCD Application: platform-job-watcher (EKS — development)
+#
+# K8s Job failure detector + staleness reconciler. Watches dispatched pipeline
+# Jobs (resume-import, job-strategist) and marks their DB rows failed when the
+# Job fails or a run goes stale — so the UI never spins forever on a dead run.
+#
+# WHY THIS FILE EXISTS HERE (and not as the old ApplicationSet):
+#   The watcher was previously defined ONLY as an ApplicationSet at
+#   argocd-apps/platform-job-watcher.yaml. The eks-root-development app-of-apps
+#   syncs `argocd-apps/eks/development` NON-recursively, so it never saw that
+#   file — and the watcher was never deployed to dev (no app, pod, or configmap).
+#   Prod has its own explicit app (applications-production.yaml). This is the
+#   proper dev Application, alongside its siblings, so the root applies it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-job-watcher-eks-development
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    kubernetes.io/description: "platform-job-watcher — K8s Job failure detector + staleness reconciler (dev)"
+    # Image Updater rolls the watcher Deployment on each new ECR push.
+    argocd-image-updater.argoproj.io/image-list: "watcher=771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-job-watcher"
+    argocd-image-updater.argoproj.io/watcher.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/watcher.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+    argocd-image-updater.argoproj.io/watcher.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/watcher.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
+    argocd-image-updater.argoproj.io/git-branch: main
+  labels:
+    app.kubernetes.io/part-of: argocd
+    cluster: eks
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: charts/platform-job-watcher/chart
+    helm:
+      releaseName: platform-job-watcher
+      valueFiles:
+        - ../platform-job-watcher-values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
