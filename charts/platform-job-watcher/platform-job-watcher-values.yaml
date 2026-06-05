@@ -16,3 +16,18 @@ config:
     - namespace: resume-import
       dbTable: resume_imports
       staleAfterMinutes: 15
+    # Coach + strategist runs. pipeline_runs has no started_at/completed_at/error_code
+    # and uses 'complete' (not 'completed') as its success status — so the override
+    # fields are REQUIRED; the resume_imports defaults would error + mis-sweep.
+    - namespace: job-strategist
+      dbTable: pipeline_runs
+      staleAfterMinutes: 15
+      statusColumn: status
+      staleColumn: created_at
+      errorColumn: error_message
+      completedColumn: updated_at
+      failedValue: failed
+      errorValue: "Pipeline timed out or was interrupted before completion"
+      terminalStatuses:
+        - complete
+        - failed
