@@ -13,6 +13,12 @@ spec:
       app: platform-job-watcher
   template:
     metadata:
+      annotations:
+        # Roll the pod whenever the watcher config changes. The app loads its
+        # watcher entries once at startup, so without this a ConfigMap update
+        # (e.g. adding a pipeline_runs watcher) would not take effect until a
+        # manual restart. Hashing the rendered ConfigMap forces a rollout.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
       labels:
         app: platform-job-watcher
     spec:
