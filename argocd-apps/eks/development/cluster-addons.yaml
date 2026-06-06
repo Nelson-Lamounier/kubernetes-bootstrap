@@ -1,0 +1,49 @@
+# @format
+# ArgoCD Application: Cluster Addons (raw manifests)
+#
+# Hardening manifests for cluster-level tools that are installed OUTSIDE this
+# repo (e.g. the aws-load-balancer-controller Helm release in kube-system) and
+# therefore cannot be patched at their own source from here. These are
+# standalone, decoupled resources (PDBs, etc.) that select the target pods by
+# label — they do not modify the upstream release.
+#
+# First member: a PodDisruptionBudget for the AWS Load Balancer Controller
+# (see gitops/cluster-addons/aws-load-balancer-controller-pdb.yaml for the why).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-addons
+  annotations:
+    kubernetes.io/description: "Decoupled hardening manifests (PDBs, etc.) for externally-managed cluster tools"
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    targetRevision: main
+    path: gitops/cluster-addons
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
