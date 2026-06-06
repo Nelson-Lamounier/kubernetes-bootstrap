@@ -1,0 +1,41 @@
+# @format
+# PodDisruptionBudget for the AWS Load Balancer Controller.
+#
+# WHY THIS EXISTS
+# The LBC ships a mutating admission webhook (mpod.elbv2.k8s.aws) with
+# failurePolicy: Fail. When the webhook has zero ready endpoints, the API
+# server REJECTS creation of every new pod in any namespace its
+# namespaceSelector does not exclude — cluster-wide pod admission stalls.
+#
+# On 2026-06-05 a single node rotation evicted BOTH controller replicas at
+# once (they were co-located on one node; the chart only sets *preferred*
+# pod anti-affinity, and there was no PDB), the webhook lost all endpoints,
+# and an on-demand DB-migration Job in the `platform` namespace failed with
+# DeadlineExceeded ("no endpoints available for service
+# aws-load-balancer-webhook-service").
+#
+# minAvailable: 1 forces VOLUNTARY disruptions (Karpenter consolidation,
+# AMI-refresh drains, manual cordon/drain) to evict the two replicas one at
+# a time — the second eviction blocks until the first reschedules (onto a
+# different node, via the chart's preferred anti-affinity), so the webhook
+# never drops to zero endpoints during planned node churn.
+#
+# NOTE: this is decoupled from the LBC Helm release (managed outside this
+# repo). The complete fix also belongs at the Helm values source: make the
+# anti-affinity `required` (or add topologySpreadConstraints) and add the
+# `platform` namespace to the mpod webhook's namespaceSelector NotIn list so
+# batch Jobs are never hostage to LBC availability.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aws-load-balancer-controller
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: aws-load-balancer-controller
+    app.kubernetes.io/part-of: cluster-addons
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aws-load-balancer-controller
+      app.kubernetes.io/instance: aws-load-balancer-controller
