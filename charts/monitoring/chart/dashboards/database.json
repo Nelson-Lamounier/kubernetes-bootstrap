@@ -673,7 +673,7 @@
       "targets": [
         {
           "refId": "A",
-          "rawSql": "SELECT indexname AS \"Index\", pg_size_pretty(pg_relation_size(indexname::regclass)) AS \"Size\", idx_scan AS \"Scans\", idx_tup_read AS \"Tuples read\", idx_tup_fetch AS \"Tuples fetched\" FROM pg_stat_user_indexes WHERE tablename = 'document_embeddings' ORDER BY idx_scan DESC",
+          "rawSql": "SELECT indexrelname AS \"Index\",\n  pg_size_pretty(pg_relation_size(indexrelid)) AS \"Size\",\n  idx_scan AS \"Scans\",\n  idx_tup_read AS \"Tuples read\",\n  idx_tup_fetch AS \"Tuples fetched\"\nFROM pg_stat_user_indexes\nWHERE relname = 'document_embeddings'\nORDER BY idx_scan DESC",
           "format": "table"
         }
       ]
@@ -716,6 +716,7 @@
           "queryMode": "Logs",
           "logGroups": [
             {
+              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${db_identifier}/postgresql:*",
               "name": "/aws/rds/instance/${db_identifier}/postgresql"
             }
           ],
@@ -756,6 +757,7 @@
           "queryMode": "Logs",
           "logGroups": [
             {
+              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${db_identifier}/postgresql:*",
               "name": "/aws/rds/instance/${db_identifier}/postgresql"
             }
           ],
@@ -796,6 +798,7 @@
           "queryMode": "Logs",
           "logGroups": [
             {
+              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${db_identifier}/postgresql:*",
               "name": "/aws/rds/instance/${db_identifier}/postgresql"
             }
           ],
