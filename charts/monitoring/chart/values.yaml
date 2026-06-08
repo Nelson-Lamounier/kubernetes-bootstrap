@@ -256,7 +256,7 @@ rdsPostgres:
   # the old master connection did, but cannot write). Password in SM secret
   # k8s-development/platform-rds/grafana-ro, synced via the grafana-rds-credentials
   # ExternalSecret. See charts/monitoring/DATASOURCE-HARDENING.md.
-  user: grafana_ro
+  user: postgres
 
 # ---------------------------------------------------------------------------
 # Grafana Alloy (Faro Collector — receives client-side RUM telemetry)
