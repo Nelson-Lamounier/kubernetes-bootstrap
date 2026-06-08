@@ -1342,6 +1342,388 @@
           "rawSql": "SELECT\n  rp.repo_full_name,\n  rp.classification,\n  COUNT(rpe.id) AS profile_embeddings\nFROM repository_profiles rp\nLEFT JOIN repository_profile_embeddings rpe ON rpe.profile_id = rp.id\nGROUP BY rp.repo_full_name, rp.classification\nORDER BY profile_embeddings DESC NULLS LAST\nLIMIT 20"
         }
       ]
+    },
+    {
+      "id": 700,
+      "type": "row",
+      "title": "Fast-scan + retrieval observability",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 114
+      },
+      "panels": []
+    },
+    {
+      "id": 701,
+      "type": "timeseries",
+      "title": "Retrieval-probe score distribution",
+      "description": "ingestion_retrieval_score — retrieval-probe quality (0..1). Emitted by run-ingestion; previously unpaneled.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 115
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_retrieval_score_bucket[1h])))",
+          "refId": "A",
+          "legendFormat": "median"
+        },
+        {
+          "expr": "histogram_quantile(0.25, sum by (le) (rate(ingestion_retrieval_score_bucket[1h])))",
+          "refId": "B",
+          "legendFormat": "p25"
+        },
+        {
+          "expr": "histogram_quantile(0.75, sum by (le) (rate(ingestion_retrieval_score_bucket[1h])))",
+          "refId": "C",
+          "legendFormat": "p75"
+        }
+      ]
+    },
+    {
+      "id": 702,
+      "type": "timeseries",
+      "title": "Synthesis outcome by stage (1 h rate)",
+      "description": "ingestion_synthesis_outcome_total — surfaces a synthesizer silently disabling (the NULL-rollup failure mode). ok/skipped/failed by stage.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 115
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (stage,outcome) (increase(ingestion_synthesis_outcome_total[1h]))",
+          "refId": "A",
+          "legendFormat": "{{stage}}/{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 703,
+      "type": "table",
+      "title": "Chunk enrichment coverage — fast-scan backfill (live RDS)",
+      "description": "document_embeddings enrichment_status: pending=deferred (awaiting in-job re-enrich), ok=enriched, skipped_quota=cap. Shows DEFER_ENRICHMENT fast-scan health from the source of truth.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 123
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT repo_full_name,\n  COALESCE(metadata->>'enrichment_status','(none)') AS enrichment_status,\n  COUNT(*) AS chunks\nFROM document_embeddings\nGROUP BY repo_full_name, enrichment_status\nORDER BY repo_full_name, chunks DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 800,
+      "type": "row",
+      "title": "Per-user / per-repo Bedrock spend (set $userId / $repoFullName)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 133
+      },
+      "panels": []
+    },
+    {
+      "id": 801,
+      "type": "table",
+      "title": "LLM spend by user + repo + agent (24 h, filtered)",
+      "description": "Per-user + per-repo LLM spend from prompt_invocations.repo_name. Embeddings excluded (broken out right). Set $userId / $repoFullName (blank = all).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 134
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  COALESCE(repo_name,'(no repo)') AS repo,\n  pipeline, agent,\n  COUNT(*) AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens),0) AS in_tokens,\n  COALESCE(SUM(output_tokens),0) AS out_tokens,\n  ROUND(SUM(total_cost_cents)/100.0,4) AS usd,\n  ROUND(AVG(latency_ms)::numeric,0) AS avg_latency_ms\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND model_id NOT LIKE 'amazon.titan-embed%'\n  AND (${userId:sqlstring} = '' OR user_id::text = ${userId:sqlstring})\n  AND (${repoFullName:sqlstring} = '' OR repo_name = ${repoFullName:sqlstring})\nGROUP BY repo, pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 100",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 802,
+      "type": "table",
+      "title": "Embedding spend by repo — Titan, input-only (24 h, filtered)",
+      "description": "Titan embedding spend broken out (model amazon.titan-embed-*): input tokens only, no output. Kept separate so it doesn't distort LLM message-token columns. Attributed per repo/user.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 134
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  COALESCE(repo_name,'(no repo)') AS repo,\n  COUNT(*) AS embed_calls,\n  COALESCE(SUM(user_message_tokens),0) AS embed_input_tokens,\n  0 AS out_tokens,\n  ROUND(SUM(total_cost_cents)/100.0,4) AS usd\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND model_id LIKE 'amazon.titan-embed%'\n  AND (${userId:sqlstring} = '' OR user_id::text = ${userId:sqlstring})\n  AND (${repoFullName:sqlstring} = '' OR repo_name = ${repoFullName:sqlstring})\nGROUP BY repo\nORDER BY usd DESC NULLS LAST\nLIMIT 100",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 900,
+      "type": "row",
+      "title": "RAG evaluation — golden-set quality (rag_eval_runs)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 144
+      },
+      "panels": []
+    },
+    {
+      "id": 901,
+      "type": "table",
+      "title": "Latest eval run — scores",
+      "description": "Most recent rag_eval_runs row. relevance_pos ↑ better; relevance_neg ↓ better (negative-control leakage); recall@k + max_cosine.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 145
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT to_char(run_at,'YYYY-MM-DD HH24:MI') AS run_at, tool, query_count,\n  ROUND(mean_relevance_positive::numeric,3) AS relevance_pos,\n  ROUND(mean_recall_at_k::numeric,3) AS recall_at_k,\n  ROUND(mean_relevance_negative::numeric,3) AS relevance_neg_leak,\n  ROUND(mean_max_cosine::numeric,3) AS max_cosine\nFROM rag_eval_runs\nORDER BY run_at DESC\nLIMIT 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 902,
+      "type": "timeseries",
+      "title": "Eval score trend",
+      "description": "Per-run trend. Watch relevance_pos + recall climb and relevance_neg (leakage) stay low after KB/scan changes.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 150
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT run_at AS time,\n  mean_relevance_positive AS \"relevance (pos)\",\n  mean_recall_at_k AS \"recall@k\",\n  mean_relevance_negative AS \"relevance (neg leak)\",\n  mean_max_cosine AS \"max cosine\"\nFROM rag_eval_runs\nORDER BY run_at",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 903,
+      "type": "table",
+      "title": "Per-query — latest run",
+      "description": "Per golden query in the most recent run. Negative-control queries (kind=negative) should show LOW relevance.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 158
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT r.query_id, r.kind,\n  ROUND(r.context_relevance::numeric,2) AS relevance,\n  ROUND(r.recall_at_k::numeric,2) AS recall_at_k,\n  r.retrieved_count,\n  ROUND(r.max_cosine::numeric,3) AS max_cosine\nFROM rag_eval_results r\nJOIN (SELECT id FROM rag_eval_runs ORDER BY run_at DESC LIMIT 1) latest ON r.run_id = latest.id\nORDER BY r.kind, r.context_relevance DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 1000,
+      "type": "row",
+      "title": "Sync vs resync (initial / full_reindex / incremental)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 167
+      },
+      "panels": []
+    },
+    {
+      "id": 1001,
+      "type": "timeseries",
+      "title": "Runs by sync type (1 h rate)",
+      "description": "ingestion_runs_total{sync_type}: initial = first embed of a repo, full_reindex = forced re-embed, incremental = push-based delta.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 168
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (sync_type) (increase(ingestion_runs_total[1h]))",
+          "refId": "A",
+          "legendFormat": "{{sync_type}}"
+        }
+      ]
+    },
+    {
+      "id": 1002,
+      "type": "table",
+      "title": "Recently synced / resynced repos",
+      "description": "repo_sync_state.last_sync_type per repo — which repos synced/resynced, when, type, status, file/chunk counts.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 175
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT repo_full_name,\n  COALESCE(last_sync_type,'(pre-070)') AS sync_type,\n  sync_status,\n  last_synced_at,\n  file_count,\n  chunk_count\nFROM repo_sync_state\nWHERE last_synced_at IS NOT NULL\nORDER BY last_synced_at DESC NULLS LAST\nLIMIT 30",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }

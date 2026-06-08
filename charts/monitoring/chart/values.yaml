@@ -252,7 +252,11 @@ steampipe:
 # Secret (ESO pulls from k8s-<env>/platform-rds/credentials in Secrets Manager)
 # ---------------------------------------------------------------------------
 rdsPostgres:
-  user: postgres
+  # Dedicated read-only role (SELECT-only + BYPASSRLS so it sees fleet data like
+  # the old master connection did, but cannot write). Password in SM secret
+  # k8s-development/platform-rds/grafana-ro, synced via the grafana-rds-credentials
+  # ExternalSecret. See charts/monitoring/DATASOURCE-HARDENING.md.
+  user: grafana_ro
 
 # ---------------------------------------------------------------------------
 # Grafana Alloy (Faro Collector — receives client-side RUM telemetry)
