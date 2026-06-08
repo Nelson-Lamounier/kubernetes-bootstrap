@@ -1331,6 +1331,129 @@
           "rawSql": "SELECT\n  rp.repo_full_name,\n  rp.classification,\n  COUNT(rpe.id) AS profile_embeddings\nFROM repository_profiles rp\nLEFT JOIN repository_profile_embeddings rpe ON rpe.profile_id = rp.id\nGROUP BY rp.repo_full_name, rp.classification\nORDER BY profile_embeddings DESC NULLS LAST\nLIMIT 20"
         }
       ]
+    },
+    {
+      "id": 700,
+      "type": "row",
+      "title": "Fast-scan + retrieval observability",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 114
+      },
+      "panels": []
+    },
+    {
+      "id": 701,
+      "type": "timeseries",
+      "title": "Retrieval-probe score distribution",
+      "description": "ingestion_retrieval_score — retrieval-probe quality (0..1). Emitted by run-ingestion; previously unpaneled.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 115
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_retrieval_score_bucket[1h])))",
+          "refId": "A",
+          "legendFormat": "median"
+        },
+        {
+          "expr": "histogram_quantile(0.25, sum by (le) (rate(ingestion_retrieval_score_bucket[1h])))",
+          "refId": "B",
+          "legendFormat": "p25"
+        },
+        {
+          "expr": "histogram_quantile(0.75, sum by (le) (rate(ingestion_retrieval_score_bucket[1h])))",
+          "refId": "C",
+          "legendFormat": "p75"
+        }
+      ]
+    },
+    {
+      "id": 702,
+      "type": "timeseries",
+      "title": "Synthesis outcome by stage (1 h rate)",
+      "description": "ingestion_synthesis_outcome_total — surfaces a synthesizer silently disabling (the NULL-rollup failure mode). ok/skipped/failed by stage.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 115
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (stage,outcome) (increase(ingestion_synthesis_outcome_total[1h]))",
+          "refId": "A",
+          "legendFormat": "{{stage}}/{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 703,
+      "type": "table",
+      "title": "Chunk enrichment coverage — fast-scan backfill (live RDS)",
+      "description": "document_embeddings enrichment_status: pending=deferred (awaiting in-job re-enrich), ok=enriched, skipped_quota=cap. Shows DEFER_ENRICHMENT fast-scan health from the source of truth.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 123
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT repo_full_name,\n  COALESCE(metadata->>'enrichment_status','(none)') AS enrichment_status,\n  COUNT(*) AS chunks\nFROM document_embeddings\nGROUP BY repo_full_name, enrichment_status\nORDER BY repo_full_name, chunks DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }
