@@ -1635,6 +1635,84 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 1000,
+      "type": "row",
+      "title": "Sync vs resync (initial / full_reindex / incremental)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 167
+      },
+      "panels": []
+    },
+    {
+      "id": 1001,
+      "type": "timeseries",
+      "title": "Runs by sync type (1 h rate)",
+      "description": "ingestion_runs_total{sync_type}: initial = first embed of a repo, full_reindex = forced re-embed, incremental = push-based delta.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 168
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (sync_type) (increase(ingestion_runs_total[1h]))",
+          "refId": "A",
+          "legendFormat": "{{sync_type}}"
+        }
+      ]
+    },
+    {
+      "id": 1002,
+      "type": "table",
+      "title": "Recently synced / resynced repos",
+      "description": "repo_sync_state.last_sync_type per repo — which repos synced/resynced, when, type, status, file/chunk counts.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 175
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT repo_full_name,\n  COALESCE(last_sync_type,'(pre-070)') AS sync_type,\n  sync_status,\n  last_synced_at,\n  file_count,\n  chunk_count\nFROM repo_sync_state\nWHERE last_synced_at IS NOT NULL\nORDER BY last_synced_at DESC NULLS LAST\nLIMIT 30",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }
