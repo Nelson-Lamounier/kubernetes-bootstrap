@@ -1527,6 +1527,114 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 900,
+      "type": "row",
+      "title": "RAG evaluation — golden-set quality (rag_eval_runs)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 144
+      },
+      "panels": []
+    },
+    {
+      "id": 901,
+      "type": "table",
+      "title": "Latest eval run — scores",
+      "description": "Most recent rag_eval_runs row. relevance_pos ↑ better; relevance_neg ↓ better (negative-control leakage); recall@k + max_cosine.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 145
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT to_char(run_at,'YYYY-MM-DD HH24:MI') AS run_at, tool, query_count,\n  ROUND(mean_relevance_positive::numeric,3) AS relevance_pos,\n  ROUND(mean_recall_at_k::numeric,3) AS recall_at_k,\n  ROUND(mean_relevance_negative::numeric,3) AS relevance_neg_leak,\n  ROUND(mean_max_cosine::numeric,3) AS max_cosine\nFROM rag_eval_runs\nORDER BY run_at DESC\nLIMIT 1",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 902,
+      "type": "timeseries",
+      "title": "Eval score trend",
+      "description": "Per-run trend. Watch relevance_pos + recall climb and relevance_neg (leakage) stay low after KB/scan changes.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 150
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right"
+        }
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT run_at AS time,\n  mean_relevance_positive AS \"relevance (pos)\",\n  mean_recall_at_k AS \"recall@k\",\n  mean_relevance_negative AS \"relevance (neg leak)\",\n  mean_max_cosine AS \"max cosine\"\nFROM rag_eval_runs\nORDER BY run_at",
+          "format": "time_series",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 903,
+      "type": "table",
+      "title": "Per-query — latest run",
+      "description": "Per golden query in the most recent run. Negative-control queries (kind=negative) should show LOW relevance.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 158
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT r.query_id, r.kind,\n  ROUND(r.context_relevance::numeric,2) AS relevance,\n  ROUND(r.recall_at_k::numeric,2) AS recall_at_k,\n  r.retrieved_count,\n  ROUND(r.max_cosine::numeric,3) AS max_cosine\nFROM rag_eval_results r\nJOIN (SELECT id FROM rag_eval_runs ORDER BY run_at DESC LIMIT 1) latest ON r.run_id = latest.id\nORDER BY r.kind, r.context_relevance DESC",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }
