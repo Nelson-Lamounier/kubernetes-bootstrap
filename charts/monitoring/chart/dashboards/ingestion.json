@@ -1492,7 +1492,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  COALESCE(repo_name,'(no repo)') AS repo,\n  pipeline, agent,\n  COUNT(*) AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens),0) AS in_tokens,\n  COALESCE(SUM(output_tokens),0) AS out_tokens,\n  ROUND(SUM(total_cost_cents)/100.0,4) AS usd,\n  ROUND(AVG(latency_ms)::numeric,0) AS avg_latency_ms\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND model_id NOT LIKE 'amazon.titan-embed%'\n  AND ('$userId' = '' OR user_id::text = '$userId')\n  AND ('$repoFullName' = '' OR repo_name = '$repoFullName')\nGROUP BY repo, pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 100",
+          "rawSql": "SELECT\n  COALESCE(repo_name,'(no repo)') AS repo,\n  pipeline, agent,\n  COUNT(*) AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens),0) AS in_tokens,\n  COALESCE(SUM(output_tokens),0) AS out_tokens,\n  ROUND(SUM(total_cost_cents)/100.0,4) AS usd,\n  ROUND(AVG(latency_ms)::numeric,0) AS avg_latency_ms\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND model_id NOT LIKE 'amazon.titan-embed%'\n  AND (${userId:sqlstring} = '' OR user_id::text = ${userId:sqlstring})\n  AND (${repoFullName:sqlstring} = '' OR repo_name = ${repoFullName:sqlstring})\nGROUP BY repo, pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 100",
           "format": "table",
           "refId": "A"
         }
@@ -1522,7 +1522,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT\n  COALESCE(repo_name,'(no repo)') AS repo,\n  COUNT(*) AS embed_calls,\n  COALESCE(SUM(user_message_tokens),0) AS embed_input_tokens,\n  0 AS out_tokens,\n  ROUND(SUM(total_cost_cents)/100.0,4) AS usd\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND model_id LIKE 'amazon.titan-embed%'\n  AND ('$userId' = '' OR user_id::text = '$userId')\n  AND ('$repoFullName' = '' OR repo_name = '$repoFullName')\nGROUP BY repo\nORDER BY usd DESC NULLS LAST\nLIMIT 100",
+          "rawSql": "SELECT\n  COALESCE(repo_name,'(no repo)') AS repo,\n  COUNT(*) AS embed_calls,\n  COALESCE(SUM(user_message_tokens),0) AS embed_input_tokens,\n  0 AS out_tokens,\n  ROUND(SUM(total_cost_cents)/100.0,4) AS usd\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND model_id LIKE 'amazon.titan-embed%'\n  AND (${userId:sqlstring} = '' OR user_id::text = ${userId:sqlstring})\n  AND (${repoFullName:sqlstring} = '' OR repo_name = ${repoFullName:sqlstring})\nGROUP BY repo\nORDER BY usd DESC NULLS LAST\nLIMIT 100",
           "format": "table",
           "refId": "A"
         }
