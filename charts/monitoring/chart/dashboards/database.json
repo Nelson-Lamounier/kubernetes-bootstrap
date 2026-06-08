@@ -23,25 +23,27 @@
   "templating": {
     "list": [
       {
-        "hide": 0,
-        "label": "DB Instance",
         "name": "db_identifier",
+        "label": "DB Instance",
+        "type": "custom",
+        "query": "k8s-dev-platform-rds",
         "options": [
           {
-            "selected": true,
             "text": "k8s-dev-platform-rds",
-            "value": "k8s-dev-platform-rds"
+            "value": "k8s-dev-platform-rds",
+            "selected": true
           }
         ],
-        "query": "k8s-dev-platform-rds",
-        "skipUrlSync": false,
-        "type": "textbox",
-        "description": "RDS instance identifier — sets dimension filter on CloudWatch panels and log group path",
         "current": {
           "text": "k8s-dev-platform-rds",
           "value": "k8s-dev-platform-rds",
           "selected": true
-        }
+        },
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "skipUrlSync": false,
+        "description": "RDS instance — fixed dropdown so it can never resolve empty (which blanks every CloudWatch panel + the logs query)."
       },
       {
         "name": "user_email",
