@@ -1454,6 +1454,79 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 800,
+      "type": "row",
+      "title": "Per-user / per-repo Bedrock spend (set $userId / $repoFullName)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 133
+      },
+      "panels": []
+    },
+    {
+      "id": 801,
+      "type": "table",
+      "title": "LLM spend by user + repo + agent (24 h, filtered)",
+      "description": "Per-user + per-repo LLM spend from prompt_invocations.repo_name. Embeddings excluded (broken out right). Set $userId / $repoFullName (blank = all).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 134
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  COALESCE(repo_name,'(no repo)') AS repo,\n  pipeline, agent,\n  COUNT(*) AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens),0) AS in_tokens,\n  COALESCE(SUM(output_tokens),0) AS out_tokens,\n  ROUND(SUM(total_cost_cents)/100.0,4) AS usd,\n  ROUND(AVG(latency_ms)::numeric,0) AS avg_latency_ms\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND model_id NOT LIKE 'amazon.titan-embed%'\n  AND ('$userId' = '' OR user_id::text = '$userId')\n  AND ('$repoFullName' = '' OR repo_name = '$repoFullName')\nGROUP BY repo, pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 100",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 802,
+      "type": "table",
+      "title": "Embedding spend by repo — Titan, input-only (24 h, filtered)",
+      "description": "Titan embedding spend broken out (model amazon.titan-embed-*): input tokens only, no output. Kept separate so it doesn't distort LLM message-token columns. Attributed per repo/user.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "rds-postgres"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 134
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "rawSql": "SELECT\n  COALESCE(repo_name,'(no repo)') AS repo,\n  COUNT(*) AS embed_calls,\n  COALESCE(SUM(user_message_tokens),0) AS embed_input_tokens,\n  0 AS out_tokens,\n  ROUND(SUM(total_cost_cents)/100.0,4) AS usd\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND model_id LIKE 'amazon.titan-embed%'\n  AND ('$userId' = '' OR user_id::text = '$userId')\n  AND ('$repoFullName' = '' OR repo_name = '$repoFullName')\nGROUP BY repo\nORDER BY usd DESC NULLS LAST\nLIMIT 100",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }
