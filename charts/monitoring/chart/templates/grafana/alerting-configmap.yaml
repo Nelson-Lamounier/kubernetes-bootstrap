@@ -480,6 +480,47 @@ data:
               summary: "Application P95 latency exceeds 2 seconds"
               description: "The 95th percentile HTTP request latency is above 2s for more than 5 minutes."
 
+          # A Job Strategist analyse/coach pipeline run failed. These runs invoke
+          # Bedrock (Sonnet) — a failure means wasted spend + a user with no result.
+          # Fires immediately (for: 0m) on any failure in the last 10m → SNS.
+          - uid: alert-strategist-run-failed
+            title: Job Strategist pipeline run failed
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus
+                model:
+                  # 'by (operation)' preserves a label — the auth-proxy 403s on a
+                  # fully label-stripped sum(). Fires per operation (analyse/coach).
+                  expr: sum by (operation) (increase(job_strategist_runs_total{outcome="failed"}[10m]))
+                  refId: A
+              - refId: B
+                datasourceUid: __expr__
+                model:
+                  type: reduce
+                  expression: A
+                  reducer: last
+                  refId: B
+              - refId: C
+                datasourceUid: __expr__
+                model:
+                  type: threshold
+                  expression: B
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [0]
+                  refId: C
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Job Strategist {{ "{{ $labels.operation }}" }} run failed"
+              description: "A job-strategist {{ "{{ $labels.operation }}" }} pipeline run failed in the last 10 minutes (job_strategist_runs_total{outcome=\"failed\"}). Inspect pipeline_runs.error_message and the job-strategist pod logs."
+
       - orgId: 1
         name: Storage Health
         folder: Infrastructure Alerts
