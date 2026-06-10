@@ -14,7 +14,11 @@ image:
   #       An empty string here produces "<repo>:" which Kubernetes rejects
   #       with InvalidImageName before even attempting an ECR pull.
 
-replicas: 1
+# HA: 2 replicas so a node drain / blueGreen scale-down keeps one serving
+# (pdb.maxUnavailable=1 enforces during disruption). The admin-api is stateless
+# — every request re-derives state from Postgres, and dispatched K8s Jobs are
+# decoupled from the pod — so N replicas need no Redis/affinity coordination.
+replicas: 2
 
 resources:
   requests:
@@ -26,6 +30,18 @@ resources:
 
 networkPolicy:
   enabled: false
+
+# Spread the 2 replicas across nodes so a single-node failure can't take both.
+# ScheduleAnyway (not DoNotSchedule) avoids scheduling stalls on a small cluster.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      # Must match the pod template labels (admin-api.selectorLabels) — the chart
+      # emits app.kubernetes.io/name, NOT a bare `app` label.
+      matchLabels:
+        app.kubernetes.io/name: admin-api
 
 # ── Observability — pin to development ────────────────────────────────────────
 # Stamps the env label on every metric/log/span this pod emits. K8s Jobs the

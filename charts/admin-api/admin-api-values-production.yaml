@@ -30,5 +30,7 @@ topologySpreadConstraints:
     topologyKey: kubernetes.io/hostname
     whenUnsatisfiable: ScheduleAnyway   # don't hard-block on small clusters
     labelSelector:
+      # Match the chart's pod labels (admin-api.selectorLabels) — app.kubernetes.io/name,
+      # not a bare `app` label, or the constraint silently matches nothing.
       matchLabels:
-        app: admin-api
+        app.kubernetes.io/name: admin-api
