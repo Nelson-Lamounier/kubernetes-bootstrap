@@ -52,3 +52,9 @@ topologySpreadConstraints:
 observability:
   env:      development
   logLevel: debug          # debug in dev — chatty, useful; flip to info in prod
+
+# ── Filter-then-rank retrieval (Increment 2) ─────────────────────────────────
+# Enable the strategist's structured pre-filter in development. admin-api forwards
+# this as RETRIEVAL_PREFILTER into every strategist K8s Job. Chart default is "off";
+# kept on here so dev exercises file-grained tech gating before production promotion.
+retrievalPrefilter: "on"

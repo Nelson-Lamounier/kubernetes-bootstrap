@@ -123,6 +123,10 @@ spec:
             # Kept separate from ENRICHMENT_MODEL_ID to allow independent model changes.
             - name: RESEARCH_MODEL
               value: {{ .Values.researchModelId | quote }}
+            # Filter-then-rank retrieval gate (Increment 2). admin-api forwards this into
+            # every strategist K8s Job env; "off" ⇒ pure-vector retrieval (fail-open).
+            - name: RETRIEVAL_PREFILTER
+              value: {{ .Values.retrievalPrefilter | quote }}
             # Bedrock inference profile forwarded to article-pipeline K8s Jobs (writer + QA agents).
             - name: FOUNDATION_MODEL
               value: {{ .Values.foundationModelId | quote }}
