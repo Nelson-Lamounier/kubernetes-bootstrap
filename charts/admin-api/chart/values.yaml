@@ -134,6 +134,12 @@ enrichmentModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 # Kept separate from enrichmentModelId so the two pipelines can diverge to different models independently.
 researchModelId: "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
 
+# Filter-then-rank retrieval gate (Increment 2), forwarded by admin-api into every
+# strategist K8s Job as RETRIEVAL_PREFILTER. Default "off" ⇒ pure-vector retrieval
+# (fail-open). Enable per-environment in the overlay (admin-api-values*.yaml); keep
+# the chart default off so production stays on the safe path until promoted.
+retrievalPrefilter: "off"
+
 # Bedrock cross-region inference profile ID forwarded to article-pipeline K8s Jobs as FOUNDATION_MODEL
 # (writer agent) and QA_MODEL (QA agent). Claude Sonnet 4.x uses the date-free profile format.
 foundationModelId: "eu.anthropic.claude-sonnet-4-6"
