@@ -25,6 +25,14 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get", "list"]
+  # The dispatcher creates a per-Job Secret holding the short-lived GitHub
+  # installation token, referenced by the Job via secretKeyRef (no plaintext
+  # token env). The Secret carries an ownerReference to its Job, so the
+  # Kubernetes garbage collector removes it when the Job is deleted — the
+  # admin-api SA only ever creates Secrets, never reads or deletes them.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
