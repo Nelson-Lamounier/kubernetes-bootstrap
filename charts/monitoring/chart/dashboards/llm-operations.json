@@ -1,0 +1,728 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "name": "Deploys",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "enable": true,
+        "expr": "{job=\"github-actions\", env=\"$env\"} | json | event=~\"deploy_succeeded|deploy_failed|deploy_cancelled\"",
+        "iconColor": "blue",
+        "titleFormat": "{{event}} {{service}} {{git_sha}}",
+        "textFormat": "{{message}} {{run_url}}"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "Bedrock Spend",
+      "type": "dashboards",
+      "tags": ["bedrock", "cost"]
+    },
+    {
+      "title": "AI Applications RED",
+      "type": "dashboards",
+      "tags": ["ai-applications"]
+    },
+    {
+      "title": "Ingestion",
+      "type": "dashboards",
+      "tags": ["ingestion"]
+    },
+    {
+      "title": "Resume Import",
+      "type": "dashboards",
+      "tags": ["resume-import"]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["llm", "bedrock", "ai-applications", "cost", "quality", "tucaken"],
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "type": "custom",
+        "label": "Environment",
+        "query": "development,production",
+        "current": { "text": "development", "value": "development" },
+        "options": [
+          { "text": "development", "value": "development", "selected": true },
+          { "text": "production", "value": "production", "selected": false }
+        ]
+      },
+      {
+        "name": "pipeline",
+        "type": "custom",
+        "label": "Pipeline",
+        "query": "all,ingestion,resume-import,article-pipeline,job-strategist,profile-extraction,repo-sync",
+        "current": { "text": "all", "value": "all" },
+        "options": [
+          { "text": "all", "value": "all", "selected": true },
+          { "text": "ingestion", "value": "ingestion", "selected": false },
+          { "text": "resume-import", "value": "resume-import", "selected": false },
+          { "text": "article-pipeline", "value": "article-pipeline", "selected": false },
+          { "text": "job-strategist", "value": "job-strategist", "selected": false },
+          { "text": "profile-extraction", "value": "profile-extraction", "selected": false },
+          { "text": "repo-sync", "value": "repo-sync", "selected": false }
+        ],
+        "description": "Scope RDS prompt_invocations panels. all keeps the cross-pipeline view."
+      },
+      {
+        "name": "user_id",
+        "type": "textbox",
+        "label": "User ID",
+        "query": "",
+        "current": { "text": "", "value": "" },
+        "description": "Optional UUID filter for RDS attribution tables."
+      },
+      {
+        "name": "repo_name",
+        "type": "textbox",
+        "label": "Repo",
+        "query": "",
+        "current": { "text": "", "value": "" },
+        "description": "Optional repo_name filter for ingestion attribution tables."
+      },
+      {
+        "name": "trace_id",
+        "type": "textbox",
+        "label": "Trace ID",
+        "query": "",
+        "current": { "text": "", "value": "" },
+        "description": "Paste a trace ID to open the exact Tempo trace."
+      }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "timezone": "browser",
+  "title": "LLM Operations - Cost, Latency & Quality",
+  "uid": "llm-operations",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "## LLM Operations\n\nCentral view for Bedrock-backed workflows: spend, token volume, latency, errors, cache savings, retrieval quality, and trace pivots. Use this dashboard for triage and governance; drill into the ingestion, resume import, background jobs, Bedrock spend, and AI Applications RED dashboards for workflow-level detail."
+      }
+    },
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Executive summary",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 4 }
+    },
+    {
+      "id": 101,
+      "type": "stat",
+      "title": "Recorded LLM spend (24h)",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT ROUND(COALESCE(SUM(total_cost_cents), 0) / 100.0, 4) AS usd\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND (${pipeline:sqlstring} = 'all' OR pipeline = ${pipeline:sqlstring})\n  AND (${user_id:sqlstring} = '' OR user_id::text = ${user_id:sqlstring})\n  AND (${repo_name:sqlstring} = '' OR repo_name = ${repo_name:sqlstring})"
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "LLM invocations (24h)",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT COUNT(*) AS invocations\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND (${pipeline:sqlstring} = 'all' OR pipeline = ${pipeline:sqlstring})\n  AND (${user_id:sqlstring} = '' OR user_id::text = ${user_id:sqlstring})\n  AND (${repo_name:sqlstring} = '' OR repo_name = ${repo_name:sqlstring})"
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "Input tokens (24h)",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT COALESCE(SUM(user_message_tokens + system_prompt_tokens), 0) AS tokens\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND (${pipeline:sqlstring} = 'all' OR pipeline = ${pipeline:sqlstring})\n  AND (${user_id:sqlstring} = '' OR user_id::text = ${user_id:sqlstring})\n  AND (${repo_name:sqlstring} = '' OR repo_name = ${repo_name:sqlstring})"
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "Output tokens (24h)",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT COALESCE(SUM(output_tokens), 0) AS tokens\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND (${pipeline:sqlstring} = 'all' OR pipeline = ${pipeline:sqlstring})\n  AND (${user_id:sqlstring} = '' OR user_id::text = ${user_id:sqlstring})\n  AND (${repo_name:sqlstring} = '' OR repo_name = ${repo_name:sqlstring})"
+        }
+      ]
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Spend attribution and billing coverage",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 10 }
+    },
+    {
+      "id": 201,
+      "type": "timeseries",
+      "title": "Recorded spend by pipeline",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 11 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "custom": { "drawStyle": "bars", "fillOpacity": 50, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT $__timeGroupAlias(invoked_at, '1h'),\n  pipeline AS metric,\n  ROUND(SUM(total_cost_cents) / 100.0, 4) AS usd\nFROM prompt_invocations\nWHERE $__timeFilter(invoked_at)\n  AND (${pipeline:sqlstring} = 'all' OR pipeline = ${pipeline:sqlstring})\n  AND (${user_id:sqlstring} = '' OR user_id::text = ${user_id:sqlstring})\n  AND (${repo_name:sqlstring} = '' OR repo_name = ${repo_name:sqlstring})\nGROUP BY 1, pipeline\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 202,
+      "type": "table",
+      "title": "Recorded spend by pipeline + agent (24h)",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 11 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "usd" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 4 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "color", "value": { "mode": "continuous-GrYlRd" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "avg_latency_ms" },
+            "properties": [{ "id": "unit", "value": "ms" }]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "usd", "desc": true }] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT pipeline,\n  agent,\n  COUNT(*) AS invocations,\n  COALESCE(SUM(user_message_tokens + system_prompt_tokens), 0) AS in_tokens,\n  COALESCE(SUM(output_tokens), 0) AS out_tokens,\n  ROUND(SUM(total_cost_cents) / 100.0, 4) AS usd,\n  ROUND(AVG(latency_ms)::numeric, 0) AS avg_latency_ms\nFROM prompt_invocations\nWHERE invoked_at > NOW() - INTERVAL '24 hours'\n  AND (${pipeline:sqlstring} = 'all' OR pipeline = ${pipeline:sqlstring})\n  AND (${user_id:sqlstring} = '' OR user_id::text = ${user_id:sqlstring})\n  AND (${repo_name:sqlstring} = '' OR repo_name = ${repo_name:sqlstring})\nGROUP BY pipeline, agent\nORDER BY usd DESC NULLS LAST\nLIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 203,
+      "type": "table",
+      "title": "AWS-billed Bedrock service lines (30d)",
+      "description": "Ground truth from Cost Explorer via Steampipe. Compare with recorded RDS spend to find uninstrumented Bedrock callers.",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "steampipe" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "usd_30d" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "color", "value": { "mode": "continuous-GrYlRd" } }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "usd_30d", "desc": true }] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "steampipe" },
+          "rawSql": "SELECT service,\n  round(sum(unblended_cost_amount::numeric), 2) AS usd_30d\nFROM aws_cost_by_service_daily\nWHERE period_start >= (current_date - interval '30 days')\n  AND (service ILIKE '%bedrock%' OR service ILIKE '%claude%' OR service ILIKE '%titan%')\nGROUP BY service\nORDER BY usd_30d DESC"
+        }
+      ]
+    },
+    {
+      "id": 204,
+      "type": "table",
+      "title": "Recorded spend by user and repo (24h)",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "usd" },
+            "properties": [
+              { "id": "unit", "value": "currencyUSD" },
+              { "id": "decimals", "value": 4 },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "color", "value": { "mode": "continuous-GrYlRd" } }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "usd", "desc": true }] },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT COALESCE(u.email, pi.user_id::text) AS user_email,\n  COALESCE(pi.repo_name, '(no repo)') AS repo,\n  pi.pipeline,\n  COUNT(*) AS invocations,\n  COALESCE(SUM(pi.user_message_tokens + pi.system_prompt_tokens), 0) AS in_tokens,\n  COALESCE(SUM(pi.output_tokens), 0) AS out_tokens,\n  ROUND(SUM(pi.total_cost_cents) / 100.0, 4) AS usd\nFROM prompt_invocations pi\nLEFT JOIN users u ON u.id = pi.user_id\nWHERE pi.invoked_at > NOW() - INTERVAL '24 hours'\n  AND (${pipeline:sqlstring} = 'all' OR pi.pipeline = ${pipeline:sqlstring})\n  AND (${user_id:sqlstring} = '' OR pi.user_id::text = ${user_id:sqlstring})\n  AND (${repo_name:sqlstring} = '' OR pi.repo_name = ${repo_name:sqlstring})\nGROUP BY user_email, repo, pi.pipeline\nORDER BY usd DESC NULLS LAST\nLIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 300,
+      "type": "row",
+      "title": "Live Bedrock runtime",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }
+    },
+    {
+      "id": 301,
+      "type": "stat",
+      "title": "Bedrock cost rate",
+      "description": "Prometheus rate from application instrumentation. Use with RDS cost tables to catch missing attribution.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 28 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(bedrock_cost_usd_total[5m])) * 3600" }
+      ]
+    },
+    {
+      "id": 302,
+      "type": "stat",
+      "title": "Bedrock calls (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(bedrock_calls_total[5m]))" }
+      ]
+    },
+    {
+      "id": 303,
+      "type": "stat",
+      "title": "Output tokens (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(bedrock_tokens_total{kind=\"output\"}[5m]))" }
+      ]
+    },
+    {
+      "id": 304,
+      "type": "stat",
+      "title": "Cache hit ratio (5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 28 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.2 },
+              { "color": "green", "value": 0.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(bedrock_tokens_total{kind=\"cache_read\"}[5m])) / clamp_min(sum(increase(bedrock_tokens_total{kind=~\"input|cache_read\"}[5m])), 1)"
+        }
+      ]
+    },
+    {
+      "id": 305,
+      "type": "timeseries",
+      "title": "Tokens per minute by model + kind",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (model, kind) (rate(bedrock_tokens_total[5m])) * 60",
+          "legendFormat": "{{model}} / {{kind}}"
+        }
+      ]
+    },
+    {
+      "id": 306,
+      "type": "timeseries",
+      "title": "CloudWatch Bedrock invocations by model",
+      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/Bedrock",
+          "metricName": "Invocations",
+          "dimensions": { "ModelId": "*" },
+          "statistic": "Sum",
+          "period": "300",
+          "region": "eu-west-1"
+        }
+      ]
+    },
+    {
+      "id": 400,
+      "type": "row",
+      "title": "Latency and reliability",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 }
+    },
+    {
+      "id": 401,
+      "type": "timeseries",
+      "title": "Resume import Bedrock duration p95 by purpose",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, purpose) (rate(resume_import_bedrock_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{purpose}}"
+        }
+      ]
+    },
+    {
+      "id": 402,
+      "type": "timeseries",
+      "title": "Application-recorded LLM latency by pipeline + agent",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "fieldConfig": { "defaults": { "unit": "ms", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT $__timeGroupAlias(invoked_at, '1h'),\n  pipeline || ' / ' || agent AS metric,\n  ROUND(AVG(latency_ms)::numeric, 0) AS avg_latency_ms\nFROM prompt_invocations\nWHERE $__timeFilter(invoked_at)\n  AND (${pipeline:sqlstring} = 'all' OR pipeline = ${pipeline:sqlstring})\n  AND (${user_id:sqlstring} = '' OR user_id::text = ${user_id:sqlstring})\n  AND (${repo_name:sqlstring} = '' OR repo_name = ${repo_name:sqlstring})\nGROUP BY 1, metric\nORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 403,
+      "type": "logs",
+      "title": "Bedrock exceptions from CloudWatch logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 50 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=\"cloudwatch\"} |~ \"ValidationException|ThrottlingException|ServiceQuotaExceededException|ResourceNotFoundException|ModelTimeoutException|Bedrock\""
+        }
+      ]
+    },
+    {
+      "id": 404,
+      "type": "logs",
+      "title": "LLM workflow warnings and errors",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 50 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{env=\"$env\"} | json | level=~\"warn|error\" | service =~ \"admin-api|ingestion|ingestion-worker|resume-import-processor|article-pipeline|job-strategist\""
+        }
+      ]
+    },
+    {
+      "id": 500,
+      "type": "row",
+      "title": "Quality and retrieval",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 60 }
+    },
+    {
+      "id": 501,
+      "type": "timeseries",
+      "title": "KB quality score distribution",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 61 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_kb_quality_score_bucket[1h])))",
+          "legendFormat": "median"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.25, sum by (le) (rate(ingestion_kb_quality_score_bucket[1h])))",
+          "legendFormat": "p25"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.75, sum by (le) (rate(ingestion_kb_quality_score_bucket[1h])))",
+          "legendFormat": "p75"
+        }
+      ]
+    },
+    {
+      "id": 502,
+      "type": "timeseries",
+      "title": "Retrieval-probe score distribution",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 61 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ingestion_retrieval_score_bucket[1h])))",
+          "legendFormat": "median"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.25, sum by (le) (rate(ingestion_retrieval_score_bucket[1h])))",
+          "legendFormat": "p25"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.75, sum by (le) (rate(ingestion_retrieval_score_bucket[1h])))",
+          "legendFormat": "p75"
+        }
+      ]
+    },
+    {
+      "id": 503,
+      "type": "timeseries",
+      "title": "Synthesis outcomes by stage",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 61 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage, outcome) (increase(ingestion_synthesis_outcome_total[1h]))",
+          "legendFormat": "{{stage}} / {{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 504,
+      "type": "table",
+      "title": "Latest RAG eval scores",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 69 },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "relevance_pos" },
+            "properties": [{ "id": "unit", "value": "percentunit" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "recall_at_k" },
+            "properties": [{ "id": "unit", "value": "percentunit" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "relevance_neg_leak" },
+            "properties": [{ "id": "unit", "value": "percentunit" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "max_cosine" },
+            "properties": [{ "id": "unit", "value": "percentunit" }]
+          }
+        ]
+      },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT to_char(run_at, 'YYYY-MM-DD HH24:MI') AS run_at,\n  tool,\n  query_count,\n  ROUND(mean_relevance_positive::numeric, 3) AS relevance_pos,\n  ROUND(mean_recall_at_k::numeric, 3) AS recall_at_k,\n  ROUND(mean_relevance_negative::numeric, 3) AS relevance_neg_leak,\n  ROUND(mean_max_cosine::numeric, 3) AS max_cosine\nFROM rag_eval_runs\nORDER BY run_at DESC\nLIMIT 5"
+        }
+      ]
+    },
+    {
+      "id": 505,
+      "type": "timeseries",
+      "title": "RAG eval score trend",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 69 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "rds-postgres" },
+          "rawSql": "SELECT run_at AS time,\n  mean_relevance_positive AS \"relevance_pos\",\n  mean_recall_at_k AS \"recall_at_k\",\n  mean_relevance_negative AS \"relevance_neg_leak\",\n  mean_max_cosine AS \"max_cosine\"\nFROM rag_eval_runs\nORDER BY run_at"
+        }
+      ]
+    },
+    {
+      "id": 600,
+      "type": "row",
+      "title": "Trace and log pivots",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 76 }
+    },
+    {
+      "id": 601,
+      "type": "traces",
+      "title": "LLM worker traces",
+      "description": "Tempo search across Bedrock-backed worker services. Use the workflow-specific dashboards for importId or repo-specific waterfalls.",
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 10, "w": 8, "x": 0, "y": 77 },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name =~ \"ingestion|ingestion-worker|resume-import-processor|article-pipeline|job-strategist\" }"
+        }
+      ]
+    },
+    {
+      "id": 602,
+      "type": "traces",
+      "title": "Admin API LLM entry traces",
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 10, "w": 8, "x": 8, "y": 77 },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name=\"admin-api\" && span.http.target =~ \"/api/admin/.*\" }"
+        }
+      ]
+    },
+    {
+      "id": 603,
+      "type": "traces",
+      "title": "Trace detail by ID",
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 10, "w": 8, "x": 16, "y": 77 },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceId",
+          "query": "${trace_id}"
+        }
+      ]
+    },
+    {
+      "id": 604,
+      "type": "logs",
+      "title": "LLM workflow logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 87 },
+      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{env=\"$env\"} | json | service =~ \"admin-api|ingestion|ingestion-worker|resume-import-processor|article-pipeline|job-strategist\""
+        }
+      ]
+    }
+  ]
+}
