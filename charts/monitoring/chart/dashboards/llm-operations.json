@@ -525,7 +525,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{env=\"$env\"} | json | level=~\"warn|error\" | service =~ \"admin-api|ingestion|ingestion-worker|resume-import-processor|article-pipeline|job-strategist\""
+          "expr": "{namespace=~\"admin-api|ingestion|resume-import|article-pipeline|job-strategist\"} |~ `(?i)\\b(warn|warning|error|exception|fatal|throttl|bedrock)\\b`"
         }
       ]
     },
@@ -678,7 +678,7 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{ resource.service.name =~ \"ingestion|ingestion-worker|resume-import-processor|article-pipeline|job-strategist\" }"
+          "query": "{ resource.service.name =~ \"ingestion|ingestion-worker|resume-import-processor|article-pipeline|job-strategist\" } | select(resource.service.name, name, span:duration)"
         }
       ]
     },
@@ -692,23 +692,19 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{ resource.service.name=\"admin-api\" && span.http.target =~ \"/api/admin/.*\" }"
+          "query": "{ resource.service.name=\"admin-api\" } | select(span.http.target, span.http.route, span.http.status_code, span.http.method, span.url.path)"
         }
       ]
     },
     {
       "id": 603,
-      "type": "traces",
+      "type": "text",
       "title": "Trace detail by ID",
-      "datasource": { "type": "tempo", "uid": "tempo" },
       "gridPos": { "h": 10, "w": 8, "x": 16, "y": 77 },
-      "targets": [
-        {
-          "refId": "A",
-          "queryType": "traceId",
-          "query": "${trace_id}"
-        }
-      ]
+      "options": {
+        "mode": "markdown",
+        "content": "Paste a trace ID into the `$trace_id` variable, then open **Explore > Tempo** with query type `Trace ID`. This panel is text-only so the dashboard does not show an empty trace query on first load."
+      }
     },
     {
       "id": 604,
@@ -720,7 +716,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{env=\"$env\"} | json | service =~ \"admin-api|ingestion|ingestion-worker|resume-import-processor|article-pipeline|job-strategist\""
+          "expr": "{namespace=~\"admin-api|ingestion|resume-import|article-pipeline|job-strategist\"}",
+          "maxLines": 200
         }
       ]
     }
