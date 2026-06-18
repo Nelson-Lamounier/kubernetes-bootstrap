@@ -302,7 +302,7 @@
           "format": "table",
           "rawQuery": true,
           "datasource": { "type": "grafana-postgresql-datasource", "uid": "steampipe" },
-          "rawSql": "SELECT service,\n  round(sum(unblended_cost_amount::numeric), 2) AS usd_30d\nFROM aws_cost_by_service_daily\nWHERE period_start >= (current_date - interval '30 days')\n  AND (service ILIKE '%bedrock%' OR service ILIKE '%claude%' OR service ILIKE '%titan%')\nGROUP BY service\nORDER BY usd_30d DESC"
+          "rawSql": "WITH costs AS (\n  SELECT COALESCE(service, '(unknown service)') AS service,\n    round(sum(unblended_cost_amount::numeric), 2) AS usd_30d\n  FROM aws_cost_by_service_daily\n  WHERE period_start >= (current_date - interval '30 days')\n    AND (\n      service ILIKE '%bedrock%'\n      OR service ILIKE '%claude%'\n      OR service ILIKE '%anthropic%'\n      OR service ILIKE '%titan%'\n      OR service ILIKE '%nova%'\n      OR service ILIKE '%mistral%'\n      OR service ILIKE '%llama%'\n      OR service ILIKE '%cohere%'\n      OR service ILIKE '%ai21%'\n    )\n  GROUP BY service\n)\nSELECT service, usd_30d\nFROM costs\nUNION ALL\nSELECT '(no AWS-billed Bedrock cost returned for 30d)' AS service, 0::numeric AS usd_30d\nWHERE NOT EXISTS (SELECT 1 FROM costs)\nORDER BY usd_30d DESC"
         }
       ]
     },
@@ -420,7 +420,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(bedrock_tokens_total{kind=\"cache_read\"}[5m])) / clamp_min(sum(increase(bedrock_tokens_total{kind=~\"input|cache_read\"}[5m])), 1)"
+          "expr": "(sum(rate(redis_cache_requests_total{cache=~\"aigen:.*\",result=\"hit\"}[5m])) or vector(0)) / clamp_min((sum(rate(redis_cache_requests_total{cache=~\"aigen:.*\",result=~\"hit|miss\"}[5m])) or vector(0)), 1)"
         }
       ]
     },
@@ -503,29 +503,59 @@
     },
     {
       "id": 403,
-      "type": "logs",
+      "type": "stat",
       "title": "Bedrock exceptions from CloudWatch logs",
       "datasource": { "type": "loki", "uid": "loki" },
       "gridPos": { "h": 10, "w": 12, "x": 0, "y": 50 },
-      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
         {
           "refId": "A",
-          "expr": "{job=\"cloudwatch\"} |~ \"ValidationException|ThrottlingException|ServiceQuotaExceededException|ResourceNotFoundException|ModelTimeoutException|Bedrock\""
+          "expr": "sum(count_over_time({job=\"cloudwatch\"} |~ \"ValidationException|ThrottlingException|ServiceQuotaExceededException|ResourceNotFoundException|ModelTimeoutException|Bedrock\" [$__range])) or vector(0)"
         }
       ]
     },
     {
       "id": 404,
-      "type": "logs",
+      "type": "stat",
       "title": "LLM workflow warnings and errors",
       "datasource": { "type": "loki", "uid": "loki" },
       "gridPos": { "h": 10, "w": 12, "x": 12, "y": 50 },
-      "options": { "showTime": true, "wrapLogMessage": true, "dedupStrategy": "exact" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
         {
           "refId": "A",
-          "expr": "{namespace=~\"admin-api|ingestion|resume-import|article-pipeline|job-strategist\"} |~ `(?i)\\b(warn|warning|error|exception|fatal|throttl|bedrock)\\b`"
+          "expr": "sum(count_over_time({namespace=~\"admin-api|ingestion|resume-import|article-pipeline|job-strategist\"} |~ `(?i)\\b(warn|warning|error|exception|fatal|throttl|bedrock)\\b` [$__range])) or vector(0)"
         }
       ]
     },
