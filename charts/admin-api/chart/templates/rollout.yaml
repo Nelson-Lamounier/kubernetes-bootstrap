@@ -127,6 +127,10 @@ spec:
             # every strategist K8s Job env; "off" ⇒ pure-vector retrieval (fail-open).
             - name: RETRIEVAL_PREFILTER
               value: {{ .Values.retrievalPrefilter | quote }}
+            # A/B harness allowlist — emails permitted to dispatch the free-tier resume
+            # pipeline (MODE=free). Comma-separated; empty ⇒ nobody (gate closed).
+            - name: AB_FREE_TIER_EMAILS
+              value: {{ .Values.abFreeTierEmails | default "" | quote }}
             # Bedrock inference profile forwarded to article-pipeline K8s Jobs (writer + QA agents).
             - name: FOUNDATION_MODEL
               value: {{ .Values.foundationModelId | quote }}

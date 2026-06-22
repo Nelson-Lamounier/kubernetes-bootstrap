@@ -58,3 +58,9 @@ observability:
 # this as RETRIEVAL_PREFILTER into every strategist K8s Job. Chart default is "off";
 # kept on here so dev exercises file-grained tech gating before production promotion.
 retrievalPrefilter: "on"
+
+# ── A/B free-tier harness ────────────────────────────────────────────────────
+# Emails allowed to choose the free-tier resume pipeline (MODE=free) from the
+# Resume Builder. Comma-separated; surfaced as me.abFreeTier and enforced on
+# dispatch. Empty ⇒ gate closed. See tucaken-app admin-api isFreeTierAllowed.
+abFreeTierEmails: "lamounier_88@hotmail.com"
