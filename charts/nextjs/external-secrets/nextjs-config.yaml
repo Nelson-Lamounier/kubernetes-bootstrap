@@ -3,7 +3,7 @@
 #
 # Replaces the nextjs-config ConfigMap previously created by SM-B deploy.py.
 # Consumed by nextjs Deployment via envFrom.secretRef.
-# SSM paths: /nextjs/development/* and /bedrock-dev/api-url
+# SSM paths: /nextjs/development/* and /bedrock-dev/chatbot-authenticated-api-url
 #
 # Referenced by: cdk-monitoring/charts/nextjs/chart/templates/deployment.yaml
 #   envFrom.secretRef: name: nextjs-config
@@ -43,6 +43,6 @@ spec:
     - secretKey: COGNITO_DOMAIN
       remoteRef:
         key: /nextjs/development/auth/cognito-domain
-    - secretKey: BEDROCK_API_URL
+    - secretKey: BEDROCK_AGENT_API_URL
       remoteRef:
-        key: /bedrock-dev/api-url
+        key: /bedrock-dev/chatbot-authenticated-api-url
