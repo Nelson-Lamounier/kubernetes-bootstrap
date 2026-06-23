@@ -57,6 +57,7 @@ spec:
         app.kubernetes.io/name: {{ .Release.Name }}
         platform.engineering/layer: bff
     spec:
+      serviceAccountName: {{ .Values.serviceAccount.name | default .Release.Name }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: 30

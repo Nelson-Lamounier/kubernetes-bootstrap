@@ -156,3 +156,13 @@ redisCache:
   port: 6379
   tls: false
   defaultTtlSeconds: 3600
+
+# ---------------------------------------------------------------------------
+# ServiceAccount + IRSA — least-privilege identity for runtime AWS calls
+# (Bedrock chatbot API key from Secrets Manager). roleArn is the CDK-managed
+# IRSA role; trust = system:serviceaccount:public-api:public-api.
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: public-api
+  roleArn: "arn:aws:iam::771826808455:role/public-api-bedrock-secret-reader-dev"
