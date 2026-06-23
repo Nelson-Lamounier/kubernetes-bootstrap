@@ -12,6 +12,16 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "10"
     kubernetes.io/description: "nextjs portfolio frontend on EKS (Plan 5b)"
+    # ArgoCD Image Updater — auto-bump image.tag from ECR (newest-build),
+    # write-back to .argocd-source-nextjs.yaml in git. Mirrors tucaken-app/admin-api.
+    argocd-image-updater.argoproj.io/image-list: "nextjs=771826808455.dkr.ecr.eu-west-1.amazonaws.com/nextjs-frontend"
+    argocd-image-updater.argoproj.io/nextjs.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/nextjs.allow-tags: "regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$"
+    argocd-image-updater.argoproj.io/nextjs.helm.image-name: image.repository
+    argocd-image-updater.argoproj.io/nextjs.helm.image-tag: image.tag
+    argocd-image-updater.argoproj.io/write-back-method: "git:secret:argocd/argocd-image-updater-writeback-key"
+    argocd-image-updater.argoproj.io/git-branch: main
+    argocd-image-updater.argoproj.io/git-repository: "git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git"
   labels:
     app.kubernetes.io/part-of: argocd
     cluster: eks
