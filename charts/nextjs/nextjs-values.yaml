@@ -54,3 +54,14 @@ ingress:
 # the NetworkPolicy here does not reduce the effective security posture.
 networkPolicy:
   enabled: false
+
+# Blue-green auto-promotion — ArgoCD Image Updater + Argo Rollouts promote the
+# rollout themselves; the deploy pipeline has no manual promote step (mirrors
+# the tucaken-app dev rollout). A non-zero autoPromotionSeconds auto-promotes
+# after the soak even with autoPromotionEnabled=false (Argo Rollouts behaviour),
+# so the green ReplicaSet swings to stable ~120s after it goes Healthy.
+rollout:
+  blueGreen:
+    autoPromotionEnabled: false
+    autoPromotionSeconds: 120
+    scaleDownDelaySeconds: 30
