@@ -4,5 +4,5 @@ helm:
     value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/ontology-importer
     forcestring: true
   - name: image.tag
-    value: 0fe4135ec5c951d367d4f513b5551c3d819ef24b-r1
+    value: 231359cd2c0e48f5ba6a8c940e8f26ffd938f16a-r1
     forcestring: true
