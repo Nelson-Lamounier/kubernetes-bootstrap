@@ -52,10 +52,10 @@
     {
       "id": 107,
       "type": "stat",
-      "title": "RDS status (CPU load)",
+      "title": "RDS reachable",
       "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
+        "type": "postgres",
+        "uid": "rds-postgres"
       },
       "gridPos": {
         "h": 5,
@@ -65,39 +65,20 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
+          "noValue": "Unreachable",
           "mappings": [
             {
-              "type": "range",
+              "type": "value",
               "options": {
-                "from": 0,
-                "to": 70,
-                "result": { "text": "OK" }
-              }
-            },
-            {
-              "type": "range",
-              "options": {
-                "from": 70,
-                "to": 90,
-                "result": { "text": "WARN" }
-              }
-            },
-            {
-              "type": "range",
-              "options": {
-                "from": 90,
-                "to": 1000,
-                "result": { "text": "CRIT" }
+                "1": { "text": "Healthy", "color": "green", "index": 0 }
               }
             }
           ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 70 },
-              { "color": "red", "value": 90 }
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
             ]
           }
         }
@@ -109,19 +90,13 @@
           ]
         },
         "colorMode": "background",
-        "textMode": "value"
+        "graphMode": "none"
       },
       "targets": [
         {
           "refId": "A",
-          "namespace": "AWS/RDS",
-          "metricName": "CPUUtilization",
-          "statistic": "Average",
-          "region": "eu-west-1",
-          "matchExact": true,
-          "dimensions": {
-            "DBInstanceIdentifier": "k8s-dev-platform-rds"
-          }
+          "format": "table",
+          "rawSql": "SELECT 1 AS healthy"
         }
       ]
     },
