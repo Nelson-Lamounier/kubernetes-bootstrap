@@ -50,6 +50,82 @@
       }
     },
     {
+      "id": 107,
+      "type": "stat",
+      "title": "RDS status (CPU load)",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "cloudwatch"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 0,
+                "to": 70,
+                "result": { "text": "OK" }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 70,
+                "to": 90,
+                "result": { "text": "WARN" }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 90,
+                "to": 1000,
+                "result": { "text": "CRIT" }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/RDS",
+          "metricName": "CPUUtilization",
+          "statistic": "Average",
+          "region": "eu-west-1",
+          "matchExact": true,
+          "dimensions": {
+            "DBInstanceIdentifier": "k8s-dev-platform-rds"
+          }
+        }
+      ]
+    },
+    {
       "id": 101,
       "type": "stat",
       "title": "CPU",
@@ -59,8 +135,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 0,
+        "w": 5,
+        "x": 4,
         "y": 1
       },
       "fieldConfig": {
@@ -117,8 +193,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 6,
+        "w": 5,
+        "x": 9,
         "y": 1
       },
       "fieldConfig": {
@@ -175,8 +251,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 12,
+        "w": 5,
+        "x": 14,
         "y": 1
       },
       "fieldConfig": {
@@ -215,8 +291,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 6,
-        "x": 18,
+        "w": 5,
+        "x": 19,
         "y": 1
       },
       "fieldConfig": {
