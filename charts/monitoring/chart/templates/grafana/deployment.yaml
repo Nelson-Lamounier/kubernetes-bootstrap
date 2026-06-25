@@ -52,6 +52,18 @@ spec:
               value: "https://{{ .Values.adminAccess.hostname }}/grafana/"
             - name: GF_SERVER_SERVE_FROM_SUB_PATH
               value: "true"
+            # --- Disable broken preinstalled "Drilldown" app plugins ---
+            # grafana-lokiexplore-app (Logs Drilldown) auto-updates from the
+            # catalog to a React-19 build that needs the host to expose
+            # `react/jsx-runtime`. Grafana 11.6 under a sub-path 404s that
+            # module, so the app's preload throws during page bootstrap and
+            # intermittently breaks dashboards that trip it (panels never issue
+            # queries). We don't use these apps; stop auto-installing them and
+            # disable loading the broken one.
+            - name: GF_PLUGINS_PREINSTALL_DISABLED
+              value: "true"
+            - name: GF_PLUGINS_DISABLE_PLUGINS
+              value: "grafana-lokiexplore-app"
             # --- Session and Auth Hardening ---
             - name: GF_AUTH_LOGIN_MAXIMUM_INACTIVE_LIFETIME_DURATION
               value: "30m"
