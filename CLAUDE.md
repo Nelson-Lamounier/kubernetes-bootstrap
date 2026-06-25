@@ -67,3 +67,53 @@ config after its entries changed.)
 - **Never invent a metric.** Ground every number in the manifests/Helm values/`kubectl`/ArgoCD/the live cluster; if it cannot be verified, omit the number and keep the bullet qualitative.
 - Trivial commits (image tag bump, one-line value change) get a subject line only — no padded body.
 - Mechanics (atomic staging, no AI co-authorship trailer) stay governed by the `git-commit` skill. Use both together.
+
+## Grafana dashboard troubleshooting — protocol
+
+When asked about a dashboard, "why does panel X show no data", or to review/fix a dashboard,
+**follow this order — do not jump to query theories.** Use the **Grafana MCP** and the
+**dev-account** AWS profile; the live Grafana is `https://ops.nelsonlamounier.com/grafana`
+(single in-cluster instance, namespace `monitoring`, served under sub-path).
+
+### 1. Inventory first — enumerate every panel before theorising
+- `search_dashboards` → `get_dashboard_by_uid` (or read the JSON from
+  `charts/monitoring/chart/dashboards/<name>.json`).
+- List **every** panel: `id`, **`type`**, `datasource`, title. **A `type: row` panel is a
+  section divider with zero queries — it ALWAYS shows "no data" and is not a viz panel.** The
+  classic trap: a row header (e.g. "RDS instance health") looks like an empty panel. Identify
+  exactly which element the user means and its type **before** anything else.
+
+### 2. Verify what the PANEL DISPLAYS, not just that the server has data
+- "Server returns data" (`/api/ds/query`) does **not** mean the panel renders it. Proving the
+  datasource is healthy is necessary but **not sufficient** — reconcile against the user's
+  actual screen. If data exists server-side but the user sees none, find **which element** shows
+  none and **why** (row header? legitimately empty? mode/variable bug? stale browser model?).
+
+### 3. Check each suspect panel by its datasource (this repo's split)
+| Panel kind | Datasource | How to verify live |
+|---|---|---|
+| RDS instance health (CPU, connections, memory, storage, IOPS, latency) | **CloudWatch** `AWS/RDS`, dim `DBInstanceIdentifier=k8s-dev-platform-rds`, region `eu-west-1` | `aws cloudwatch get-metric-statistics --profile dev-account`; or `/api/ds/query` to uid `cloudwatch` |
+| PgBouncer pool, app→DB activity | **Prometheus** | `query_prometheus` (uid `prometheus`) |
+| In-DB data (pgvector, users, spend) | **Postgres** `rds-postgres` | `/api/ds/query` with `rawSql` |
+| RDS PostgreSQL logs | **CloudWatch Logs** `/aws/rds/instance/k8s-dev-platform-rds/postgresql` | `aws logs filter-log-events --profile dev-account` |
+- RDS instance metrics are **only** available via CloudWatch (managed service — no node/postgres
+  exporter on the host). That is by design, not a bug.
+
+### 4. Classify the "no data" cause before proposing a fix
+- **Row header** → not a panel (explain, optionally add a real status stat inside the row).
+- **Legitimately empty** → e.g. logs panels filtering for `ERROR/WARNING` when the DB is healthy
+  (only `checkpoint` INFO lines), or idle metrics reading a real `0` (IOPS/latency). Not a bug.
+- **CloudWatch query model** → must use key **`dimensions`** (not `dimensionFilters`), set
+  `region` + `matchExact`; mirror a known-working dashboard (`networking.json`, `lambda-services.json`).
+- **Template variable not interpolating** → for a single fixed value, **hardcode it** rather than
+  rely on a one-option custom variable (which can leave panels empty if it ever resolves blank).
+- **Stale browser model** → the live pod DB is authoritative: copy `grafana.db` from the pod and
+  read the stored dashboard to compare with what the browser sends (Query Inspector → request).
+- **Plugin/console errors** are usually noise unless **all** dashboards break — if one datasource's
+  dashboards (e.g. Prometheus/Cluster & Nodes) render fine, the frontend is not globally broken.
+
+### 5. Deploy + verify (provisioned dashboards)
+- Dashboards ship as per-dashboard ConfigMaps mounted at `/var/lib/grafana/dashboards`; the file
+  provisioner reloads on change (no pod restart). After merge: confirm ArgoCD synced the commit,
+  the ConfigMap updated, and re-query the panel through the live datasource. A browser tab must do
+  a **full page reload** (not the Grafana refresh button) to pick up a new dashboard version.
