@@ -23,29 +23,6 @@
   "templating": {
     "list": [
       {
-        "name": "db_identifier",
-        "label": "DB Instance",
-        "type": "custom",
-        "query": "k8s-dev-platform-rds",
-        "options": [
-          {
-            "text": "k8s-dev-platform-rds",
-            "value": "k8s-dev-platform-rds",
-            "selected": true
-          }
-        ],
-        "current": {
-          "text": "k8s-dev-platform-rds",
-          "value": "k8s-dev-platform-rds",
-          "selected": true
-        },
-        "includeAll": false,
-        "multi": false,
-        "hide": 0,
-        "skipUrlSync": false,
-        "description": "RDS instance — fixed dropdown so it can never resolve empty (which blanks every CloudWatch panel + the logs query)."
-      },
-      {
         "name": "user_email",
         "type": "textbox",
         "label": "User email",
@@ -125,7 +102,7 @@
           "region": "eu-west-1",
           "matchExact": true,
           "dimensions": {
-            "DBInstanceIdentifier": "${db_identifier}"
+            "DBInstanceIdentifier": "k8s-dev-platform-rds"
           }
         }
       ]
@@ -183,7 +160,7 @@
           "region": "eu-west-1",
           "matchExact": true,
           "dimensions": {
-            "DBInstanceIdentifier": "${db_identifier}"
+            "DBInstanceIdentifier": "k8s-dev-platform-rds"
           }
         }
       ]
@@ -223,7 +200,7 @@
           "region": "eu-west-1",
           "matchExact": true,
           "dimensions": {
-            "DBInstanceIdentifier": "${db_identifier}"
+            "DBInstanceIdentifier": "k8s-dev-platform-rds"
           }
         }
       ]
@@ -281,7 +258,7 @@
           "region": "eu-west-1",
           "matchExact": true,
           "dimensions": {
-            "DBInstanceIdentifier": "${db_identifier}"
+            "DBInstanceIdentifier": "k8s-dev-platform-rds"
           }
         }
       ]
@@ -315,7 +292,7 @@
           "region": "eu-west-1",
           "matchExact": true,
           "dimensions": {
-            "DBInstanceIdentifier": "${db_identifier}"
+            "DBInstanceIdentifier": "k8s-dev-platform-rds"
           }
         },
         {
@@ -326,7 +303,7 @@
           "region": "eu-west-1",
           "matchExact": true,
           "dimensions": {
-            "DBInstanceIdentifier": "${db_identifier}"
+            "DBInstanceIdentifier": "k8s-dev-platform-rds"
           }
         }
       ]
@@ -360,7 +337,7 @@
           "region": "eu-west-1",
           "matchExact": true,
           "dimensions": {
-            "DBInstanceIdentifier": "${db_identifier}"
+            "DBInstanceIdentifier": "k8s-dev-platform-rds"
           }
         },
         {
@@ -371,7 +348,7 @@
           "region": "eu-west-1",
           "matchExact": true,
           "dimensions": {
-            "DBInstanceIdentifier": "${db_identifier}"
+            "DBInstanceIdentifier": "k8s-dev-platform-rds"
           }
         }
       ]
@@ -734,8 +711,8 @@
           "queryMode": "Logs",
           "logGroups": [
             {
-              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${db_identifier}/postgresql:*",
-              "name": "/aws/rds/instance/${db_identifier}/postgresql"
+              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds/postgresql:*",
+              "name": "/aws/rds/instance/k8s-dev-platform-rds/postgresql"
             }
           ],
           "expression": "fields @timestamp, @message | filter @message like /ERROR|FATAL|PANIC|WARNING/ | sort @timestamp desc | limit 200",
@@ -775,8 +752,8 @@
           "queryMode": "Logs",
           "logGroups": [
             {
-              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${db_identifier}/postgresql:*",
-              "name": "/aws/rds/instance/${db_identifier}/postgresql"
+              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds/postgresql:*",
+              "name": "/aws/rds/instance/k8s-dev-platform-rds/postgresql"
             }
           ],
           "expression": "filter @message like /ERROR|FATAL|WARNING/ | stats count() as log_count by bin(1m)",
@@ -816,8 +793,8 @@
           "queryMode": "Logs",
           "logGroups": [
             {
-              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${db_identifier}/postgresql:*",
-              "name": "/aws/rds/instance/${db_identifier}/postgresql"
+              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds/postgresql:*",
+              "name": "/aws/rds/instance/k8s-dev-platform-rds/postgresql"
             }
           ],
           "expression": "filter @message like /connection received|connection authorized|disconnection/ | stats count() as connections by bin(1m)",
