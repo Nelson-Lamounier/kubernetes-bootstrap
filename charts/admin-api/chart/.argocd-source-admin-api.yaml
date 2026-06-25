@@ -4,5 +4,5 @@ helm:
     value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/admin-api
     forcestring: true
   - name: image.tag
-    value: 96b801f43763fb86d6f35c0f2aa9298bac262df4-r1
+    value: be826ae723e305d5a76ff2dc76a7b25e6c9550b3-r1
     forcestring: true
