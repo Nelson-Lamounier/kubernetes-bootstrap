@@ -60,10 +60,3 @@ config after its entries changed.)
   merges. Keep only `main` (+ `develop` if still in use). Periodically `git remote prune origin`.
 - Before deleting a branch, confirm nothing is lost: `git rev-list --count <branch> --not --remotes`
   must be `0` (push to a same-named remote branch first if not).
-
-## Commit & PR message style
-
-- Write every commit **body** and **PR description** with the `impact-commits` skill (`~/.claude/skills/impact-commits/SKILL.md`) — invoke it whenever committing or opening a PR. Bodies/descriptions are impact bullets: past-tense action verb + what + verified numbers/metrics + technologies + why it mattered. The subject line stays Conventional Commits.
-- **Never invent a metric.** Ground every number in the manifests/Helm values/`kubectl`/ArgoCD/the live cluster; if it cannot be verified, omit the number and keep the bullet qualitative.
-- Trivial commits (image tag bump, one-line value change) get a subject line only — no padded body.
-- Mechanics (atomic staging, no AI co-authorship trailer) stay governed by the `git-commit` skill. Use both together.
