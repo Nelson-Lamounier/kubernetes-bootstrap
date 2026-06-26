@@ -7,3 +7,13 @@ pipelineServiceAccount:
 adminApi:
   serviceAccountName: admin-api
   namespace: admin-api
+
+# Backstop cap on CONCURRENT pipeline pods in this namespace (strategist + coach
+# + tech-extract Jobs). Defence-in-depth behind the per-user dispatch gate in
+# admin-api: bounds a burst of distinct users from exhausting cluster capacity.
+# ResourceQuota counts only NON-TERMINAL pods toward `pods`, so completed Jobs
+# lingering for ttlSecondsAfterFinished do not consume the budget, and a pure
+# count quota does not force pods to declare resource requests/limits.
+resourceQuota:
+  enabled: true
+  maxConcurrentPods: 25
