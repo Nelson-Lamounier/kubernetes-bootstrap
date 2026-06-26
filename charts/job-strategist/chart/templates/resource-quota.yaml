@@ -1,0 +1,28 @@
+# @format
+# Concurrency backstop for the job-strategist namespace.
+#
+# Caps the number of CONCURRENT (non-terminal) pipeline pods — strategist, coach
+# and tech-extract Jobs all run here. This is defence in depth behind the
+# per-user dispatch gate in admin-api (one in-flight analysis per user + a
+# short throttle): the app guard stops a single user spamming Jobs, this stops a
+# burst of distinct users from exhausting cluster capacity.
+#
+# Why `pods` (a count quota) and not a cpu/memory quota:
+#   - ResourceQuota counts only pods NOT in a terminal phase (Pending/Running)
+#     toward `pods`, so Jobs kept around by ttlSecondsAfterFinished=3600 do not
+#     consume the budget.
+#   - A pure count quota does NOT force every pod to declare resource
+#     requests/limits (a compute quota would, and would reject any pod missing
+#     them — see the monitoring-quota gotcha).
+{{- if .Values.resourceQuota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: job-strategist-concurrency
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: job-strategist
+spec:
+  hard:
+    pods: "{{ .Values.resourceQuota.maxConcurrentPods }}"
+{{- end }}
