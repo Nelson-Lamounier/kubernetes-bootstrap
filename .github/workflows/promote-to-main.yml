@@ -139,6 +139,32 @@ jobs:
           git push origin main
           echo "::notice::develop @ ${DEVELOP_SHA:0:7} merged to main."
 
+      - name: Tag release + GitHub Release
+        id: tag
+        if: ${{ !inputs.dry_run && steps.refs.outputs.commits_ahead != '0' }}
+        env:
+          DEVELOP_SHA: ${{ steps.refs.outputs.develop_sha }}
+          ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Lightweight calendar-versioned release tag on the merge commit.
+          # Scheme: release-YYYY.MM.DD-<short-main-sha> — human-readable milestone
+          # + exact commit, and always unique (the merge SHA differs each promote).
+          MAIN_SHA=$(git rev-parse HEAD)
+          TAG="release-$(date -u +%Y.%m.%d)-${MAIN_SHA:0:7}"
+          git tag -a "$TAG" \
+            -m "Release $TAG — develop @ ${DEVELOP_SHA:0:7} promoted to main by @${ACTOR}"
+          git push origin "$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "::notice::Tagged $TAG"
+          # GitHub Release with auto-generated notes (diffs from the previous tag).
+          gh release create "$TAG" \
+            --target "$MAIN_SHA" \
+            --title "$TAG" \
+            --generate-notes \
+            --latest
+          echo "| release tag | \`$TAG\` |" >> "$GITHUB_STEP_SUMMARY"
+
   # ---------------------------------------------------------------------------
   # 2. Verify ArgoCD sync post-merge
   # ---------------------------------------------------------------------------
