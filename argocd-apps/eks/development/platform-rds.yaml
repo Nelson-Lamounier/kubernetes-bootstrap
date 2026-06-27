@@ -13,6 +13,26 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "7"
     kubernetes.io/description: "platform-rds (PgBouncer) on EKS (Plan 5b)"
+    # ── ArgoCD Image Updater ──────────────────────────────────────────
+    # Kills the manual `bootstrap.image.tag` bump (rds-bootstrap README ⚠️
+    # "Deploying migrations — the gotcha"). Watches the platform-rds-bootstrap
+    # ECR repo, picks the newest commit-sha-tagged build, and writes the tag
+    # back to
+    # charts/platform-rds/chart/.argocd-source-platform-rds-eks-development.yaml
+    # on `main`. ArgoCD then syncs, the PostSync bootstrap Job runs the new
+    # image, and the checksummed migration ledger applies only new SQL.
+    # Images are built by ai-applications
+    # .github/workflows/deploy-platform-rds-bootstrap.yml on push to develop.
+    # NOTE: Helm params live under `bootstrap.image.*` (not top-level `image.*`).
+    # Mirrors public-api/nextjs; see docs/concepts/argocd-image-updater.md.
+    argocd-image-updater.argoproj.io/image-list: rds-bootstrap=771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-rds-bootstrap
+    argocd-image-updater.argoproj.io/rds-bootstrap.allow-tags: regexp:^[0-9a-f]{7,40}(-r[0-9]+)?$
+    argocd-image-updater.argoproj.io/rds-bootstrap.update-strategy: newest-build
+    argocd-image-updater.argoproj.io/rds-bootstrap.helm.image-name: bootstrap.image.repository
+    argocd-image-updater.argoproj.io/rds-bootstrap.helm.image-tag: bootstrap.image.tag
+    argocd-image-updater.argoproj.io/write-back-method: git:secret:argocd/argocd-image-updater-writeback-key
+    argocd-image-updater.argoproj.io/git-branch: main
+    argocd-image-updater.argoproj.io/git-repository: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
   labels:
     app.kubernetes.io/part-of: argocd
     cluster: eks
