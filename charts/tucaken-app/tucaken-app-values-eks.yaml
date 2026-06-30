@@ -37,11 +37,23 @@ wafAnnotator:
   roleArn: ""  # set by pipeline
 
 # ---------------------------------------------------------------------------
-# Topology Spread Constraints — AZ resilience
+# Topology Spread Constraints — node + AZ resilience.
+# This file is the LAST valueFile loaded, so its array REPLACES the one in
+# tucaken-app-values.yaml — the hostname rule must live here to take effect.
+#   · hostname: DoNotSchedule — HARD. Guarantees the 2 replicas land on
+#     different nodes (cluster has spare nodes, so satisfiable without new
+#     capacity; Karpenter provisions only if none is free). Without this the
+#     scheduler bin-packs both pods onto one node and 2 replicas aren't HA.
+#   · zone: ScheduleAnyway — SOFT. Nudges AZ balance without stalling
+#     scheduling when an AZ has limited node capacity.
 # ---------------------------------------------------------------------------
-# Active when replicas > 1. ScheduleAnyway prevents scheduling stalls on
-# a single-AZ dev cluster while still nudging the scheduler toward balance.
 topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app: tucaken-app
   - maxSkew: 1
     topologyKey: topology.kubernetes.io/zone
     whenUnsatisfiable: ScheduleAnyway
