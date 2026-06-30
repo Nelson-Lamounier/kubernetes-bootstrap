@@ -1,5 +1,7 @@
 # @format
-# Development environment overrides — lower resources, single replica.
+# Live profile for tucaken.io (single-account setup — this cluster serves
+# production traffic). Tuned for resilience at low resource cost: 2 replicas
+# spread across AZs, ingress-locked, PDB-protected.
 #
 # NOTE: image.tag is intentionally absent here.
 # ArgoCD Image Updater owns image.tag via its git write-back to
@@ -13,26 +15,56 @@ image:
   repository: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/tucaken-app
   # tag: managed by ArgoCD Image Updater → .argocd-source-tucaken-app.yaml
 
-replicas: 1
+# Two replicas = N+1 redundancy on the paid checkout path. With the PDB below
+# (maxUnavailable: 1) at least one pod always stays up during node drains,
+# Karpenter consolidation, and spot reclaim.
+replicas: 2
 
+# Per-pod footprint stays small — requests are what Karpenter reserves (cost),
+# so they are kept low; limits allow short SSR bursts. Two pods reserve only
+# 100m CPU / 256Mi memory in total.
 resources:
   requests:
     cpu: 50m
-    memory: 64Mi
+    memory: 128Mi
   limits:
-    cpu: 250m
-    memory: 256Mi
+    cpu: 300m
+    memory: 384Mi
 
+# Sized for the blue/green peak: 2 active + 2 preview = 4 pods running at once.
+#   requests: 4 × (50m / 128Mi) = 200m / 512Mi
+#   limits:   4 × (300m / 384Mi) = 1200m / 1536Mi
+# Quota carries headroom above those peaks so a rollout can never be quota-blocked.
 resourceQuota:
   hard:
-    requests.cpu: "400m"
-    requests.memory: 512Mi
-    limits.cpu: "750m"
-    limits.memory: 768Mi
+    requests.cpu: "600m"
+    requests.memory: 768Mi
+    limits.cpu: "1500m"
+    limits.memory: 1792Mi
     persistentvolumeclaims: "1"
 
 # ---------------------------------------------------------------------------
-# Argo Rollouts — BlueGreen strategy overrides for development
+# Topology spread — keep the two replicas on different AZs/nodes so a single
+# node or AZ loss cannot take out both. ScheduleAnyway keeps it soft, so a
+# small cluster never stalls scheduling.
+# ---------------------------------------------------------------------------
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app: tucaken-app
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app: tucaken-app
+
+# ---------------------------------------------------------------------------
+# Argo Rollouts — BlueGreen. Manual promotion retained (autoPromotionEnabled:
+# false) so a human gates each production swing after the analysis run passes.
 # ---------------------------------------------------------------------------
 rollout:
   blueGreen:
@@ -40,14 +72,17 @@ rollout:
     autoPromotionSeconds: 120
     scaleDownDelaySeconds: 30
 
+# Ingress-only NetworkPolicy — restricts inbound to Traefik + monitoring.
+# It declares no egress rules, so outbound (Stripe API, Cognito JWKS,
+# admin-api, SSM) is unaffected.
 networkPolicy:
-  enabled: false
+  enabled: true
 
-# ── Observability — pin to development ────────────────────────────────────────
-# Stamps env=development on every Faro RUM event, every SSR span, every pino
-# log line. Faro reads the value at boot from the chart-templated config the
-# tucaken-app exposes; verify by checking dev-tools network: the Faro
-# /collect POST body should contain {"meta":{"app":{"environment":"development"}}}.
+# ── Observability ─────────────────────────────────────────────────────────────
+# env stays 'development' deliberately: this single environment IS production,
+# but the observability label is kept as 'development' for dashboard continuity
+# (existing Grafana panels filter on env=development). logLevel is raised to
+# info — debug is verbose + costly and can over-expose internals on a live site.
 observability:
   env:      development
-  logLevel: debug
+  logLevel: info
