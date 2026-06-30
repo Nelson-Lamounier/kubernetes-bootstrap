@@ -44,19 +44,25 @@ resourceQuota:
     persistentvolumeclaims: "1"
 
 # ---------------------------------------------------------------------------
-# Topology spread — keep the two replicas on different AZs/nodes so a single
-# node or AZ loss cannot take out both. ScheduleAnyway keeps it soft, so a
-# small cluster never stalls scheduling.
+# Topology spread — keep the replicas apart so a single node/AZ loss cannot
+# take out both.
+#   · hostname: DoNotSchedule — HARD. Guarantees the two pods land on
+#     different nodes (the cluster has spare nodes, so this is satisfiable
+#     without adding capacity; if it ever isn't, Karpenter provisions a node).
+#     Without this the scheduler bin-packs both pods onto one node and 2
+#     replicas stop being real HA.
+#   · zone: ScheduleAnyway — SOFT. Prefers AZ balance but won't stall
+#     scheduling when an AZ has limited node capacity.
 # ---------------------------------------------------------------------------
 topologySpreadConstraints:
   - maxSkew: 1
-    topologyKey: topology.kubernetes.io/zone
-    whenUnsatisfiable: ScheduleAnyway
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
     labelSelector:
       matchLabels:
         app: tucaken-app
   - maxSkew: 1
-    topologyKey: kubernetes.io/hostname
+    topologyKey: topology.kubernetes.io/zone
     whenUnsatisfiable: ScheduleAnyway
     labelSelector:
       matchLabels:
