@@ -1,12 +1,19 @@
 # @format
-# ArgoCD Application: ARC Runner Scale Set — cdk-monitoring
+# ArgoCD Application: ARC Runner Scale Set — tucaken-infra (formerly cdk-monitoring)
 #
-# Runner scale set for the cdk-monitoring repository.
+# Runner scale set for the tucaken-infra repository. NOTE: this repo was renamed
+# on GitHub from `cdk-monitoring` → `tucaken-infra`. githubConfigUrl MUST use the
+# canonical (current) name: GitHub redirects most REST calls through the rename,
+# but the Actions runner-registration session is pinned to the canonical repo, so
+# the old URL makes the listener fail `createSession` with a 404 and crash-loop.
+# The ArgoCD app name and runnerScaleSetName (k8s-runner-cdk) are kept unchanged
+# so existing `runs-on: k8s-runner-cdk` workflows keep resolving.
+#
 # Personal GitHub accounts scope runner discovery per-repo via githubConfigUrl —
 # a separate scale set is required for each repo that uses `runs-on: k8s-runner`.
 #
 # Same GitHub App (arc-github-secret) as the tucaken-app scale set.
-# Prerequisite: GitHub App (ID 3418529) must be installed on cdk-monitoring.
+# Prerequisite: GitHub App (ID 3418529) must be installed on tucaken-infra.
 # If the app installation is already set to "All repositories", no action needed.
 #
 # IAM: Runner pods inherit the worker node EC2 instance profile.
@@ -17,7 +24,7 @@ kind: Application
 metadata:
   name: arc-runners-cdk-monitoring
   annotations:
-    kubernetes.io/description: "GitHub Actions self-hosted runner scale set for cdk-monitoring (0-3 pods, webhook mode)"
+    kubernetes.io/description: "GitHub Actions self-hosted runner scale set for tucaken-infra, formerly cdk-monitoring (0-3 pods, webhook mode)"
     argocd.argoproj.io/sync-wave: "3"
   namespace: argocd
   labels:
@@ -38,7 +45,7 @@ spec:
           namespace: arc-systems
           name: arc-controller
 
-        githubConfigUrl: "https://github.com/Nelson-Lamounier/cdk-monitoring"
+        githubConfigUrl: "https://github.com/Nelson-Lamounier/tucaken-infra"
         githubConfigSecret: arc-github-secret
 
         runnerScaleSetName: k8s-runner-cdk
