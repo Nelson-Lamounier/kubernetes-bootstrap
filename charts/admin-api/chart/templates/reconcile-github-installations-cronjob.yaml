@@ -89,6 +89,12 @@ spec:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
                 runAsNonRoot: true
+                # The admin-api image declares a NAMED user (adminapi); kubelet
+                # cannot verify a non-numeric user against runAsNonRoot and fails
+                # with CreateContainerConfigError. Pin the numeric uid (matches
+                # the main admin-api workload: podSecurityContext.runAsUser 1001).
+                runAsUser: 1001
+                runAsGroup: 1001
                 capabilities:
                   drop: ["ALL"]
 {{- end }}

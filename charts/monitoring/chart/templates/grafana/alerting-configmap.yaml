@@ -22,6 +22,21 @@ data:
       []
 {{- end }}
 
+  # Mute timing that silences non-critical (warning) notifications 24/7.
+  # Warnings stay visible in the Grafana Alerting UI but are NOT delivered to
+  # the SNS/email contact point. To route warnings to a real channel later
+  # (e.g. Slack), add that contact point and drop the mute_time_intervals
+  # reference on the warning route in policies.yaml below.
+  mutetimes.yaml: |
+    apiVersion: 1
+    muteTimes:
+      - orgId: 1
+        name: mute-warnings
+        time_intervals:
+          - times:
+              - start_time: '00:00'
+                end_time: '24:00'
+
   policies.yaml: |
     apiVersion: 1
     policies:
@@ -39,10 +54,14 @@ data:
             matchers:
               - severity = critical
             continue: false
+          # Warnings are muted 24/7 (see mutetimes.yaml) so they never email.
+          # They remain visible in the Grafana Alerting UI for triage.
           - receiver: sns
             matchers:
               - severity = warning
             continue: false
+            mute_time_intervals:
+              - mute-warnings
 {{- else }}
       []
 {{- end }}
@@ -169,6 +188,8 @@ data:
           - uid: alert-pod-crashloop
             title: Pod CrashLooping
             condition: C
+            # Absence of the series == no crashlooping pods == healthy, not NoData.
+            noDataState: OK
             data:
               - refId: A
                 relativeTimeRange:
@@ -214,6 +235,7 @@ data:
           - uid: alert-pod-not-ready
             title: Pod Not Ready
             condition: C
+            noDataState: OK
             data:
               - refId: A
                 relativeTimeRange:
@@ -278,6 +300,7 @@ data:
           - uid: alert-job-failed
             title: Job Failed
             condition: C
+            noDataState: OK
             data:
               - refId: A
                 relativeTimeRange:
@@ -324,6 +347,7 @@ data:
           - uid: alert-pod-pending-stuck
             title: Pod Stuck Pending
             condition: C
+            noDataState: OK
             data:
               - refId: A
                 relativeTimeRange:
@@ -369,6 +393,8 @@ data:
           - uid: alert-image-pull-failure
             title: Image Pull Failure
             condition: C
+            # No ImagePullBackOff/ErrImagePull series == no failures == healthy.
+            noDataState: OK
             data:
               - refId: A
                 relativeTimeRange:
@@ -411,6 +437,9 @@ data:
           - uid: alert-high-error-rate
             title: High Application Error Rate
             condition: C
+            # Ratio query yields NoData when there is zero traffic (0/0) — that
+            # is not an error condition, so do not alert on NoData.
+            noDataState: OK
             data:
               - refId: A
                 relativeTimeRange:
@@ -447,6 +476,8 @@ data:
           - uid: alert-high-latency
             title: High Application Latency (P95)
             condition: C
+            # No request-duration series when there is no traffic — not a fault.
+            noDataState: OK
             data:
               - refId: A
                 relativeTimeRange:
@@ -486,6 +517,8 @@ data:
           - uid: alert-strategist-run-failed
             title: Job Strategist pipeline run failed
             condition: C
+            # No failed-run counter increase == no failures == healthy.
+            noDataState: OK
             data:
               - refId: A
                 relativeTimeRange:
@@ -599,83 +632,20 @@ data:
               description: "Filesystem {{ "{{$labels.mountpoint}}" }} on {{ "{{$labels.instance}}" }} is above 90% — immediate action required."
 
           # ---------------------------------------------------------------
-          # DynamoDB & Tracing Alerts
+          # Tracing Alerts
           # ---------------------------------------------------------------
-          - uid: alert-dynamodb-error-rate
-            title: DynamoDB Error Rate High
-            condition: C
-            data:
-              - refId: A
-                relativeTimeRange:
-                  from: 300
-                  to: 0
-                datasourceUid: prometheus
-                model:
-                  expr: (sum(rate(traces_spanmetrics_calls_total{db_system="dynamodb", status="STATUS_CODE_ERROR"}[5m])) / sum(rate(traces_spanmetrics_calls_total{db_system="dynamodb"}[5m]))) * 100
-                  refId: A
-              - refId: B
-                datasourceUid: __expr__
-                model:
-                  type: reduce
-                  expression: A
-                  reducer: last
-                  refId: B
-              - refId: C
-                datasourceUid: __expr__
-                model:
-                  type: threshold
-                  expression: B
-                  conditions:
-                    - evaluator:
-                        type: gt
-                        params: [5]
-                  refId: C
-            for: 5m
-            labels:
-              severity: critical
-            annotations:
-              summary: "DynamoDB error rate above 5%"
-              description: "DynamoDB span error rate is high - investigate failing operations."
-
-          - uid: alert-dynamodb-latency
-            title: DynamoDB P95 Latency High
-            condition: C
-            data:
-              - refId: A
-                relativeTimeRange:
-                  from: 300
-                  to: 0
-                datasourceUid: prometheus
-                model:
-                  expr: histogram_quantile(0.95, sum by (le) (rate(traces_spanmetrics_duration_seconds_bucket{db_system="dynamodb"}[5m])))
-                  refId: A
-              - refId: B
-                datasourceUid: __expr__
-                model:
-                  type: reduce
-                  expression: A
-                  reducer: last
-                  refId: B
-              - refId: C
-                datasourceUid: __expr__
-                model:
-                  type: threshold
-                  expression: B
-                  conditions:
-                    - evaluator:
-                        type: gt
-                        params: [1]
-                  refId: C
-            for: 5m
-            labels:
-              severity: warning
-            annotations:
-              summary: "DynamoDB P95 latency above 1s"
-              description: "DynamoDB P95 latency is elevated - possible capacity issue."
-
+          # NOTE: the DynamoDB error-rate/latency alerts were removed 2026-07-01.
+          # The workload migrated from DynamoDB to RDS/Postgres, so the
+          # traces_spanmetrics_*{db_system="dynamodb"} series no longer exist.
+          # The rules therefore sat permanently in NoData and — because
+          # noDataState defaulted to NoData — fired a false "DynamoDB" alert
+          # through the SNS contact point, emailing on every evaluation.
+          # RDS instance health is covered via CloudWatch (see database.json).
           - uid: alert-span-ingestion-down
             title: Span Ingestion Stopped
             condition: C
+            # NoData here is the signal: zero spans ingested == pipeline down.
+            noDataState: Alerting
             data:
               - refId: A
                 relativeTimeRange:

@@ -408,10 +408,14 @@ pushgateway:
   resources:
     requests:
       cpu: 25m
-      memory: 64Mi
+      memory: 128Mi
     limits:
       cpu: 100m
-      memory: 128Mi
+      # Bumped 128Mi -> 256Mi on 2026-07-01: the pod was OOMKilled (exit 137)
+      # repeatedly. Pushgateway holds all pushed metric groups in memory (plus
+      # the persisted state it reloads on start), so the working set grows with
+      # the number of distinct job/instance label sets pushed.
+      memory: 256Mi
   service:
     port: 9091
   # Persistent state for pushed groups. Without a PVC, push state lives in
