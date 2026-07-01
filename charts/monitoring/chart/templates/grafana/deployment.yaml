@@ -16,6 +16,13 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/grafana/configmap.yaml") . | sha256sum }}
+        # Alerting rules/contact points/policies/mute timings are provisioned from
+        # files and only re-read on Grafana startup — NOT hot-reloaded on a
+        # ConfigMap change. Hash the alerting ConfigMap so any change rolls the
+        # pod, letting a fresh boot apply it (incl. `deleteRules` tombstones that
+        # a running Grafana would otherwise ignore). Without this the ConfigMap
+        # updates (ArgoCD green) but the live rules stay stale until a manual roll.
+        checksum/alerting: {{ include (print $.Template.BasePath "/grafana/alerting-configmap.yaml") . | sha256sum }}
       labels: {{- include "monitoring.fullLabels" "grafana" | nindent 8}}
     spec:
       serviceAccountName: grafana
