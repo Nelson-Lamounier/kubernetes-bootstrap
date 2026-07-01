@@ -68,6 +68,18 @@ data:
 
   rules.yaml: |
     apiVersion: 1
+    # deleteRules tombstones: Grafana file provisioning UPSERTS rules and never
+    # deletes ones removed from the files — a rule removed from `groups` lingers
+    # in Grafana's DB (provenance=file), so the admin API also refuses to delete
+    # it (409 provenanceMismatch). The only code-driven way to remove a
+    # provisioned rule is to list its UID here. Keep these entries permanently
+    # (idempotent no-ops once deleted). Added 2026-07-01 for the DynamoDB rules
+    # dropped when the workload migrated to RDS.
+    deleteRules:
+      - orgId: 1
+        uid: alert-dynamodb-error-rate
+      - orgId: 1
+        uid: alert-dynamodb-latency
     groups:
       - orgId: 1
         name: Cluster Health
