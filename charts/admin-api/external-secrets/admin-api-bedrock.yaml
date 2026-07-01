@@ -35,3 +35,12 @@ spec:
     - secretKey: ASSETS_BUCKET_NAME
       remoteRef:
         key: /bedrock-dev/assets-bucket-name
+    # Shared with the nextjs portfolio (which also reads this SSM key). admin-api
+    # POSTs {secret, slug} to the portfolio's /api/revalidate on publish so a
+    # newly published article appears immediately instead of after the 1h ISR
+    # window. Surfaced to the pod as env REVALIDATION_SECRET via the existing
+    # `envFrom: secretRef: admin-api-bedrock`. Optional — when the key is absent
+    # the publish route skips revalidation (best-effort) rather than failing.
+    - secretKey: REVALIDATION_SECRET
+      remoteRef:
+        key: /bedrock-dev/revalidation-secret
