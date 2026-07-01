@@ -4,5 +4,5 @@ helm:
     value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/tucaken-app
     forcestring: true
   - name: image.tag
-    value: ca7ed80135331a8a24e9ae6d08bbc30ddd21dca6-r1
+    value: b4aad89fe8d9c67b244eb0f040534cc59c100edf-r1
     forcestring: true
