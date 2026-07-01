@@ -46,6 +46,15 @@ Fixed choices, applied identically everywhere:
 
 The check-name difference is not a mistake: see Issue 1.
 
+## Traps index
+
+1. [Requiring conditional CI jobs deadlocks doc-only PRs](#issue-1-requiring-conditional-ci-jobs-deadlocks-doc-only-prs)
+2. [Requiring checks on a branch a bot writes to blocks the bot](#issue-2-requiring-checks-on-a-branch-a-bot-writes-to-blocks-the-bot)
+3. [`required_linear_history` silently forbids merge commits](#issue-3-required_linear_history-silently-forbids-merge-commits)
+4. [404 "Branch not protected" ≠ unprotected; 1 approval locks out a solo dev](#issue-4-branch-not-protected-404-does-not-mean-unprotected-1-approval-locks-out-a-solo-dev)
+5. [Secret scanning unavailable on private repos](#issue-5-secret-scanning-unavailable-on-private-repos)
+6. [`code_scanning` rule blocks every PR unless the scanner is configured first](#issue-6-code_scanning-rule-blocks-every-pr-unless-the-scanner-is-configured-first)
+
 ## Background — rulesets vs. classic protection
 
 GitHub has **two** protection systems on the same branch. "Classic" branch protection
@@ -299,6 +308,71 @@ gh api repos/$R --jq '{ss:.security_and_analysis.secret_scanning.status, pp:.sec
 
 ---
 
+## Issue 6: `code_scanning` rule blocks every PR unless the scanner is configured first
+
+**Symptom:** A `code_scanning` rule is on `main`, but PRs only merge when an **admin** merges them; a
+non-admin PR shows a required check that never resolves:
+
+```text
+Code scanning results for CodeQL are required and still pending
+```
+
+Or, subtler: the rule "works" for months only because the sole maintainer is an admin bypass actor
+— the gate has never actually run.
+
+**Root Cause:** The `code_scanning` rule requires a **result** from a named tool (e.g. CodeQL) below
+the alert thresholds. It does **not** enable the tool. If CodeQL isn't configured, no result is ever
+produced, so nothing satisfies the rule — every non-bypass merge is blocked. This is exactly the
+state `frontend-portfolio` was in: the rule required CodeQL while
+`code-scanning/default-setup` was `not-configured` and there were **zero analyses**.
+
+**Fix — two ordered steps (order matters):**
+
+```bash
+# STEP 1: enable the scanner FIRST. Default setup runs CodeQL on push/PR/weekly,
+# no workflow file needed. Free on public repos (uses Actions minutes).
+gh api -X PATCH repos/$R/code-scanning/default-setup -f state=configured -f query_suite=default
+#   -> returns {"run_id":...}; an initial analysis on the default branch starts immediately.
+
+# STEP 2: only after a baseline analysis exists, add the rule (append to the main ruleset).
+CS='{type:"code_scanning",parameters:{code_scanning_tools:[{tool:"CodeQL",alerts_threshold:"errors",security_alerts_threshold:"high_or_higher"}]}}'
+gh api repos/$R/rulesets/<MAIN_RULESET_ID> --jq "{name,target,enforcement,conditions,bypass_actors, rules:(.rules + [$CS])}" > rs.json
+gh api -X PUT repos/$R/rulesets/<MAIN_RULESET_ID> --input rs.json
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `query_suite: default` | The standard CodeQL query pack (vs `extended` — more queries, more noise/time) |
+| `alerts_threshold: errors` | Block merge on `error`-level code-quality alerts (not warnings/notes) |
+| `security_alerts_threshold: high_or_higher` | Block merge on high/critical security alerts only |
+
+**Gotcha — pre-existing open PRs:** default setup runs CodeQL on **new** push/PR events, so a PR
+opened *before* you enabled it has no CodeQL result on its head and will sit blocked. Re-trigger it
+(push any commit, or close/reopen), or merge via admin bypass. New PRs run it automatically.
+
+**Diagnose:**
+
+```bash
+gh api repos/$R/code-scanning/default-setup --jq '{state,query_suite}'   # "not-configured" = tool off
+gh api "repos/$R/code-scanning/analyses?per_page=3" --jq '[.[].tool.name]|unique'  # which tools ran
+gh api repos/$R/rulesets/<id> --jq '.rules[]|select(.type=="code_scanning").parameters'  # rule present?
+```
+
+**Verify:** a CodeQL analysis exists on the default branch and the rule is live.
+
+#### What Success Looks Like
+
+```bash
+gh api "repos/$R/code-scanning/analyses?per_page=1" --jq '.[0]|{tool:.tool.name, ref}'
+#   -> {"tool":"CodeQL","ref":"refs/heads/main"}
+gh api repos/$R/rules/branches/main --jq '[.[].type]|index("code_scanning")!=null'   # -> true
+```
+
+Then check **Security → Code scanning** in the UI once: a baseline `error`/`high+` finding will
+(correctly) block merges until resolved or dismissed — that is the gate working.
+
+---
+
 ## Common verification commands
 
 ```bash
@@ -325,3 +399,6 @@ git log --all --format='%an' | sort -u | grep -iE 'argo|bot'                   #
 | **`dorny/paths-filter`** | Action used by `detect-changes` to decide which jobs run based on changed paths — the reason heavy jobs `skip` on docs PRs. |
 | **Image Updater writeback** | ArgoCD Image Updater commits new image tags directly to the deploy branch via a write-enabled deploy key (author `argocd-image-updater`); needs a ruleset bypass. |
 | **GHAS** | GitHub Advanced Security — gates private-repo secret scanning; Team/Enterprise only, per-committer billing. |
+| **`code_scanning` rule** | Ruleset rule requiring a code-scanning *result* below set thresholds. Requires the tool (CodeQL/checkov) to actually run — enabling the rule does not enable the tool. |
+| **CodeQL default setup** | GitHub-managed code scanning: `code-scanning/default-setup` state `configured` runs CodeQL on push/PR/weekly with no workflow file. Free on public repos. |
+| **`alerts_threshold` / `security_alerts_threshold`** | The severity floors at which the `code_scanning` rule blocks a merge (e.g. `errors` / `high_or_higher`). |
