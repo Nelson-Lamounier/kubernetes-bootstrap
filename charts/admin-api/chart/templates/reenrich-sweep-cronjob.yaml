@@ -53,6 +53,13 @@ spec:
             app: reenrich-sweep
         spec:
           restartPolicy: OnFailure
+          # Pod-level securityContext mirrors the API Rollout. The image's
+          # USER is the NAME `adminapi` (non-numeric), so `runAsNonRoot`
+          # alone is unverifiable by the kubelet and the pod is rejected
+          # with CreateContainerConfigError before the container starts —
+          # the numeric runAsUser here is what makes the check pass.
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
           serviceAccountName: {{ .Values.serviceAccount.name }}
           containers:
             - name: sweep
