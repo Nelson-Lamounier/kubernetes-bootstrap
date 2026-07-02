@@ -1,0 +1,127 @@
+{{- if .Values.reenrichSweep.enabled }}
+# @format
+# K8s CronJob: reenrich-sweep
+#
+# Daily drain of the deferred-enrichment backlog. Source:
+# admin-api/src/scripts/reenrich-sweep.ts (tucaken-app #228).
+#
+# Chunks left `enrichment_status IN ('pending','skipped_quota')` by a
+# deferred or deadline-stopped ingestion pass only re-enrich when their
+# repo next syncs — with quiet webhooks that backlog sits for weeks. The
+# sweep finds users with a backlog and dispatches one run-reenrich Job
+# (ingestion image) per ELIGIBLE user into the ingestion namespace.
+#
+# TIER GATE: LLM enrichment is a paid entitlement (~EUR 10 of Bedrock per
+# large repo). The sweep dispatches only users whose live tier config
+# resolves enrichment == 'full' (premium plan or admin role); the Job env
+# additionally fails closed (ENRICHMENT_DISABLED=1 makes the worker exit
+# before any Bedrock call), so a mis-dispatch cannot bill.
+#
+# Runs as the admin-api ServiceAccount:
+#   - Job creation in the ingestion namespace is granted by the existing
+#     admin-api-job-creator Role/RoleBinding (charts/ingestion).
+#   - The ingestion image URI is read from the admin-api-job-images
+#     Secret mounted at JOB_IMAGES_DIR (same mechanism as the API pod).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reenrich-sweep
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: reenrich-sweep
+    app.kubernetes.io/part-of: admin-api
+spec:
+  # Default 04:30 UTC daily — after account-sweep (03:00) and the
+  # reconcile pass (03:30), still inside the cluster's quiet window.
+  schedule: {{ .Values.reenrichSweep.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  # After long cluster downtime, only the most recent occurrence matters.
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    metadata:
+      labels:
+        app: reenrich-sweep
+    spec:
+      ttlSecondsAfterFinished: 86400
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: reenrich-sweep
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: {{ .Values.serviceAccount.name }}
+          containers:
+            - name: sweep
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+              command: ["node", "dist/scripts/reenrich-sweep.js"]
+              env:
+                # Cap dispatched Jobs per run — avoids a Bedrock stampede
+                # after a long backlog build-up.
+                - name: MAX_SWEEP_JOBS
+                  value: {{ .Values.reenrichSweep.maxSweepJobs | default 10 | quote }}
+                # Backlogs smaller than this wait for the repo's next
+                # ordinary sync instead of a dedicated Job.
+                - name: MIN_PENDING_CHUNKS
+                  value: {{ .Values.reenrichSweep.minPendingChunks | default 25 | quote }}
+                # getJobImage('ingestion') resolves the worker image from
+                # the ESO-synced admin-api-job-images Secret file mount.
+                - name: JOB_IMAGES_DIR
+                  value: {{ .Values.jobImages.mountPath | quote }}
+                - name: INGESTION_NAMESPACE
+                  value: {{ .Values.jobImages.ingestion.namespace | quote }}
+                - name: INGESTION_SERVICE_ACCOUNT
+                  value: {{ .Values.jobImages.ingestion.serviceAccount | quote }}
+                - name: DEPLOY_ENV
+                  value: {{ .Values.observability.env | quote }}
+                - name: LOG_LEVEL
+                  value: {{ .Values.observability.logLevel | default "info" | quote }}
+                - name: OTEL_SERVICE_NAME
+                  value: "reenrich-sweep"
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: "http://alloy.monitoring.svc.cluster.local:4318"
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: "deployment.environment={{ .Values.observability.env }},k8s.namespace.name={{ .Values.namespace }},job.kind=reenrich-sweep"
+                - name: AWS_REGION
+                  value: {{ .Values.awsRegion | default "eu-west-1" | quote }}
+                # loadConfig() hard-requires these two; the API rollout sets
+                # them as plain env (not in admin-api-secrets), so the sweep
+                # must set them too or it crashloops at startup.
+                - name: AWS_DEFAULT_REGION
+                  value: {{ .Values.awsRegion | default "eu-west-1" | quote }}
+                - name: RESEARCH_MODEL
+                  value: {{ .Values.researchModelId | quote }}
+              envFrom:
+                # Same secrets as the API rollout so loadConfig() and the
+                # Pool resolve identically.
+                - secretRef:
+                    name: {{ .Values.secrets.name }}
+                - secretRef:
+                    name: platform-rds-credentials
+              volumeMounts:
+                - name: job-images
+                  mountPath: {{ .Values.jobImages.mountPath }}
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: "20m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: job-images
+              secret:
+                secretName: admin-api-job-images
+                optional: true
+{{- end }}

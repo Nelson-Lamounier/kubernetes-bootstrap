@@ -289,6 +289,26 @@ reconcileGithubInstallations:
   graceHours: 1
 
 # ---------------------------------------------------------------------------
+# Deferred-enrichment backlog sweep
+# ---------------------------------------------------------------------------
+# Daily drain of chunks left enrichment_status IN ('pending','skipped_quota')
+# by a deferred/deadline-stopped ingestion pass. Dispatches one run-reenrich
+# Job (ingestion image) per user with a backlog — PREMIUM/ADMIN users only
+# (LLM enrichment is a paid entitlement); free-tier backlogs are logged and
+# drain deterministically on their next ordinary sync. Source:
+# admin-api/src/scripts/reenrich-sweep.ts. Job creation in the ingestion
+# namespace is granted by the admin-api-job-creator RoleBinding
+# (charts/ingestion). Verify: kubectl -n admin-api get cronjob reenrich-sweep
+reenrichSweep:
+  enabled:          true
+  # 04:30 UTC daily — after the 03:00/03:30 sweeps, still in the quiet window.
+  schedule:         "30 4 * * *"
+  # Cap dispatched Jobs per run (Bedrock stampede guard).
+  maxSweepJobs:     10
+  # Backlogs smaller than this wait for the repo's next ordinary sync.
+  minPendingChunks: 25
+
+# ---------------------------------------------------------------------------
 # Redis read cache (BFF hot-key cache; see kubernetes-bootstrap/CONTEXT.md)
 # HOST/PORT/TLS are stable cluster coordinates → static env literals.
 # REDIS_CACHE_PASSWORD is synced by external-secrets/admin-api-redis-cache.yaml
