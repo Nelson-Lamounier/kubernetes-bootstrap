@@ -1,0 +1,90 @@
+{{- if .Values.ragEval.enabled }}
+# @format
+# K8s CronJob: rag-eval
+#
+# Weekly RAG retrieval golden-set evaluation (ai-applications
+# applications/job-strategist/src/evals/rag/run-rag-eval.ts, compiled into
+# the job-strategist image at dist/evals/rag/run-rag-eval.js).
+#
+# Runs the REAL retrieval pipeline (Titan embed -> pgvector querySimilar,
+# hybrid RRF) over the versioned golden set, scores context-relevance with a
+# Haiku LLM-as-judge, computes recall@k deterministically, and persists the
+# run to rag_eval_runs / rag_eval_results — the source for the "RAG health"
+# row on the llm-operations Grafana dashboard. In-cluster because a GitHub
+# runner cannot reach the VPC-private RDS; the pod gets Bedrock via the
+# job-strategist-sa Pod Identity and RDS credentials via the
+# platform-rds-credentials ExternalSecret already in this namespace.
+#
+# COST: one run spends real Bedrock tokens (Titan embeddings + one Haiku
+# judge call per golden query — ~35 queries, well under $0.10/run). Weekly
+# by design; bump the schedule only with the spend in mind.
+#
+# IMAGE: pinned via .Values.ragEval.image (ArgoCD Image Updater does not
+# manage Job/CronJob images). Bump the tag when eval logic or golden.json
+# changes — the SSM parameter /k8s/<env>/job-images/job-strategist holds
+# the latest pipeline image URI.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rag-eval
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: job-strategist
+    component: rag-eval
+spec:
+  # Mondays 05:00 UTC — after the nightly sweeps, before the working day.
+  schedule: {{ .Values.ragEval.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 900
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: job-strategist
+            component: rag-eval
+        spec:
+          serviceAccountName: {{ .Values.pipelineServiceAccount.name }}
+          restartPolicy: Never
+          containers:
+            - name: rag-eval
+              image: {{ .Values.ragEval.image | quote }}
+              command: ["node", "dist/evals/rag/run-rag-eval.js"]
+              env:
+                - name: RUN_RAG_EVAL
+                  value: "1"
+                - name: RAG_EVAL_PERSIST
+                  value: "1"
+                - name: USER_ID
+                  value: {{ .Values.ragEval.userId | quote }}
+                - name: AWS_REGION
+                  value: {{ .Values.ragEval.awsRegion | quote }}
+                # RdsVectorStore.fromEnvironment expects RDS_*; the shared
+                # platform-rds-credentials secret publishes PG_* — map here.
+                - name: RDS_HOST
+                  valueFrom:
+                    secretKeyRef: { name: platform-rds-credentials, key: PG_HOST }
+                - name: RDS_PORT
+                  valueFrom:
+                    secretKeyRef: { name: platform-rds-credentials, key: PG_PORT }
+                - name: RDS_DB_NAME
+                  valueFrom:
+                    secretKeyRef: { name: platform-rds-credentials, key: PG_DATABASE }
+                - name: RDS_USER
+                  valueFrom:
+                    secretKeyRef: { name: platform-rds-credentials, key: PG_USER }
+                - name: RDS_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: platform-rds-credentials, key: PG_PASSWORD }
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 512Mi
+{{- end }}
