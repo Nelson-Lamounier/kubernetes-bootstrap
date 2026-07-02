@@ -19,15 +19,14 @@ resourceQuota:
   maxConcurrentPods: 25
 
 # Weekly RAG retrieval golden-set eval (templates/rag-eval-cronjob.yaml).
-# DISABLED until a job-strategist image containing golden.json v2 exists
-# (ai-applications feat/rag-measurement-loops merge builds it) — flip
-# `enabled: true` and pin that image URI here in the same commit. The image
-# is NOT managed by ArgoCD Image Updater; the latest pipeline URI lives in
-# SSM /k8s/development/job-images/job-strategist.
+# The image is NOT managed by ArgoCD Image Updater — pin it manually when
+# eval logic or golden.json changes; the latest pipeline URI lives in
+# SSM /k8s/development/job-images/job-strategist. Current pin: develop
+# 7347d01 (golden.json v2 + gap-cause + GenAI spans, ai-applications #388).
 ragEval:
-  enabled: false
+  enabled: true
   schedule: "0 5 * * 1"
-  image: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/job-strategist:e638ee2ca6f9c33870aebae862f31292f5c6f403-r1"
+  image: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/job-strategist:7347d015d5de3837f85008904cae3167a42815e2-r1"
   # Owner account — the only user whose repos are fully ingested on dev.
   userId: "1d4c645a-447e-4b5b-924d-19a3c75a84db"
   awsRegion: "eu-west-1"
