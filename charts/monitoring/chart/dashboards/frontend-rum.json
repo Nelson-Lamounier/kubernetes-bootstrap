@@ -7,7 +7,11 @@
   "title": "Frontend & RUM — portfolio + tucaken",
   "uid": "frontend-rum",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 4,
+  "links": [
+    { "title": "Server: Next.js app metrics", "type": "link", "url": "/d/nextjs-app", "icon": "dashboard", "tooltip": "The pod-side counterpart — nextjs_* RED/memory/GC. Client (this dashboard) vs server (there): compare RUM TTFB against server request duration for the same route.", "targetBlank": false },
+    { "title": "Networking / ingress", "type": "link", "url": "/d/networking", "icon": "dashboard", "tooltip": "ALB, ingress, and the Faro receiver's network path.", "targetBlank": false }
+  ],
   "refresh": "1m",
   "time": { "from": "now-7d", "to": "now" },
   "templating": {
@@ -205,7 +209,7 @@
       ] },
       "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" [$__range]))" }
       ]
     },
     {
@@ -219,7 +223,7 @@
       ] },
       "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | inp!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | inp!=\"\" [$__range]))" }
       ]
     },
     {
@@ -233,7 +237,7 @@
       ] },
       "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | cls!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | cls!=\"\" [$__range]))" }
       ]
     },
 
@@ -247,7 +251,6 @@
         { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "displayName", "value": "LCP p75" }] }
       ] },
       "options": { "sortBy": [{ "displayName": "LCP p75", "desc": true }], "showHeader": true },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
         { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "format": "table", "instant": true, "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" | unwrap lcp [$__range]) by (page_url)" }
       ]
@@ -261,7 +264,6 @@
         { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "Page loads" }] }
       ] },
       "options": { "sortBy": [{ "displayName": "Page loads", "desc": true }], "showHeader": true },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
         { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "format": "table", "instant": true, "expr": "sum by (page_url) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | event_name=\"faro.performance.navigation\" [$__range]))" }
       ]
@@ -297,7 +299,7 @@
       "fieldConfig": { "defaults": { "unit": "short" } },
       "options": { "pieType": "pie", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{browser_name}}", "expr": "sum by (browser_name) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_name!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{browser_name}}", "expr": "sum by (browser_name) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_name!=\"\" [$__range]))" }
       ]
     },
     {
@@ -307,7 +309,7 @@
       "fieldConfig": { "defaults": { "unit": "short" } },
       "options": { "pieType": "pie", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{browser_os}}", "expr": "sum by (browser_os) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_os!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{browser_os}}", "expr": "sum by (browser_os) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_os!=\"\" [$__range]))" }
       ]
     },
     {
@@ -317,7 +319,7 @@
       "fieldConfig": { "defaults": { "unit": "short" } },
       "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "mobile={{browser_mobile}}", "expr": "sum by (browser_mobile) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_mobile!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "mobile={{browser_mobile}}", "expr": "sum by (browser_mobile) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_mobile!=\"\" [$__range]))" }
       ]
     },
 
@@ -356,6 +358,55 @@
       "datasource": null,
       "gridPos": { "h": 5, "w": 24, "x": 0, "y": 63 },
       "options": { "mode": "markdown", "content": "**Pivot from RUM symptom → backend root cause:**\n\n1. Spot a slow LCP/INP entry in the trend, or an exception in *Recent exceptions*.\n2. Faro's `TracingInstrumentation` injects `traceparent` on same-origin/admin-api fetches — copy the `trace_id` from the log line.\n3. Open **Tempo** with that `trace_id` → full waterfall: browser → SSR (`tucaken-app`) → `admin-api` → pg.\n4. From any backend span, **Profile this span** → Pyroscope flame graph for the same window.\n\n**Faro data model (for editing queries):** signals arrive as **logfmt** under `{job=\"faro\"}`. The app is the in-line field `app_name` (`portfolio-frontend`, `portfolio-admin`), **not** a stream label. Web vitals are `type=\"web-vitals\"` with one measurement per line keyed `lcp`/`inp`/`cls`/`ttfb`/`fcp` (+ `context_rating`). Errors are `kind=\"exception\"`.\n\n**tucaken (`portfolio-admin`) shows no data until** its RUM is enabled: SSM `/tucaken-app/{env}/vite/VITE_FARO_ENABLED=true` + `VITE_FARO_URL`, the tucaken host added to the Alloy `corsAllowedOrigins` allowlist, and a redeploy (these are baked in at `vite build`)." }
+    },
+    {
+      "id": 81, "type": "table", "title": "Slow frontend traces (live — browser → SSR → admin-api)",
+      "description": "Live Tempo search for frontend/SSR traces slower than 300ms — the working version of the pivot described above. Click a Trace ID to open the full waterfall. Filters on Tempo resource.service.name (portfolio-frontend = browser RUM spans from Faro TracingInstrumentation; tucaken-app / nextjs-frontend = SSR), which differ from the Faro app_name used elsewhere, so this panel is intentionally not wired to $app.",
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 68 },
+      "options": { "showHeader": true },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "tempo", "uid": "tempo" }, "queryType": "traceql", "query": "{ resource.service.name=~\"portfolio-frontend|portfolio-admin|tucaken-app|nextjs-frontend\" && duration > 300ms }", "limit": 25, "tableType": "traces" }
+      ]
+    },
+
+    { "type": "row", "id": 9, "title": "Client-perceived API & derived error rate", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 77 } },
+    {
+      "id": 90, "type": "stat", "title": "JS errors per session",
+      "description": "Exceptions ÷ distinct sessions over the range — a rate, not a raw count. The per-session denominator makes error volume comparable across traffic levels (10 errors is noise at 10k sessions, a fire at 5), which the raw counts in Rows 1/5 can't tell you.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 78 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.2 }, { "color": "red", "value": 1 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "expr": "sum(count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | kind=\"exception\" [$__range])) / count(sum by (session_id) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | session_id!=\"\" [$__range])))" }
+      ]
+    },
+    {
+      "id": 91, "type": "table", "title": "Client API p95 by endpoint (fetch spans)",
+      "description": "p95 wall-clock duration the browser observed for its own /api/* fetches (Faro faro.tracing.fetch → event_data_duration_ns). This is the client half of the BFF story: how a visitor experiences /api/chat, /api/resume/active, etc. — including network + queueing that server-side nextjs_* metrics never see. Filtered to URLs containing /api/ to drop RSC prefetch and third-party (analytics) noise.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 10, "x": 6, "y": 78 },
+      "fieldConfig": { "defaults": { "unit": "ns", "custom": { "filterable": true }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1000000000 }, { "color": "red", "value": 3000000000 }] }, "color": { "mode": "thresholds" } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "displayName", "value": "p95" }] }
+      ] },
+      "options": { "sortBy": [{ "displayName": "p95", "desc": true }], "showHeader": true },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "format": "table", "instant": true, "expr": "quantile_over_time(0.95, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | event_name=\"faro.tracing.fetch\" | event_data_http_url=~\".+/api/.+\" | event_data_duration_ns!=\"\" | unwrap event_data_duration_ns [$__range]) by (event_data_http_url)" }
+      ]
+    },
+    {
+      "id": 92, "type": "timeseries", "title": "Client API calls by HTTP status",
+      "description": "Browser-observed outcome of /api/* fetches, bucketed by HTTP status. status=0 means the fetch never completed (network abort / CORS / timeout) — a failure class invisible to server metrics. A rise in 5xx/0 here is the client-side symptom of a BFF or upstream failure.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 78 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "custom": { "drawStyle": "bars", "fillOpacity": 70, "stacking": { "mode": "normal" } } }, "overrides": [
+        { "matcher": { "id": "byRegexp", "options": "^(5..|0)$" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+      ] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{event_data_http_status_code}}", "expr": "sum by (event_data_http_status_code) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | event_name=\"faro.tracing.fetch\" | event_data_http_url=~\".+/api/.+\" [$__auto]))" }
+      ]
     }
   ]
 }
