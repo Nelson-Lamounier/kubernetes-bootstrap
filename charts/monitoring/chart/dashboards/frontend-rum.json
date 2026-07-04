@@ -7,7 +7,7 @@
   "title": "Frontend & RUM — portfolio + tucaken",
   "uid": "frontend-rum",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "links": [
     { "title": "Server: Next.js app metrics", "type": "link", "url": "/d/nextjs-app", "icon": "dashboard", "tooltip": "The pod-side counterpart — nextjs_* RED/memory/GC. Client (this dashboard) vs server (there): compare RUM TTFB against server request duration for the same route.", "targetBlank": false },
     { "title": "Networking / ingress", "type": "link", "url": "/d/networking", "icon": "dashboard", "tooltip": "ALB, ingress, and the Faro receiver's network path.", "targetBlank": false }
@@ -208,9 +208,8 @@
         { "matcher": { "id": "byName", "options": "poor" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
       ] },
       "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" [$__range]))" }
       ]
     },
     {
@@ -223,9 +222,8 @@
         { "matcher": { "id": "byName", "options": "poor" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
       ] },
       "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | inp!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | inp!=\"\" [$__range]))" }
       ]
     },
     {
@@ -238,9 +236,8 @@
         { "matcher": { "id": "byName", "options": "poor" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
       ] },
       "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | cls!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{context_rating}}", "expr": "sum by (context_rating) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | cls!=\"\" [$__range]))" }
       ]
     },
 
@@ -254,7 +251,6 @@
         { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "displayName", "value": "LCP p75" }] }
       ] },
       "options": { "sortBy": [{ "displayName": "LCP p75", "desc": true }], "showHeader": true },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
         { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "format": "table", "instant": true, "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | lcp!=\"\" | unwrap lcp [$__range]) by (page_url)" }
       ]
@@ -268,7 +264,6 @@
         { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "Page loads" }] }
       ] },
       "options": { "sortBy": [{ "displayName": "Page loads", "desc": true }], "showHeader": true },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
         { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "format": "table", "instant": true, "expr": "sum by (page_url) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | event_name=\"faro.performance.navigation\" [$__range]))" }
       ]
@@ -303,9 +298,8 @@
       "gridPos": { "h": 7, "w": 8, "x": 0, "y": 46 },
       "fieldConfig": { "defaults": { "unit": "short" } },
       "options": { "pieType": "pie", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{browser_name}}", "expr": "sum by (browser_name) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_name!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{browser_name}}", "expr": "sum by (browser_name) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_name!=\"\" [$__range]))" }
       ]
     },
     {
@@ -314,9 +308,8 @@
       "gridPos": { "h": 7, "w": 8, "x": 8, "y": 46 },
       "fieldConfig": { "defaults": { "unit": "short" } },
       "options": { "pieType": "pie", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "{{browser_os}}", "expr": "sum by (browser_os) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_os!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{browser_os}}", "expr": "sum by (browser_os) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_os!=\"\" [$__range]))" }
       ]
     },
     {
@@ -325,9 +318,8 @@
       "gridPos": { "h": 7, "w": 8, "x": 16, "y": 46 },
       "fieldConfig": { "defaults": { "unit": "short" } },
       "options": { "pieType": "donut", "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] } },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
-        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "legendFormat": "mobile={{browser_mobile}}", "expr": "sum by (browser_mobile) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_mobile!=\"\" [$__range]))" }
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "mobile={{browser_mobile}}", "expr": "sum by (browser_mobile) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | browser_mobile!=\"\" [$__range]))" }
       ]
     },
 
@@ -399,7 +391,6 @@
         { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "displayName", "value": "p95" }] }
       ] },
       "options": { "sortBy": [{ "displayName": "p95", "desc": true }], "showHeader": true },
-      "transformations": [{ "id": "labelsToFields", "options": {} }],
       "targets": [
         { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "format": "table", "instant": true, "expr": "quantile_over_time(0.95, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | event_name=\"faro.tracing.fetch\" | event_data_http_url=~\".+/api/.+\" | event_data_duration_ns!=\"\" | unwrap event_data_duration_ns [$__range]) by (event_data_http_url)" }
       ]
