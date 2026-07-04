@@ -1,0 +1,94 @@
+{{- if .Values.yace.enabled }}
+# YACE config — discovers AWS/RDS instances by tag (resourcegroupstaggingapi)
+# and pulls their CloudWatch metrics via GetMetricData, re-exposing them as
+# aws_rds_* Prometheus series. Tag-based discovery means an instance rename or
+# a new instance is picked up automatically — no hardcoded DBInstanceIdentifier
+# (the failure that broke the old Grafana CloudWatch panels).
+#
+# period/length {{ .Values.yace.period }}s matches the scrape economics in
+# docs/projects/rds-observability-yace-migration.md (~$2/mo at 300s). Statistics
+# are Average for gauges, Sum for the IAM-auth connection counters.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: yace-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "yace" | nindent 4 }}
+data:
+  config.yaml: |
+    apiVersion: v1alpha1
+    sts-region: {{ .Values.yace.region }}
+    discovery:
+      exportedTagsOnMetrics:
+        AWS/RDS:
+          - Name
+      jobs:
+        - type: AWS/RDS
+          regions:
+            - {{ .Values.yace.region }}
+          period: {{ .Values.yace.period }}
+          length: {{ .Values.yace.period }}
+          # searchTags empty => all RDS instances in the region. The platform
+          # DB is the only one in this account; narrow with a tag here if that
+          # changes.
+          searchTags: []
+          metrics:
+            # ── instance health ──────────────────────────────────────────
+            - name: CPUUtilization
+              statistics: [Average]
+            - name: DatabaseConnections
+              statistics: [Average]
+            - name: FreeableMemory
+              statistics: [Average]
+            - name: FreeStorageSpace
+              statistics: [Average]
+            - name: ReadIOPS
+              statistics: [Average]
+            - name: WriteIOPS
+              statistics: [Average]
+            - name: ReadLatency
+              statistics: [Average]
+            - name: WriteLatency
+              statistics: [Average]
+            # ── compute & burst credits ──────────────────────────────────
+            - name: CPUCreditBalance
+              statistics: [Average]
+            - name: CPUCreditUsage
+              statistics: [Average]
+            - name: SwapUsage
+              statistics: [Average]
+            - name: BurstBalance
+              statistics: [Average]
+            - name: EBSIOBalance%
+              statistics: [Average]
+            - name: EBSByteBalance%
+              statistics: [Average]
+            # ── throughput & network ─────────────────────────────────────
+            - name: NetworkReceiveThroughput
+              statistics: [Average]
+            - name: NetworkTransmitThroughput
+              statistics: [Average]
+            - name: ReadThroughput
+              statistics: [Average]
+            - name: WriteThroughput
+              statistics: [Average]
+            - name: DiskQueueDepth
+              statistics: [Average]
+            - name: TransactionLogsGeneration
+              statistics: [Average]
+            # ── DB load (Performance Insights) ───────────────────────────
+            - name: DBLoad
+              statistics: [Average]
+            - name: DBLoadCPU
+              statistics: [Average]
+            - name: DBLoadNonCPU
+              statistics: [Average]
+            - name: MaximumUsedTransactionIDs
+              statistics: [Maximum]
+            # ── connection failures ──────────────────────────────────────
+            - name: IamDbAuthConnectionFailure
+              statistics: [Sum]
+            - name: IamDbAuthConnectionSuccess
+              statistics: [Sum]
+{{- end }}

@@ -1,0 +1,72 @@
+{{- if .Values.yace.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yace
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "yace" | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "yace" | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the YACE config changes (metric set / period edits).
+        configmap.reloader.stakater.com/reload: "yace-config"
+      labels:
+        {{- include "monitoring.fullLabels" "yace" | nindent 8 }}
+    spec:
+      # AWS credentials via EKS Pod Identity (monitoring/yace association).
+      serviceAccountName: yace
+      # YACE never calls the Kubernetes API — drop the default SA token. EKS
+      # Pod Identity injects its own projected token (audience
+      # pods.eks.amazonaws.com) for AWS auth, so this does not break creds.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: yace
+          image: {{ .Values.yace.image }}
+          args:
+            - --config.file=/etc/yace/config.yaml
+            - --listen-address=:{{ .Values.yace.service.port }}
+          ports:
+            - containerPort: {{ .Values.yace.service.port }}
+              name: metrics
+          volumeMounts:
+            - name: config
+              mountPath: /etc/yace
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.yace.service.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: {{ .Values.yace.service.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.yace.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: yace-config
+{{- end }}
