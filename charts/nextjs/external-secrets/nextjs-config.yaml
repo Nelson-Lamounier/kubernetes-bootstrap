@@ -46,3 +46,8 @@ spec:
     - secretKey: BEDROCK_AGENT_API_URL
       remoteRef:
         key: /bedrock-dev/chatbot-authenticated-api-url
+    # Bearer token the Prometheus nextjs-app scrape sends to /api/metrics.
+    # Same SSM value is projected into the monitoring ns (nextjs-metrics-token).
+    - secretKey: METRICS_BEARER_TOKEN
+      remoteRef:
+        key: /nextjs/development/metrics-bearer-token
