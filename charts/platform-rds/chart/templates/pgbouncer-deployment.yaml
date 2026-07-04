@@ -34,6 +34,12 @@ spec:
       app: pgbouncer
   template:
     metadata:
+      annotations:
+        # Reloader rolls pgbouncer when its RDS Secrets change — ESO refreshing
+        # platform-rds-config on an endpoint rename, or platform-rds-credentials
+        # on a master-password rotation. Env is read once at boot, so without
+        # this the pooler keeps a dead host / stale password until a manual roll.
+        secret.reloader.stakater.com/reload: "platform-rds-config,platform-rds-credentials"
       labels:
         app: pgbouncer
     spec:
