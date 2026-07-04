@@ -161,9 +161,9 @@
      "metricName": "CPUUtilization",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -219,9 +219,9 @@
      "metricName": "DatabaseConnections",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -259,9 +259,9 @@
      "metricName": "FreeableMemory",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -317,9 +317,9 @@
      "metricName": "FreeStorageSpace",
      "statistic": "Minimum",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -351,9 +351,9 @@
      "metricName": "ReadIOPS",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -362,9 +362,9 @@
      "metricName": "WriteIOPS",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -396,9 +396,9 @@
      "metricName": "ReadLatency",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -407,9 +407,9 @@
      "metricName": "WriteLatency",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -1119,9 +1119,9 @@
      "metricName": "CPUCreditBalance",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1161,9 +1161,9 @@
      "metricName": "CPUCreditUsage",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1203,9 +1203,9 @@
      "metricName": "SwapUsage",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1245,9 +1245,9 @@
      "metricName": "BurstBalance",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1256,9 +1256,9 @@
      "metricName": "EBSIOBalance%",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1267,9 +1267,9 @@
      "metricName": "EBSByteBalance%",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1325,9 +1325,9 @@
      "metricName": "NetworkReceiveThroughput",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1336,9 +1336,9 @@
      "metricName": "NetworkTransmitThroughput",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1378,9 +1378,9 @@
      "metricName": "ReadThroughput",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1389,9 +1389,9 @@
      "metricName": "WriteThroughput",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1447,9 +1447,9 @@
      "metricName": "DiskQueueDepth",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1489,9 +1489,9 @@
      "metricName": "TransactionLogsGeneration",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1547,9 +1547,9 @@
      "metricName": "DBLoad",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1558,9 +1558,9 @@
      "metricName": "DBLoadCPU",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1569,9 +1569,9 @@
      "metricName": "DBLoadNonCPU",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1631,9 +1631,9 @@
      "metricName": "MaximumUsedTransactionIDs",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -2098,9 +2098,9 @@
      "metricName": "IamDbAuthConnectionFailure",
      "statistic": "Sum",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -2109,9 +2109,9 @@
      "metricName": "IamDbAuthConnectionSuccess",
      "statistic": "Sum",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
