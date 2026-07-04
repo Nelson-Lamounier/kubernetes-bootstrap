@@ -23,29 +23,6 @@
  "templating": {
   "list": [
    {
-    "name": "rds_instance",
-    "type": "custom",
-    "label": "RDS instance",
-    "query": "k8s-dev-platform-rds-iso",
-    "options": [
-     {
-      "text": "k8s-dev-platform-rds-iso",
-      "value": "k8s-dev-platform-rds-iso",
-      "selected": true
-     }
-    ],
-    "current": {
-     "text": "k8s-dev-platform-rds-iso",
-     "value": "k8s-dev-platform-rds-iso",
-     "selected": true
-    },
-    "includeAll": false,
-    "multi": false,
-    "hide": 2,
-    "skipUrlSync": false,
-    "description": "RDS DBInstanceIdentifier \u2014 change here on a rename. Custom (not constant) so it interpolates under GitOps provisioning."
-   },
-   {
     "name": "user_email",
     "type": "textbox",
     "label": "User email",
@@ -184,9 +161,9 @@
      "metricName": "CPUUtilization",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -242,9 +219,9 @@
      "metricName": "DatabaseConnections",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -282,9 +259,9 @@
      "metricName": "FreeableMemory",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -340,9 +317,9 @@
      "metricName": "FreeStorageSpace",
      "statistic": "Minimum",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -374,9 +351,9 @@
      "metricName": "ReadIOPS",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -385,9 +362,9 @@
      "metricName": "WriteIOPS",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -419,9 +396,9 @@
      "metricName": "ReadLatency",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -430,9 +407,9 @@
      "metricName": "WriteLatency",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ]
@@ -798,8 +775,8 @@
      "queryMode": "Logs",
      "logGroups": [
       {
-       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*",
-       "name": "/aws/rds/instance/${rds_instance}/postgresql"
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql:*",
+       "name": "/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql"
       }
      ],
      "expression": "fields @timestamp, @message | filter @message like /ERROR|FATAL|PANIC|WARNING/ | sort @timestamp desc | limit 200",
@@ -839,8 +816,8 @@
      "queryMode": "Logs",
      "logGroups": [
       {
-       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*",
-       "name": "/aws/rds/instance/${rds_instance}/postgresql"
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql:*",
+       "name": "/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql"
       }
      ],
      "expression": "filter @message like /ERROR|FATAL|WARNING/ | stats count() as log_count by bin(1m)",
@@ -880,8 +857,8 @@
      "queryMode": "Logs",
      "logGroups": [
       {
-       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*",
-       "name": "/aws/rds/instance/${rds_instance}/postgresql"
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql:*",
+       "name": "/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql"
       }
      ],
      "expression": "filter @message like /connection received|connection authorized|disconnection/ | stats count() as connections by bin(1m)",
@@ -1142,9 +1119,9 @@
      "metricName": "CPUCreditBalance",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1184,9 +1161,9 @@
      "metricName": "CPUCreditUsage",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1226,9 +1203,9 @@
      "metricName": "SwapUsage",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1268,9 +1245,9 @@
      "metricName": "BurstBalance",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1279,9 +1256,9 @@
      "metricName": "EBSIOBalance%",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1290,9 +1267,9 @@
      "metricName": "EBSByteBalance%",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1348,9 +1325,9 @@
      "metricName": "NetworkReceiveThroughput",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1359,9 +1336,9 @@
      "metricName": "NetworkTransmitThroughput",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1401,9 +1378,9 @@
      "metricName": "ReadThroughput",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1412,9 +1389,9 @@
      "metricName": "WriteThroughput",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1470,9 +1447,9 @@
      "metricName": "DiskQueueDepth",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1512,9 +1489,9 @@
      "metricName": "TransactionLogsGeneration",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1570,9 +1547,9 @@
      "metricName": "DBLoad",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1581,9 +1558,9 @@
      "metricName": "DBLoadCPU",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -1592,9 +1569,9 @@
      "metricName": "DBLoadNonCPU",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -1654,9 +1631,9 @@
      "metricName": "MaximumUsedTransactionIDs",
      "statistic": "Average",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -2121,9 +2098,9 @@
      "metricName": "IamDbAuthConnectionFailure",
      "statistic": "Sum",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     },
     {
@@ -2132,9 +2109,9 @@
      "metricName": "IamDbAuthConnectionSuccess",
      "statistic": "Sum",
      "region": "eu-west-1",
-     "matchExact": true,
+     "matchExact": false,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "*"
      }
     }
    ],
@@ -2169,8 +2146,8 @@
      "region": "eu-west-1",
      "logGroups": [
       {
-       "name": "/aws/rds/instance/${rds_instance}/postgresql",
-       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*"
+       "name": "/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql",
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql:*"
       }
      ],
      "expression": "fields @timestamp, @message | filter @message like /too many clients|remaining connection slots|password authentication failed|no pg_hba.conf entry|FATAL/ | sort @timestamp desc | limit 200"

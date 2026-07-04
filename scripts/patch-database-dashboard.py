@@ -14,7 +14,18 @@ import json, sys, pathlib
 
 DASH = pathlib.Path(__file__).resolve().parents[1] / "charts/monitoring/chart/dashboards/database.json"
 INSTANCE = "k8s-dev-platform-rds-iso"
-VAR = "${rds_instance}"
+# Metric panels select the instance with a DBInstanceIdentifier="*" wildcard
+# (matchExact=false), NOT a hardcoded id or a template variable:
+#   - A Grafana variable ($rds_instance) was tried (constant AND custom) but
+#     neither interpolates into CloudWatch metric dimensions under provisioned
+#     JSON — the literal "${rds_instance}" leaks through -> "No data".
+#   - A hardcoded id works but re-breaks on any instance rename.
+# The wildcard is rename-proof: CloudWatch returns the single instance's series
+# and auto-labels it with the real id. Verified via /api/ds/query (1 series,
+# 36 datapoints, label k8s-dev-platform-rds-iso).
+# Log groups still need the concrete id (CloudWatch Logs ARNs take no wildcard),
+# so INSTANCE remains the single rename touch-point for the two log panels.
+DIM = "*"
 REGION = "eu-west-1"
 CW = {"type": "cloudwatch", "uid": "cloudwatch"}
 PG = {"type": "postgres", "uid": "rds-postgres"}
@@ -23,30 +34,19 @@ MARK = "gen:rds-gaps"  # tag on generated rows so re-runs are idempotent
 
 d = json.loads(DASH.read_text())
 
-# ── 1. variable ───────────────────────────────────────────────────────────────
+# ── 1. no template variable (see VAR note above) — drop any stale one ────────
 tlist = d.setdefault("templating", {}).setdefault("list", [])
-if not any(v.get("name") == "rds_instance" for v in tlist):
-    tlist.insert(0, {
-        # custom (not constant): constant variables do not interpolate reliably
-        # in provisioned-JSON dashboards under GitOps, leaking the literal
-        # "${rds_instance}" into CloudWatch dimensions -> silent "No data".
-        "name": "rds_instance", "type": "custom", "label": "RDS instance",
-        "query": INSTANCE,
-        "options": [{"text": INSTANCE, "value": INSTANCE, "selected": True}],
-        "current": {"text": INSTANCE, "value": INSTANCE, "selected": True},
-        "includeAll": False, "multi": False,
-        "hide": 2, "skipUrlSync": False,
-        "description": "RDS DBInstanceIdentifier — change here on a rename",
-    })
+tlist[:] = [v for v in tlist if v.get("name") != "rds_instance"]
 
-# ── 2. repoint existing panels at the variable ───────────────────────────────
+# ── 2. repoint existing panels: wildcard metric dims, concrete-id log groups ─
 def repoint(node):
     if isinstance(node, dict):
         if node.get("dimensions", {}).get("DBInstanceIdentifier"):
-            node["dimensions"]["DBInstanceIdentifier"] = VAR
+            node["dimensions"]["DBInstanceIdentifier"] = DIM
+            node["matchExact"] = False  # required for the wildcard to resolve
         for lg in node.get("logGroups", []) or []:
-            lg["name"] = f"/aws/rds/instance/{VAR}/postgresql"
-            lg["arn"] = f"arn:aws:logs:{REGION}:771826808455:log-group:/aws/rds/instance/{VAR}/postgresql:*"
+            lg["name"] = f"/aws/rds/instance/{INSTANCE}/postgresql"
+            lg["arn"] = f"arn:aws:logs:{REGION}:771826808455:log-group:/aws/rds/instance/{INSTANCE}/postgresql:*"
         for v in node.values():
             repoint(v)
     elif isinstance(node, list):
@@ -67,8 +67,8 @@ def nid():
 LETTERS = "ABCDEFGH"
 def cw(metrics, stat="Average"):
     return [{"refId": LETTERS[i], "namespace": "AWS/RDS", "metricName": m,
-             "statistic": stat, "region": REGION, "matchExact": True,
-             "dimensions": {"DBInstanceIdentifier": VAR}} for i, m in enumerate(metrics)]
+             "statistic": stat, "region": REGION, "matchExact": False,
+             "dimensions": {"DBInstanceIdentifier": DIM}} for i, m in enumerate(metrics)]
 
 def ts_cw(title, metrics, unit="short", stat="Average", desc="", thresholds=None):
     fc = {"defaults": {"unit": unit, "min": 0, "custom": {"fillOpacity": 8, "lineWidth": 2}}}
@@ -98,8 +98,8 @@ def cw_logs(title, expr, h=9):
     return {"id": nid(), "type": "logs", "title": title, "datasource": CW,
             "options": {"showTime": True, "sortOrder": "Descending", "wrapLogMessage": True, "dedupStrategy": "none"},
             "targets": [{"refId": "A", "queryMode": "Logs", "region": REGION,
-                         "logGroups": [{"name": f"/aws/rds/instance/{VAR}/postgresql",
-                                        "arn": f"arn:aws:logs:{REGION}:771826808455:log-group:/aws/rds/instance/{VAR}/postgresql:*"}],
+                         "logGroups": [{"name": f"/aws/rds/instance/{INSTANCE}/postgresql",
+                                        "arn": f"arn:aws:logs:{REGION}:771826808455:log-group:/aws/rds/instance/{INSTANCE}/postgresql:*"}],
                          "expression": expr}], "tags": [MARK], "_h": h}
 
 def row(title):
