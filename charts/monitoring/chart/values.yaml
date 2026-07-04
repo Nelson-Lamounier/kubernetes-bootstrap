@@ -50,10 +50,12 @@ prometheus:
   resources:
     requests:
       cpu: 50m       # Observed p50: ~16m. 50m covers scrape-cycle bursts.
-      memory: 384Mi  # Observed p50: ~265Mi. 384Mi covers peak + WAL headroom.
+      memory: 768Mi  # Steady state ~265Mi, but WAL replay on restart peaks far
+                     # higher as the TSDB grew — the 1Gi limit OOMKilled the pod
+                     # mid-replay (crashloop). 768Mi request / 2Gi limit clears it.
     limits:
       cpu: 500m
-      memory: 1Gi
+      memory: 2Gi
   pvc:
     size: 10Gi
     storageClass: "ebs-sc"

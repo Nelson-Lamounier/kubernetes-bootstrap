@@ -1,0 +1,111 @@
+{{- if .Values.postgresExporter.enabled }}
+# ---------------------------------------------------------------------------
+# postgres_exporter — Prometheus metrics for the platform RDS engine.
+#
+# Connects DIRECTLY to RDS (not through PgBouncer — the exporter runs
+# session-level pg_stat_* queries that transaction pooling breaks). Host comes
+# from platform-rds-config/PGHOST (the -iso RDS endpoint) and credentials from
+# platform-rds-credentials, both ESO-synced. TLS is required (rds.force_ssl=1).
+#
+# Discovered by Prometheus via the prometheus.io/scrape Service annotations
+# (kubernetes-service-endpoints job). Rolled by Reloader when either RDS Secret
+# changes, so a host rename or password rotation is picked up automatically.
+# ---------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: postgres-exporter
+    app.kubernetes.io/name: postgres-exporter
+    app.kubernetes.io/component: db-metrics
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-exporter
+  template:
+    metadata:
+      annotations:
+        secret.reloader.stakater.com/reload: "platform-rds-config,platform-rds-credentials"
+      labels:
+        app: postgres-exporter
+    spec:
+      containers:
+        - name: postgres-exporter
+          image: {{ .Values.postgresExporter.image }}
+          args:
+            - "--collector.stat_statements"
+          ports:
+            - containerPort: {{ .Values.postgresExporter.port }}
+              name: metrics
+          env:
+            # Host + database from platform-rds-config; declared before
+            # DATA_SOURCE_URI so the $(VAR) interpolation below resolves.
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: platform-rds-config
+                  key: PGHOST
+                  optional: false
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: platform-rds-config
+                  key: PGDATABASE
+                  optional: false
+            - name: DATA_SOURCE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: platform-rds-credentials
+                  key: PGUSER
+                  optional: false
+            - name: DATA_SOURCE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: platform-rds-credentials
+                  key: PGPASSWORD
+                  optional: false
+            # host:port/db?sslmode — user/pass supplied separately above.
+            - name: DATA_SOURCE_URI
+              value: "$(PGHOST):5432/$(PGDATABASE)?sslmode=require"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.postgresExporter.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.postgresExporter.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: postgres-exporter
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port:   {{ .Values.postgresExporter.port | quote }}
+    prometheus.io/path:   "/metrics"
+spec:
+  selector:
+    app: postgres-exporter
+  ports:
+    - name: metrics
+      port: {{ .Values.postgresExporter.port }}
+      targetPort: {{ .Values.postgresExporter.port }}
+{{- end }}
