@@ -96,6 +96,24 @@ grafana:
   pdb:
     enabled: true
     minAvailable: 1
+  # Remote image renderer (headless Chromium sidecar service). Grafana core
+  # cannot render PNGs on its own, and the in-app plugin install path is
+  # disabled here (GF_PLUGINS_PREINSTALL_DISABLED), so panel/dashboard image
+  # export, rendered-panel alert notifications, and the `get_panel_image` MCP
+  # tool all require this separate service. Grafana reaches it at
+  # GF_RENDERING_SERVER_URL; the renderer reaches back at
+  # GF_RENDERING_CALLBACK_URL to load the dashboard it is shooting.
+  imageRenderer:
+    enabled: true
+    image: grafana/grafana-image-renderer:3.11.5
+    port: 8081
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi   # headless Chromium floor
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
 # ---------------------------------------------------------------------------
 # Loki (log aggregation)

@@ -102,6 +102,19 @@ spec:
             # Same chart, different .Values.environment — production-ready by design.
             - name: GF_UNIFIED_ALERTING_EXTERNAL_LABELS
               value: "environment={{ .Values.environment }}"
+            {{- if .Values.grafana.imageRenderer.enabled }}
+            # --- Remote image rendering (see templates/grafana/image-renderer.yaml) ---
+            # Grafana core has no rendering engine; it delegates PNG rendering
+            # to the standalone renderer Service.
+            - name: GF_RENDERING_SERVER_URL
+              value: "http://grafana-image-renderer:{{ .Values.grafana.imageRenderer.port }}/render"
+            # The renderer loads the target dashboard by calling Grafana back on
+            # this URL. It must point at the in-cluster Service AND carry the
+            # /grafana/ sub-path, because GF_SERVER_SERVE_FROM_SUB_PATH=true —
+            # dropping the sub-path produces blank/404 renders.
+            - name: GF_RENDERING_CALLBACK_URL
+              value: "http://grafana:{{ .Values.grafana.service.port }}/grafana/"
+            {{- end }}
           ports:
             - containerPort: 3000
               name: http

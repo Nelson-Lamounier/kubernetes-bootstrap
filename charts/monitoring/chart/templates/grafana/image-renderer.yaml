@@ -1,0 +1,116 @@
+# ---------------------------------------------------------------------------
+# Grafana Image Renderer — headless Chromium as a remote rendering service.
+#
+# Why a separate Deployment (not a plugin): Grafana core has no rendering
+# engine, and this install disables the in-app plugin catalog
+# (GF_PLUGINS_PREINSTALL_DISABLED in templates/grafana/deployment.yaml), so the
+# grafana-image-renderer *plugin* cannot be installed into the Grafana pod. The
+# supported pattern for containerised Grafana is the standalone renderer
+# service: Grafana calls it at GF_RENDERING_SERVER_URL, and it calls Grafana
+# back at GF_RENDERING_CALLBACK_URL (which must include the /grafana/ sub-path,
+# because GF_SERVER_SERVE_FROM_SUB_PATH=true) to load the dashboard it renders.
+#
+# Enables: PNG export of panels/dashboards, image-in-notification alerts, and
+# the `get_panel_image` MCP tool used to visually verify dashboards.
+# ---------------------------------------------------------------------------
+{{- if .Values.grafana.imageRenderer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-image-renderer
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "image-renderer" | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "monitoring.selectorLabels" "image-renderer" | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "monitoring.fullLabels" "image-renderer" | nindent 8 }}
+    spec:
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        # emptyDir volumes (/tmp, /dev/shm) are created root-owned; fsGroup 1000
+        # makes them group-writable so the non-root renderer (uid 1000) can use
+        # them — without it Chromium fails to write its profile/temp and crashes.
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: renderer
+          image: {{ .Values.grafana.imageRenderer.image }}
+          env:
+            # Bind address/port the service exposes; must match the Service and
+            # the GF_RENDERING_SERVER_URL wired into Grafana.
+            - name: HTTP_HOST
+              value: "0.0.0.0"
+            - name: HTTP_PORT
+              value: "{{ .Values.grafana.imageRenderer.port }}"
+            # Log rendering issues at info; bump to debug when diagnosing blank
+            # or timed-out renders.
+            - name: LOG_LEVEL
+              value: "info"
+          ports:
+            - name: http
+              containerPort: {{ .Values.grafana.imageRenderer.port }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # Chromium writes profile/temp data here; the root FS is read-only
+            # to nothing by default but the image expects a writable /tmp.
+            - name: tmp
+              mountPath: /tmp
+            # Chromium crashes ("Target closed") when /dev/shm is the tiny 64Mi
+            # container default; back it with a larger memory-backed emptyDir.
+            - name: dshm
+              mountPath: /dev/shm
+          resources: {{- toYaml .Values.grafana.imageRenderer.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-image-renderer
+  namespace: {{ .Values.namespace }}
+  labels: {{- include "monitoring.fullLabels" "image-renderer" | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "monitoring.selectorLabels" "image-renderer" | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.grafana.imageRenderer.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}
