@@ -21,6 +21,10 @@ spec:
     spec:
       # AWS credentials via EKS Pod Identity (monitoring/yace association).
       serviceAccountName: yace
+      # YACE never calls the Kubernetes API — drop the default SA token. EKS
+      # Pod Identity injects its own projected token (audience
+      # pods.eks.amazonaws.com) for AWS auth, so this does not break creds.
+      automountServiceAccountToken: false
       securityContext:
         runAsUser: 65534
         runAsNonRoot: true

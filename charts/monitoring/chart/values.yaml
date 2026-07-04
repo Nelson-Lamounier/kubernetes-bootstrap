@@ -252,9 +252,11 @@ yace:
     requests:
       cpu: 10m
       memory: 64Mi
+      ephemeral-storage: 32Mi
     limits:
       cpu: 100m
       memory: 128Mi
+      ephemeral-storage: 128Mi
   service:
     port: 5000
 
