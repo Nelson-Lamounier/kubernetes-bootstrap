@@ -14,15 +14,12 @@ spec:
       {{- include "monitoring.selectorLabels" "prometheus" | nindent 6}}
   template:
     metadata:
-      annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/prometheus/configmap.yaml") . | sha256sum }}
-        # Re-roll the Deployment when SLO rules change so the new rules
-        # are loaded without waiting for the next manual reload.
-        checksum/rules: {{ include (print $.Template.BasePath "/prometheus/rules-configmap.yaml") . | sha256sum }}
-        checksum/rules-cost: {{ include (print $.Template.BasePath "/prometheus/rules-cost-configmap.yaml") . | sha256sum }}
-        checksum/rules-dora: {{ include (print $.Template.BasePath "/prometheus/rules-dora-configmap.yaml") . | sha256sum }}
-        checksum/rules-infra: {{ include (print $.Template.BasePath "/prometheus/rules-infra-configmap.yaml") . | sha256sum }}
-        checksum/rules-observability: {{ include (print $.Template.BasePath "/prometheus/rules-observability-configmap.yaml") . | sha256sum }}
+      # No checksum/config or checksum/rules annotations on purpose: they rolled
+      # the pod on every config/rule edit, and Prometheus' WAL replay takes
+      # minutes (and OOM-risked the pod). The config + projected-rules ConfigMaps
+      # are mounted without subPath, so kubelet updates the files in place; the
+      # configmap-reload sidecar watches them and POSTs /-/reload, giving a hot
+      # reload with no restart and no WAL replay.
       labels: {{- include "monitoring.fullLabels" "prometheus" | nindent 8}}
     spec:
       serviceAccountName: prometheus
@@ -87,6 +84,32 @@ spec:
               port: 9090
             initialDelaySeconds: 30
             periodSeconds: 15
+        # ── configmap-reload sidecar ────────────────────────────────────────
+        # Watches the mounted config + rules dirs; on change it POSTs Prometheus'
+        # /-/reload (enabled via --web.enable-lifecycle). This replaces the
+        # checksum-annotation rollout: a rule/config edit now hot-reloads with no
+        # pod restart and no WAL replay.
+        - name: configmap-reload
+          image: {{ .Values.prometheus.reloadSidecarImage }}
+          args:
+            - "--volume-dir=/etc/prometheus"
+            - "--volume-dir=/etc/prometheus/rules"
+            - "--webhook-url=http://127.0.0.1:9090/prometheus/-/reload"
+            - "--webhook-method=POST"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: rules
+              mountPath: /etc/prometheus/rules
+              readOnly: true
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 20m
+              memory: 32Mi
       volumes:
         - name: config
           configMap:

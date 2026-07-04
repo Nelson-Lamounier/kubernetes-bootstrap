@@ -544,7 +544,8 @@
    "fieldConfig": {
     "defaults": {
      "unit": "ops",
-     "min": 0
+     "min": 0,
+     "noValue": "0"
     }
    },
    "options": {
@@ -559,7 +560,8 @@
      "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_CLIENT\",db_system=\"postgresql\"}[5m]))",
      "legendFormat": "{{service_name}}"
     }
-   ]
+   ],
+   "description": "Client DB spans/sec from OTel tracing. Shows 0 when apps make no DB calls in the window \u2014 that is idle traffic, not a broken panel."
   },
   {
    "id": 302,
@@ -593,7 +595,8 @@
      "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_CLIENT\",db_system=\"postgresql\"}[5m])))",
      "legendFormat": "{{service_name}}"
     }
-   ]
+   ],
+   "description": "p95 of client DB spans from OTel tracing. Empty when there is no DB traffic in the window (no calls to measure) \u2014 expected when idle."
   },
   {
    "type": "row",
