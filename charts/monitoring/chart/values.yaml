@@ -46,6 +46,10 @@ affinity: {}
 # ---------------------------------------------------------------------------
 prometheus:
   image: prom/prometheus:v3.3.0
+  # Sidecar that hot-reloads Prometheus on config/rule ConfigMap changes
+  # (POST /-/reload) instead of rolling the pod — avoids the multi-minute
+  # WAL replay on every rule edit.
+  reloadSidecarImage: ghcr.io/jimmidyson/configmap-reload:v0.14.0
   replicas: 1
   resources:
     requests:
