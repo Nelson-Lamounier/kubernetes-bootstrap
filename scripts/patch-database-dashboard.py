@@ -27,8 +27,14 @@ d = json.loads(DASH.read_text())
 tlist = d.setdefault("templating", {}).setdefault("list", [])
 if not any(v.get("name") == "rds_instance" for v in tlist):
     tlist.insert(0, {
-        "name": "rds_instance", "type": "constant", "label": "RDS instance",
-        "query": INSTANCE, "current": {"text": INSTANCE, "value": INSTANCE},
+        # custom (not constant): constant variables do not interpolate reliably
+        # in provisioned-JSON dashboards under GitOps, leaking the literal
+        # "${rds_instance}" into CloudWatch dimensions -> silent "No data".
+        "name": "rds_instance", "type": "custom", "label": "RDS instance",
+        "query": INSTANCE,
+        "options": [{"text": INSTANCE, "value": INSTANCE, "selected": True}],
+        "current": {"text": INSTANCE, "value": INSTANCE, "selected": True},
+        "includeAll": False, "multi": False,
         "hide": 2, "skipUrlSync": False,
         "description": "RDS DBInstanceIdentifier — change here on a rename",
     })

@@ -24,16 +24,26 @@
   "list": [
    {
     "name": "rds_instance",
-    "type": "constant",
+    "type": "custom",
     "label": "RDS instance",
     "query": "k8s-dev-platform-rds-iso",
+    "options": [
+     {
+      "text": "k8s-dev-platform-rds-iso",
+      "value": "k8s-dev-platform-rds-iso",
+      "selected": true
+     }
+    ],
     "current": {
      "text": "k8s-dev-platform-rds-iso",
-     "value": "k8s-dev-platform-rds-iso"
+     "value": "k8s-dev-platform-rds-iso",
+     "selected": true
     },
+    "includeAll": false,
+    "multi": false,
     "hide": 2,
     "skipUrlSync": false,
-    "description": "RDS DBInstanceIdentifier \u2014 change here on a rename"
+    "description": "RDS DBInstanceIdentifier \u2014 change here on a rename. Custom (not constant) so it interpolates under GitOps provisioning."
    },
    {
     "name": "user_email",
