@@ -237,6 +237,27 @@ kubeStateMetrics:
   service:
     port: 8080
 
+# ── YACE — yet-another-cloudwatch-exporter (AWS/RDS metrics -> Prometheus) ────
+# Scrapes AWS/RDS CloudWatch metrics into Prometheus (aws_rds_* series) so the
+# RDS dashboards run on Prometheus instead of the fragile Grafana CloudWatch
+# datasource. AWS creds via Pod Identity (monitoring/yace, defined in
+# tucaken-infra EksPodIdentityStack). period=300s keeps GetMetricData cost at
+# ~$2/mo (see docs/projects/rds-observability-yace-migration.md).
+yace:
+  enabled: true
+  image: ghcr.io/nerdswords/yet-another-cloudwatch-exporter:v0.61.2
+  region: eu-west-1
+  period: 300
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  service:
+    port: 5000
+
 # ---------------------------------------------------------------------------
 # GitHub Actions Exporter
 # ---------------------------------------------------------------------------

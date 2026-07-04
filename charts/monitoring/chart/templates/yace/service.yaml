@@ -1,0 +1,23 @@
+{{- if .Values.yace.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: yace
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "monitoring.fullLabels" "yace" | nindent 4 }}
+  annotations:
+    # Discovered by Prometheus' kubernetes-service-endpoints job.
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.yace.service.port | quote }}
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "monitoring.selectorLabels" "yace" | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.yace.service.port }}
+      targetPort: {{ .Values.yace.service.port }}
+      protocol: TCP
+{{- end }}
