@@ -275,4 +275,70 @@ data:
                 data is delayed or dropped and Core Web Vitals on the Frontend &
                 RUM dashboard may be understated. Check Alloy CPU/memory and
                 downstream Loki/Prometheus write latency.
+
+      - name: observability:admin-api
+        rules:
+          # admin-api is the BFF the tucaken UI depends on. Its readiness probe
+          # (/readyz) does a bounded SELECT 1; when it returns 5xx the pod is
+          # NotReady and pulled from the Service, which surfaces to users as the
+          # tucaken UI's "getMeFn: fetch failed" errors. A sustained readiness
+          # failure went unalerted in production (1757 /readyz 500s in 24h) —
+          # this pages on it so a DB-reachability episode is caught at the
+          # source instead of via the browser error panel.
+          - alert: AdminApiNotReady
+            expr: |
+              sum(rate(http_requests_total{service="admin-api",route="/readyz",status_code=~"5.."}[5m])) > 0
+            for: 10m
+            labels:
+              severity: warning
+              service:  admin-api
+              team:     platform
+              area:     reliability
+            annotations:
+              summary: "admin-api readiness probe failing (DB unreachable)"
+              description: >
+                admin-api /readyz has returned 5xx for 10m — its bounded SELECT 1
+                is failing, so the pod is NotReady and removed from the Service.
+                The tucaken UI's /me calls will fail. Check RDS reachability, the
+                pg connection pool, and admin-api logs.
+
+          # User-facing 5xx rate, EXCLUDING the /readyz probe (which is infra
+          # signal, not user traffic, and would otherwise dominate the ratio).
+          # This is the real "are requests failing for users" SLO signal.
+          - alert: AdminApiHighErrorRate
+            expr: |
+              sum(rate(http_requests_total{service="admin-api",route!="/readyz",status_code=~"5.."}[5m]))
+              /
+              clamp_min(sum(rate(http_requests_total{service="admin-api",route!="/readyz"}[5m])), 0.001)
+              > 0.05
+            for: 10m
+            labels:
+              severity: warning
+              service:  admin-api
+              team:     platform
+              area:     reliability
+            annotations:
+              summary: "admin-api user-facing 5xx rate > 5%"
+              description: >
+                More than 5% of non-probe admin-api requests returned 5xx for
+                10m. The tucaken UI depends on this API; check recent deploys,
+                RDS, and downstream (Bedrock/Cognito) dependencies.
+
+          # The whole metric family vanishing means admin-api stopped being
+          # scraped (crash, image-pull, NetworkPolicy) — without this, a dead
+          # backend looks identical to "no errors".
+          - alert: AdminApiMetricsAbsent
+            expr: absent(http_requests_total{service="admin-api"})
+            for: 15m
+            labels:
+              severity: warning
+              service:  admin-api
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "admin-api metrics are absent"
+              description: >
+                No http_requests_total{service="admin-api"} for 15m. admin-api is
+                down or unscraped; its dashboards are blank and the tucaken UI has
+                no backend. Check the admin-api pods and their scrape target.
 {{- end }}

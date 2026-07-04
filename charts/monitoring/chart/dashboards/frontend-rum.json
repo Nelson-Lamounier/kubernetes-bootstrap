@@ -7,7 +7,7 @@
   "title": "Frontend & RUM — portfolio + tucaken",
   "uid": "frontend-rum",
   "schemaVersion": 39,
-  "version": 7,
+  "version": 8,
   "links": [
     { "title": "Server: Next.js app metrics", "type": "link", "url": "/d/nextjs-app", "icon": "dashboard", "tooltip": "The pod-side counterpart — nextjs_* RED/memory/GC. Client (this dashboard) vs server (there): compare RUM TTFB against server request duration for the same route.", "targetBlank": false },
     { "title": "Networking / ingress", "type": "link", "url": "/d/networking", "icon": "dashboard", "tooltip": "ALB, ingress, and the Faro receiver's network path.", "targetBlank": false }
@@ -420,6 +420,47 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
         { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "{{event_data_http_status_code}}", "expr": "sum by (event_data_http_status_code) (count_over_time({job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | event_name=\"faro.tracing.fetch\" | event_data_http_url=~\".+/api/.+\" [$__auto]))" }
+      ]
+    },
+
+    { "type": "row", "id": 200, "title": "tucaken UI ↔ admin-api reliability", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 85 } },
+    {
+      "id": 100, "type": "timeseries", "title": "tucaken getMeFn errors (browser RUM)",
+      "description": "Browser exceptions from the tucaken dashboard's getMeFn (the current-user fetch to admin-api /me). Read together with the two panels to the right: a spike here is the client-side symptom of an admin-api readiness/DB episode. Fixed at source by redirecting expected-unauthenticated states without logging + retrying transient failures.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 86 },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "custom": { "drawStyle": "bars", "fillOpacity": 60, "spanNulls": false } } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "legendFormat": "getMeFn errors", "expr": "sum(count_over_time({job=\"faro\"} | logfmt | app_name=\"portfolio-admin\" | kind=\"exception\" |~ \"getMeFn\" [$__auto]))" }
+      ]
+    },
+    {
+      "id": 101, "type": "timeseries", "title": "admin-api 5xx by route",
+      "description": "admin-api server errors split by route. /readyz 5xx = readiness/DB failure (the pod is pulled from the Service → the getMeFn errors on the left). /api/admin/me and other routes = directly user-facing failures. Alerts: AdminApiNotReady, AdminApiHighErrorRate.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 86 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 20, "stacking": { "mode": "normal" } } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "/readyz" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+      ] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "{{route}}", "expr": "sum by (route) (rate(http_requests_total{service=\"admin-api\",status_code=~\"5..\"}[$__rate_interval]))" }
+      ]
+    },
+    {
+      "id": 102, "type": "timeseries", "title": "admin-api p95 latency & user-facing error %",
+      "description": "Health of the API the tucaken UI depends on: request p95 duration (left axis) and the user-facing 5xx ratio excluding the /readyz probe (right axis). admin-api exposes full RED (unlike the portfolio pod).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 86 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "error %" }, "properties": [{ "id": "unit", "value": "percent" }, { "id": "custom.axisPlacement", "value": "right" }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+        { "matcher": { "id": "byName", "options": "p95" }, "properties": [{ "id": "unit", "value": "s" }] }
+      ] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"admin-api\"}[$__rate_interval])))" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "error %", "expr": "100 * sum(rate(http_requests_total{service=\"admin-api\",route!=\"/readyz\",status_code=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(http_requests_total{service=\"admin-api\",route!=\"/readyz\"}[$__rate_interval])), 0.001)" }
       ]
     }
   ]
