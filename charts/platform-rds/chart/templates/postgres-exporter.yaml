@@ -36,7 +36,12 @@ spec:
         - name: postgres-exporter
           image: {{ .Values.postgresExporter.image }}
           args:
-            - "--collector.stat_statements"
+            # PostgreSQL 17+ moved the checkpoint columns out of pg_stat_bgwriter
+            # into pg_stat_checkpointer; this exporter's stat_bgwriter collector
+            # still queries the old schema and errors on PG18. Disable it — the
+            # remaining default collectors (stat_database, stat_activity,
+            # settings, locks, …) cover the engine-health panels.
+            - "--no-collector.stat_bgwriter"
           ports:
             - containerPort: {{ .Values.postgresExporter.port }}
               name: metrics
