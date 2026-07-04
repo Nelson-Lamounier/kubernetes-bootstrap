@@ -152,4 +152,70 @@ data:
                 token-bucket limiter is saturated. Check Loki:
                 kubectl logs -n tucaken-app -l app.kubernetes.io/name=tucaken-app
                 | grep auth_rate_limited
+
+      # -------------------------------------------------------------------
+      # Database — PgBouncer pool health + postgres_exporter liveness.
+      # CloudWatch-sourced RDS alarms (CPU credits, memory, storage, disk
+      # queue, connections) live with the RDS stack as CloudWatch Alarms —
+      # Prometheus cannot see AWS/RDS metrics.
+      # -------------------------------------------------------------------
+      - name: infra:database
+        rules:
+          - alert: PgBouncerDown
+            expr: |
+              max(pgbouncer_up) == 0 or absent(pgbouncer_up)
+            for: 2m
+            labels:
+              severity: critical
+              service:  pgbouncer
+              team:     platform
+            annotations:
+              summary: "PgBouncer is down — no pod can reach Postgres"
+              description: >
+                pgbouncer_up is 0 or the exporter stopped reporting. All DB traffic
+                (admin-api, public-api, workers) flows through PgBouncer.
+                kubectl -n platform get pods -l app=pgbouncer
+
+          - alert: PgBouncerClientsWaiting
+            expr: |
+              sum(pgbouncer_pools_client_waiting_connections) > 0
+            for: 5m
+            labels:
+              severity: warning
+              service:  pgbouncer
+              team:     platform
+            annotations:
+              summary: "PgBouncer clients waiting for a server connection > 5m"
+              description: >
+                Clients are queueing because the <=20 server-side pool is fully in
+                use — RDS connection pressure or slow queries. Check
+                pgbouncer_pools_client_maxwait_seconds and the PI DB-load panel.
+
+          - alert: PgBouncerClientMaxWaitHigh
+            expr: |
+              max(pgbouncer_pools_client_maxwait_seconds) > 5
+            for: 2m
+            labels:
+              severity: warning
+              service:  pgbouncer
+              team:     platform
+            annotations:
+              summary: "PgBouncer client max wait > 5s"
+              description: >
+                A client has waited over 5 seconds for a pooled connection.
+
+          - alert: PostgresExporterDown
+            expr: |
+              max(pg_up) == 0 or absent(pg_up)
+            for: 10m
+            labels:
+              severity: warning
+              service:  postgres-exporter
+              team:     platform
+            annotations:
+              summary: "postgres_exporter not reporting pg_stat metrics"
+              description: >
+                pg_up is 0 or absent — the exporter cannot reach Postgres, so
+                engine-health metrics (connections by state, cache hit, deadlocks)
+                are blind. Usually a stale RDS host/password after a rotation.
 {{- end }}
