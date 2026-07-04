@@ -224,4 +224,55 @@ data:
                 a <5% hit ratio — caching is effectively broken (key mismatch,
                 TTL too short, or inputs not actually repeating). It should be
                 caching but isn't.
+
+      - name: observability:rum
+        rules:
+          # The Faro receiver (Alloy) is the single ingress for ALL browser RUM
+          # — web vitals, JS exceptions, sessions, page loads. If its own
+          # counters vanish from Prometheus, the entire "Frontend & RUM"
+          # dashboard silently shows blank/stale data with no error, which is
+          # exactly how a RUM outage hides. absent() turns that invisible
+          # failure into a page. Fires if Alloy is down or its metrics endpoint
+          # is not being scraped.
+          - alert: FaroReceiverAbsent
+            expr: absent(faro_receiver_logs_total)
+            for: 15m
+            labels:
+              severity: warning
+              service:  alloy-faro-receiver
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "Faro RUM receiver metrics are absent"
+              description: >
+                faro_receiver_logs_total has no series for 15m. The Alloy Faro
+                receiver is down or unscraped, so all browser RUM (Core Web
+                Vitals, JS errors, sessions) is uncollected and the Frontend &
+                RUM dashboard is blind. Check the Alloy pod in the monitoring
+                namespace and its scrape target.
+
+          # Receiver alive but slow to accept telemetry. Sustained high p95
+          # ingest latency means the browser SDK's beacons are backing up or
+          # timing out, so RUM data is delayed or dropped and the dashboard's
+          # vitals become unreliable. Same histogram the dashboard's receiver
+          # latency panels read.
+          - alert: FaroReceiverIngestLatencyHigh
+            expr: |
+              histogram_quantile(0.95,
+                sum by (le) (rate(faro_receiver_request_duration_seconds_bucket[5m]))
+              ) > 1
+            for: 15m
+            labels:
+              severity: warning
+              service:  alloy-faro-receiver
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "Faro RUM receiver p95 ingest latency > 1s"
+              description: >
+                p95 Faro receiver request duration has been above 1s for 15m.
+                Browser telemetry beacons are backing up or timing out, so RUM
+                data is delayed or dropped and Core Web Vitals on the Frontend &
+                RUM dashboard may be understated. Check Alloy CPU/memory and
+                downstream Loki/Prometheus write latency.
 {{- end }}
