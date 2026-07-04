@@ -71,6 +71,9 @@ spec:
               mountPath: /etc/prometheus/rules
             - name: data
               mountPath: /prometheus
+            - name: nextjs-metrics-token
+              mountPath: /etc/prometheus/secrets/nextjs-metrics-token
+              readOnly: true
           resources: {{- toYaml .Values.prometheus.resources | nindent 12}}
           readinessProbe:
             httpGet:
@@ -106,6 +109,10 @@ spec:
               - configMap:
                   name: prometheus-rules-observability
                   optional: true
+        - name: nextjs-metrics-token
+          secret:
+            secretName: nextjs-metrics-token
+            optional: true
         - name: data
           persistentVolumeClaim:
             claimName: prometheus-data

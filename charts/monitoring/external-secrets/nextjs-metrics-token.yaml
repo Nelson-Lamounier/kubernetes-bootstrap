@@ -1,0 +1,31 @@
+# @format
+# ExternalSecret: nextjs-metrics-token
+#
+# Projects the shared /api/metrics bearer token from SSM into the monitoring
+# namespace so Prometheus can authenticate to the nextjs /api/metrics endpoint
+# (which fails closed in production). The same SSM value is projected into the
+# nextjs pod as METRICS_BEARER_TOKEN (charts/nextjs/external-secrets/nextjs-config.yaml).
+#
+# Referenced by: charts/monitoring/chart/templates/prometheus/deployment.yaml
+#   (volume nextjs-metrics-token -> /etc/prometheus/secrets/nextjs-metrics-token)
+# SSM path: /nextjs/development/metrics-bearer-token
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: nextjs-metrics-token
+  namespace: monitoring
+  annotations:
+    kubernetes.io/description: "Bearer token for the Prometheus nextjs-app /api/metrics scrape"
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: nextjs-metrics-token
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: token
+      remoteRef:
+        key: /nextjs/development/metrics-bearer-token

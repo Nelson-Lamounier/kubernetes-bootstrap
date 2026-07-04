@@ -153,6 +153,9 @@ data:
 
       - job_name: nextjs-app
         metrics_path: /api/metrics
+        authorization:
+          type: Bearer
+          credentials_file: /etc/prometheus/secrets/nextjs-metrics-token/token
         static_configs:
           - targets: ["nextjs.nextjs-app.svc.cluster.local:3000"]
 
@@ -162,6 +165,9 @@ data:
       # before promotion. Returns no data when no rollout is in progress.
       - job_name: nextjs-app-preview
         metrics_path: /api/metrics
+        authorization:
+          type: Bearer
+          credentials_file: /etc/prometheus/secrets/nextjs-metrics-token/token
         static_configs:
           - targets: ["nextjs-preview.nextjs-app.svc.cluster.local:3000"]
 
