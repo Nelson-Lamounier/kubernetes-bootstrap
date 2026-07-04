@@ -1,1048 +1,2177 @@
 {
-  "annotations": {
-    "list": []
-  },
-  "editable": true,
-  "graphTooltip": 1,
-  "id": null,
-  "tags": [
-    "database",
-    "rds",
-    "postgres",
-    "pgvector"
-  ],
-  "title": "Database — RDS Postgres / pgvector",
-  "uid": "database",
-  "schemaVersion": 39,
-  "version": 2,
-  "refresh": "1m",
-  "time": {
-    "from": "now-3h",
-    "to": "now"
-  },
-  "templating": {
-    "list": [
-      {
-        "name": "user_email",
-        "type": "textbox",
-        "label": "User email",
-        "hide": 0,
-        "query": "",
-        "current": {
-          "text": "",
-          "value": ""
-        },
-        "skipUrlSync": false,
-        "description": "Filter the per-user panel (blank = all)"
-      }
-    ]
-  },
-  "panels": [
-    {
-      "type": "row",
-      "id": 100,
-      "title": "RDS instance health",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      }
+ "annotations": {
+  "list": []
+ },
+ "editable": true,
+ "graphTooltip": 1,
+ "id": null,
+ "tags": [
+  "database",
+  "rds",
+  "postgres",
+  "pgvector"
+ ],
+ "title": "Database \u2014 RDS Postgres / pgvector",
+ "uid": "database",
+ "schemaVersion": 39,
+ "version": 2,
+ "refresh": "1m",
+ "time": {
+  "from": "now-3h",
+  "to": "now"
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "rds_instance",
+    "type": "constant",
+    "label": "RDS instance",
+    "query": "k8s-dev-platform-rds-iso",
+    "current": {
+     "text": "k8s-dev-platform-rds-iso",
+     "value": "k8s-dev-platform-rds-iso"
     },
-    {
-      "id": 107,
-      "type": "stat",
-      "title": "RDS reachable",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 4,
-        "x": 0,
-        "y": 1
-      },
-      "fieldConfig": {
-        "defaults": {
-          "noValue": "Unreachable",
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "1": { "text": "Healthy", "color": "green", "index": 0 }
-              }
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 1 }
-            ]
-          }
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "none"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "format": "table",
-          "rawSql": "SELECT 1 AS healthy"
-        }
-      ]
+    "hide": 2,
+    "skipUrlSync": false,
+    "description": "RDS DBInstanceIdentifier \u2014 change here on a rename"
+   },
+   {
+    "name": "user_email",
+    "type": "textbox",
+    "label": "User email",
+    "hide": 0,
+    "query": "",
+    "current": {
+     "text": "",
+     "value": ""
     },
-    {
-      "id": 101,
-      "type": "stat",
-      "title": "CPU",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 4,
-        "y": 1
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 70
-              },
-              {
-                "color": "red",
-                "value": 90
-              }
-            ]
-          }
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "namespace": "AWS/RDS",
-          "metricName": "CPUUtilization",
-          "statistic": "Average",
-          "region": "eu-west-1",
-          "matchExact": true,
-          "dimensions": {
-            "DBInstanceIdentifier": "k8s-dev-platform-rds"
-          }
-        }
-      ]
-    },
-    {
-      "id": 102,
-      "type": "stat",
-      "title": "DB connections",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 9,
-        "y": 1
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 80
-              },
-              {
-                "color": "red",
-                "value": 100
-              }
-            ]
-          }
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "namespace": "AWS/RDS",
-          "metricName": "DatabaseConnections",
-          "statistic": "Average",
-          "region": "eu-west-1",
-          "matchExact": true,
-          "dimensions": {
-            "DBInstanceIdentifier": "k8s-dev-platform-rds"
-          }
-        }
-      ]
-    },
-    {
-      "id": 103,
-      "type": "stat",
-      "title": "Freeable memory",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 14,
-        "y": 1
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "decbytes"
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "namespace": "AWS/RDS",
-          "metricName": "FreeableMemory",
-          "statistic": "Average",
-          "region": "eu-west-1",
-          "matchExact": true,
-          "dimensions": {
-            "DBInstanceIdentifier": "k8s-dev-platform-rds"
-          }
-        }
-      ]
-    },
-    {
-      "id": 104,
-      "type": "stat",
-      "title": "Free storage",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 19,
-        "y": 1
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "decbytes",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 5368709120
-              },
-              {
-                "color": "green",
-                "value": 21474836480
-              }
-            ]
-          }
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "namespace": "AWS/RDS",
-          "metricName": "FreeStorageSpace",
-          "statistic": "Minimum",
-          "region": "eu-west-1",
-          "matchExact": true,
-          "dimensions": {
-            "DBInstanceIdentifier": "k8s-dev-platform-rds"
-          }
-        }
-      ]
-    },
-    {
-      "id": 105,
-      "type": "timeseries",
-      "title": "Read / Write IOPS",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "iops",
-          "min": 0
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "namespace": "AWS/RDS",
-          "metricName": "ReadIOPS",
-          "statistic": "Average",
-          "region": "eu-west-1",
-          "matchExact": true,
-          "dimensions": {
-            "DBInstanceIdentifier": "k8s-dev-platform-rds"
-          }
-        },
-        {
-          "refId": "B",
-          "namespace": "AWS/RDS",
-          "metricName": "WriteIOPS",
-          "statistic": "Average",
-          "region": "eu-west-1",
-          "matchExact": true,
-          "dimensions": {
-            "DBInstanceIdentifier": "k8s-dev-platform-rds"
-          }
-        }
-      ]
-    },
-    {
-      "id": 106,
-      "type": "timeseries",
-      "title": "Read / Write latency",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 6
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "min": 0
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "namespace": "AWS/RDS",
-          "metricName": "ReadLatency",
-          "statistic": "Average",
-          "region": "eu-west-1",
-          "matchExact": true,
-          "dimensions": {
-            "DBInstanceIdentifier": "k8s-dev-platform-rds"
-          }
-        },
-        {
-          "refId": "B",
-          "namespace": "AWS/RDS",
-          "metricName": "WriteLatency",
-          "statistic": "Average",
-          "region": "eu-west-1",
-          "matchExact": true,
-          "dimensions": {
-            "DBInstanceIdentifier": "k8s-dev-platform-rds"
-          }
-        }
-      ]
-    },
-    {
-      "type": "row",
-      "id": 200,
-      "title": "PgBouncer connection pool",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 14
-      }
-    },
-    {
-      "id": 201,
-      "type": "timeseries",
-      "title": "Active / waiting clients (per pool)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 15
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        }
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (database) (pgbouncer_pools_client_active_connections)",
-          "legendFormat": "{{database}} active"
-        },
-        {
-          "refId": "B",
-          "expr": "sum by (database) (pgbouncer_pools_client_waiting_connections)",
-          "legendFormat": "{{database}} waiting"
-        }
-      ]
-    },
-    {
-      "id": 202,
-      "type": "timeseries",
-      "title": "Server connections in use",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 15
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        }
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (database) (pgbouncer_pools_server_active_connections)",
-          "legendFormat": "{{database}} active"
-        },
-        {
-          "refId": "B",
-          "expr": "sum by (database) (pgbouncer_pools_server_idle_connections)",
-          "legendFormat": "{{database}} idle"
-        }
-      ]
-    },
-    {
-      "type": "row",
-      "id": 300,
-      "title": "App pg activity (from OTel pg instrumentation)",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 23
-      }
-    },
-    {
-      "id": 301,
-      "type": "timeseries",
-      "title": "DB calls / sec by service",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 24
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "min": 0
-        }
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_CLIENT\",db_system=\"postgresql\"}[5m]))",
-          "legendFormat": "{{service_name}}"
-        }
-      ]
-    },
-    {
-      "id": 302,
-      "type": "timeseries",
-      "title": "DB call p95 latency by service",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "min": 0
-        }
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "right"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_CLIENT\",db_system=\"postgresql\"}[5m])))",
-          "legendFormat": "{{service_name}}"
-        }
-      ]
-    },
-    {
-      "type": "row",
-      "id": 400,
-      "title": "pgvector — embeddings tables",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 32
-      }
-    },
-    {
-      "id": 401,
-      "type": "table",
-      "title": "Vectors by repo (document_embeddings)",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 33
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0,
-          "displayName": "embeddings / interval"
-        }
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "rawSql": "SELECT repo_full_name, COUNT(*) AS vectors FROM document_embeddings GROUP BY repo_full_name ORDER BY vectors DESC LIMIT 25",
-          "format": "table",
-          "refId": "A"
-        }
-      ],
-      "description": "Vector rows per repo in document_embeddings (the RAG store)."
-    },
-    {
-      "id": 402,
-      "type": "stat",
-      "title": "Total vectors",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 33
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT count(*) AS \"Total vectors\" FROM document_embeddings",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "id": 403,
-      "type": "stat",
-      "title": "Table size",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 33
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "decbytes"
-        }
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "value"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT pg_relation_size('document_embeddings') AS \"bytes\"",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "id": 404,
-      "type": "table",
-      "title": "pgvector index health",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 12,
-        "x": 12,
-        "y": 37
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        }
-      },
-      "options": {
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Scans"
-          }
-        ]
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "rawSql": "SELECT indexrelname AS \"Index\",\n  pg_size_pretty(pg_relation_size(indexrelid)) AS \"Size\",\n  idx_scan AS \"Scans\",\n  idx_tup_read AS \"Tuples read\",\n  idx_tup_fetch AS \"Tuples fetched\"\nFROM pg_stat_user_indexes\nWHERE relname = 'document_embeddings'\nORDER BY idx_scan DESC",
-          "format": "table"
-        }
-      ]
-    },
-    {
-      "type": "row",
-      "id": 500,
-      "title": "RDS PostgreSQL logs",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 41
-      }
-    },
-    {
-      "id": 501,
-      "type": "logs",
-      "title": "Recent errors / warnings",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 42
-      },
-      "options": {
-        "dedupStrategy": "none",
-        "showLabels": false,
-        "showTime": true,
-        "sortOrder": "Descending",
-        "wrapLogMessage": true
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "queryMode": "Logs",
-          "logGroups": [
-            {
-              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds/postgresql:*",
-              "name": "/aws/rds/instance/k8s-dev-platform-rds/postgresql"
-            }
-          ],
-          "expression": "fields @timestamp, @message | filter @message like /ERROR|FATAL|PANIC|WARNING/ | sort @timestamp desc | limit 200",
-          "region": "eu-west-1"
-        }
-      ]
-    },
-    {
-      "id": 502,
-      "type": "timeseries",
-      "title": "Error / warning rate",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 52
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        }
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "queryMode": "Logs",
-          "logGroups": [
-            {
-              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds/postgresql:*",
-              "name": "/aws/rds/instance/k8s-dev-platform-rds/postgresql"
-            }
-          ],
-          "expression": "filter @message like /ERROR|FATAL|WARNING/ | stats count() as log_count by bin(1m)",
-          "region": "eu-west-1"
-        }
-      ]
-    },
-    {
-      "id": 503,
-      "type": "timeseries",
-      "title": "Connection events / min",
-      "datasource": {
-        "type": "cloudwatch",
-        "uid": "cloudwatch"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 52
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        }
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "queryMode": "Logs",
-          "logGroups": [
-            {
-              "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds/postgresql:*",
-              "name": "/aws/rds/instance/k8s-dev-platform-rds/postgresql"
-            }
-          ],
-          "expression": "filter @message like /connection received|connection authorized|disconnection/ | stats count() as connections by bin(1m)",
-          "region": "eu-west-1"
-        }
-      ]
-    },
-    {
-      "type": "row",
-      "id": 600,
-      "title": "Users & activity (granular — per user / per rank)",
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 60
-      }
-    },
-    {
-      "id": 601,
-      "type": "table",
-      "title": "Users by plan / role / status",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 0,
-        "y": 61
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        }
-      },
-      "options": {
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Scans"
-          }
-        ]
-      },
-      "targets": [
-        {
-          "rawSql": "SELECT COALESCE(plan,'(none)') AS plan, COALESCE(role,'(none)') AS role, COALESCE(subscription_status,'(none)') AS status, COUNT(*) AS users FROM users WHERE deleted_at IS NULL GROUP BY plan, role, subscription_status ORDER BY users DESC",
-          "format": "table",
-          "refId": "A"
-        }
-      ],
-      "description": "Live user composition."
-    },
-    {
-      "id": 602,
-      "type": "table",
-      "title": "Top users by Bedrock spend (30d)",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 61
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        }
-      },
-      "options": {
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Scans"
-          }
-        ]
-      },
-      "targets": [
-        {
-          "rawSql": "SELECT RANK() OVER (ORDER BY SUM(pi.total_cost_cents) DESC) AS rank, u.email, u.plan, COUNT(pi.id) AS calls, ROUND(SUM(pi.total_cost_cents)/100.0,4) AS usd FROM prompt_invocations pi JOIN users u ON u.id=pi.user_id WHERE pi.invoked_at > NOW() - INTERVAL '30 days' GROUP BY u.email, u.plan ORDER BY usd DESC NULLS LAST LIMIT 20",
-          "format": "table",
-          "refId": "A"
-        }
-      ],
-      "description": "Ranked spend from prompt_invocations joined to users."
-    },
-    {
-      "id": 603,
-      "type": "table",
-      "title": "Top users by repos + KB quality",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 61
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        }
-      },
-      "options": {
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Scans"
-          }
-        ]
-      },
-      "targets": [
-        {
-          "rawSql": "SELECT RANK() OVER (ORDER BY COUNT(rss.repo_full_name) DESC) AS rank, u.email, u.plan, COUNT(rss.repo_full_name) AS repos, ROUND(AVG(rss.kb_quality_score)::numeric,2) AS avg_kb_quality, ROUND(AVG(rss.retrieval_score)::numeric,2) AS avg_retrieval, MAX(rss.last_synced_at) AS last_synced FROM users u LEFT JOIN repo_sync_state rss ON rss.user_id=u.id WHERE u.deleted_at IS NULL GROUP BY u.email, u.plan ORDER BY repos DESC NULLS LAST LIMIT 20",
-          "format": "table",
-          "refId": "A"
-        }
-      ],
-      "description": "Ranked by repos synced; avg KB quality + retrieval from repo_sync_state."
-    },
-    {
-      "id": 604,
-      "type": "table",
-      "title": "Per-user repos (set $user_email; blank = all)",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 69
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        }
-      },
-      "options": {
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Scans"
-          }
-        ]
-      },
-      "targets": [
-        {
-          "rawSql": "SELECT u.email, rss.repo_full_name, rss.sync_status, COALESCE(rss.last_sync_type,'-') AS sync_type, rss.last_synced_at, rss.file_count, rss.chunk_count, ROUND(rss.kb_quality_score::numeric,2) AS kb_quality, ROUND(rss.retrieval_score::numeric,2) AS retrieval FROM repo_sync_state rss JOIN users u ON u.id=rss.user_id WHERE (${user_email:sqlstring} = '' OR u.email = ${user_email:sqlstring}) ORDER BY rss.last_synced_at DESC NULLS LAST LIMIT 100",
-          "format": "table",
-          "refId": "A"
-        }
-      ],
-      "description": "Drill into one user's repos: sync status, type, quality, counts. Safe-quoted via :sqlstring."
-    },
-    {
-      "id": 605,
-      "type": "table",
-      "title": "Users directory",
-      "datasource": {
-        "type": "postgres",
-        "uid": "rds-postgres"
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 78
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        }
-      },
-      "options": {
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Scans"
-          }
-        ]
-      },
-      "targets": [
-        {
-          "rawSql": "SELECT email, full_name, plan, role, subscription_status, created_at, current_period_end FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 100",
-          "format": "table",
-          "refId": "A"
-        }
-      ],
-      "description": "Full user list (excludes soft-deleted)."
-    }
+    "skipUrlSync": false,
+    "description": "Filter the per-user panel (blank = all)"
+   }
   ]
+ },
+ "panels": [
+  {
+   "type": "row",
+   "id": 100,
+   "title": "RDS instance health",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "id": 107,
+   "type": "stat",
+   "title": "RDS reachable",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 4,
+    "x": 0,
+    "y": 1
+   },
+   "fieldConfig": {
+    "defaults": {
+     "noValue": "Unreachable",
+     "mappings": [
+      {
+       "type": "value",
+       "options": {
+        "1": {
+         "text": "Healthy",
+         "color": "green",
+         "index": 0
+        }
+       }
+      }
+     ],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background",
+    "graphMode": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "table",
+     "rawSql": "SELECT 1 AS healthy"
+    }
+   ]
+  },
+  {
+   "id": 101,
+   "type": "stat",
+   "title": "CPU",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 5,
+    "x": 4,
+    "y": 1
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 70
+       },
+       {
+        "color": "red",
+        "value": 90
+       }
+      ]
+     }
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "CPUUtilization",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ]
+  },
+  {
+   "id": 102,
+   "type": "stat",
+   "title": "DB connections",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 5,
+    "x": 9,
+    "y": 1
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 80
+       },
+       {
+        "color": "red",
+        "value": 100
+       }
+      ]
+     }
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "DatabaseConnections",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ]
+  },
+  {
+   "id": 103,
+   "type": "stat",
+   "title": "Freeable memory",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 5,
+    "x": 14,
+    "y": 1
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "decbytes"
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "FreeableMemory",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ]
+  },
+  {
+   "id": 104,
+   "type": "stat",
+   "title": "Free storage",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "gridPos": {
+    "h": 5,
+    "w": 5,
+    "x": 19,
+    "y": 1
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "decbytes",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 5368709120
+       },
+       {
+        "color": "green",
+        "value": 21474836480
+       }
+      ]
+     }
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "background"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "FreeStorageSpace",
+     "statistic": "Minimum",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ]
+  },
+  {
+   "id": 105,
+   "type": "timeseries",
+   "title": "Read / Write IOPS",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 6
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "iops",
+     "min": 0
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "ReadIOPS",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    },
+    {
+     "refId": "B",
+     "namespace": "AWS/RDS",
+     "metricName": "WriteIOPS",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ]
+  },
+  {
+   "id": 106,
+   "type": "timeseries",
+   "title": "Read / Write latency",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 6
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "min": 0
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "ReadLatency",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    },
+    {
+     "refId": "B",
+     "namespace": "AWS/RDS",
+     "metricName": "WriteLatency",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "id": 200,
+   "title": "PgBouncer connection pool",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 14
+   }
+  },
+  {
+   "id": 201,
+   "type": "timeseries",
+   "title": "Active / waiting clients (per pool)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 15
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0
+    }
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (database) (pgbouncer_pools_client_active_connections)",
+     "legendFormat": "{{database}} active"
+    },
+    {
+     "refId": "B",
+     "expr": "sum by (database) (pgbouncer_pools_client_waiting_connections)",
+     "legendFormat": "{{database}} waiting"
+    }
+   ]
+  },
+  {
+   "id": 202,
+   "type": "timeseries",
+   "title": "Server connections in use",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 15
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0
+    }
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (database) (pgbouncer_pools_server_active_connections)",
+     "legendFormat": "{{database}} active"
+    },
+    {
+     "refId": "B",
+     "expr": "sum by (database) (pgbouncer_pools_server_idle_connections)",
+     "legendFormat": "{{database}} idle"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "id": 300,
+   "title": "App pg activity (from OTel pg instrumentation)",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 23
+   }
+  },
+  {
+   "id": 301,
+   "type": "timeseries",
+   "title": "DB calls / sec by service",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 24
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ops",
+     "min": 0
+    }
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (service_name) (rate(traces_spanmetrics_calls_total{span_kind=\"SPAN_KIND_CLIENT\",db_system=\"postgresql\"}[5m]))",
+     "legendFormat": "{{service_name}}"
+    }
+   ]
+  },
+  {
+   "id": 302,
+   "type": "timeseries",
+   "title": "DB call p95 latency by service",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 24
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "min": 0
+    }
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "right"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(traces_spanmetrics_latency_bucket{span_kind=\"SPAN_KIND_CLIENT\",db_system=\"postgresql\"}[5m])))",
+     "legendFormat": "{{service_name}}"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "id": 400,
+   "title": "pgvector \u2014 embeddings tables",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 32
+   }
+  },
+  {
+   "id": 401,
+   "type": "table",
+   "title": "Vectors by repo (document_embeddings)",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 33
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "displayName": "embeddings / interval"
+    }
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT repo_full_name, COUNT(*) AS vectors FROM document_embeddings GROUP BY repo_full_name ORDER BY vectors DESC LIMIT 25",
+     "format": "table",
+     "refId": "A"
+    }
+   ],
+   "description": "Vector rows per repo in document_embeddings (the RAG store)."
+  },
+  {
+   "id": 402,
+   "type": "stat",
+   "title": "Total vectors",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 12,
+    "y": 33
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "rawSql": "SELECT count(*) AS \"Total vectors\" FROM document_embeddings",
+     "format": "table"
+    }
+   ]
+  },
+  {
+   "id": 403,
+   "type": "stat",
+   "title": "Table size",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 6,
+    "x": 18,
+    "y": 33
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "decbytes"
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "rawSql": "SELECT pg_relation_size('document_embeddings') AS \"bytes\"",
+     "format": "table"
+    }
+   ]
+  },
+  {
+   "id": 404,
+   "type": "table",
+   "title": "pgvector index health",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 12,
+    "x": 12,
+    "y": 37
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "sortBy": [
+     {
+      "desc": true,
+      "displayName": "Scans"
+     }
+    ]
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "rawSql": "SELECT indexrelname AS \"Index\",\n  pg_size_pretty(pg_relation_size(indexrelid)) AS \"Size\",\n  idx_scan AS \"Scans\",\n  idx_tup_read AS \"Tuples read\",\n  idx_tup_fetch AS \"Tuples fetched\"\nFROM pg_stat_user_indexes\nWHERE relname = 'document_embeddings'\nORDER BY idx_scan DESC",
+     "format": "table"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "id": 500,
+   "title": "RDS PostgreSQL logs",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 41
+   }
+  },
+  {
+   "id": 501,
+   "type": "logs",
+   "title": "Recent errors / warnings",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "gridPos": {
+    "h": 10,
+    "w": 24,
+    "x": 0,
+    "y": 42
+   },
+   "options": {
+    "dedupStrategy": "none",
+    "showLabels": false,
+    "showTime": true,
+    "sortOrder": "Descending",
+    "wrapLogMessage": true
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "queryMode": "Logs",
+     "logGroups": [
+      {
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*",
+       "name": "/aws/rds/instance/${rds_instance}/postgresql"
+      }
+     ],
+     "expression": "fields @timestamp, @message | filter @message like /ERROR|FATAL|PANIC|WARNING/ | sort @timestamp desc | limit 200",
+     "region": "eu-west-1"
+    }
+   ]
+  },
+  {
+   "id": 502,
+   "type": "timeseries",
+   "title": "Error / warning rate",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 52
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0
+    }
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "queryMode": "Logs",
+     "logGroups": [
+      {
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*",
+       "name": "/aws/rds/instance/${rds_instance}/postgresql"
+      }
+     ],
+     "expression": "filter @message like /ERROR|FATAL|WARNING/ | stats count() as log_count by bin(1m)",
+     "region": "eu-west-1"
+    }
+   ]
+  },
+  {
+   "id": 503,
+   "type": "timeseries",
+   "title": "Connection events / min",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 52
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0
+    }
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "queryMode": "Logs",
+     "logGroups": [
+      {
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*",
+       "name": "/aws/rds/instance/${rds_instance}/postgresql"
+      }
+     ],
+     "expression": "filter @message like /connection received|connection authorized|disconnection/ | stats count() as connections by bin(1m)",
+     "region": "eu-west-1"
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "id": 600,
+   "title": "Users & activity (granular \u2014 per user / per rank)",
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 60
+   }
+  },
+  {
+   "id": 601,
+   "type": "table",
+   "title": "Users by plan / role / status",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 0,
+    "y": 61
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "sortBy": [
+     {
+      "desc": true,
+      "displayName": "Scans"
+     }
+    ]
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT COALESCE(plan,'(none)') AS plan, COALESCE(role,'(none)') AS role, COALESCE(subscription_status,'(none)') AS status, COUNT(*) AS users FROM users WHERE deleted_at IS NULL GROUP BY plan, role, subscription_status ORDER BY users DESC",
+     "format": "table",
+     "refId": "A"
+    }
+   ],
+   "description": "Live user composition."
+  },
+  {
+   "id": 602,
+   "type": "table",
+   "title": "Top users by Bedrock spend (30d)",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 8,
+    "y": 61
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "sortBy": [
+     {
+      "desc": true,
+      "displayName": "Scans"
+     }
+    ]
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT RANK() OVER (ORDER BY SUM(pi.total_cost_cents) DESC) AS rank, u.email, u.plan, COUNT(pi.id) AS calls, ROUND(SUM(pi.total_cost_cents)/100.0,4) AS usd FROM prompt_invocations pi JOIN users u ON u.id=pi.user_id WHERE pi.invoked_at > NOW() - INTERVAL '30 days' GROUP BY u.email, u.plan ORDER BY usd DESC NULLS LAST LIMIT 20",
+     "format": "table",
+     "refId": "A"
+    }
+   ],
+   "description": "Ranked spend from prompt_invocations joined to users."
+  },
+  {
+   "id": 603,
+   "type": "table",
+   "title": "Top users by repos + KB quality",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 16,
+    "y": 61
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "sortBy": [
+     {
+      "desc": true,
+      "displayName": "Scans"
+     }
+    ]
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT RANK() OVER (ORDER BY COUNT(rss.repo_full_name) DESC) AS rank, u.email, u.plan, COUNT(rss.repo_full_name) AS repos, ROUND(AVG(rss.kb_quality_score)::numeric,2) AS avg_kb_quality, ROUND(AVG(rss.retrieval_score)::numeric,2) AS avg_retrieval, MAX(rss.last_synced_at) AS last_synced FROM users u LEFT JOIN repo_sync_state rss ON rss.user_id=u.id WHERE u.deleted_at IS NULL GROUP BY u.email, u.plan ORDER BY repos DESC NULLS LAST LIMIT 20",
+     "format": "table",
+     "refId": "A"
+    }
+   ],
+   "description": "Ranked by repos synced; avg KB quality + retrieval from repo_sync_state."
+  },
+  {
+   "id": 604,
+   "type": "table",
+   "title": "Per-user repos (set $user_email; blank = all)",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 69
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "sortBy": [
+     {
+      "desc": true,
+      "displayName": "Scans"
+     }
+    ]
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT u.email, rss.repo_full_name, rss.sync_status, COALESCE(rss.last_sync_type,'-') AS sync_type, rss.last_synced_at, rss.file_count, rss.chunk_count, ROUND(rss.kb_quality_score::numeric,2) AS kb_quality, ROUND(rss.retrieval_score::numeric,2) AS retrieval FROM repo_sync_state rss JOIN users u ON u.id=rss.user_id WHERE (${user_email:sqlstring} = '' OR u.email = ${user_email:sqlstring}) ORDER BY rss.last_synced_at DESC NULLS LAST LIMIT 100",
+     "format": "table",
+     "refId": "A"
+    }
+   ],
+   "description": "Drill into one user's repos: sync status, type, quality, counts. Safe-quoted via :sqlstring."
+  },
+  {
+   "id": 605,
+   "type": "table",
+   "title": "Users directory",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "gridPos": {
+    "h": 9,
+    "w": 24,
+    "x": 0,
+    "y": 78
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "sortBy": [
+     {
+      "desc": true,
+      "displayName": "Scans"
+     }
+    ]
+   },
+   "targets": [
+    {
+     "rawSql": "SELECT email, full_name, plan, role, subscription_status, created_at, current_period_end FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 100",
+     "format": "table",
+     "refId": "A"
+    }
+   ],
+   "description": "Full user list (excludes soft-deleted)."
+  },
+  {
+   "id": 606,
+   "type": "row",
+   "title": "RDS \u2014 compute & burst credits (CloudWatch)",
+   "collapsed": false,
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 87
+   }
+  },
+  {
+   "id": 607,
+   "type": "timeseries",
+   "title": "CPU credit balance",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "Burstable t4g credit reserve. Exhaustion throttles to baseline and refuses connections \u2014 the failure that forced t4g.micro\u2192small.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2,
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": 0
+       },
+       {
+        "color": "orange",
+        "value": 30
+       },
+       {
+        "color": "green",
+        "value": 60
+       }
+      ]
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "CPUCreditBalance",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 88
+   }
+  },
+  {
+   "id": 608,
+   "type": "timeseries",
+   "title": "CPU credit usage",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "CPUCreditUsage",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 88
+   }
+  },
+  {
+   "id": 609,
+   "type": "timeseries",
+   "title": "Swap usage",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "Non-zero swap on a 2 GB box signals memory pressure.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "SwapUsage",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 96
+   }
+  },
+  {
+   "id": 610,
+   "type": "timeseries",
+   "title": "Burst / EBS IO balance",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "gp2 volume + instance IO burst reserves.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "BurstBalance",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    },
+    {
+     "refId": "B",
+     "namespace": "AWS/RDS",
+     "metricName": "EBSIOBalance%",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    },
+    {
+     "refId": "C",
+     "namespace": "AWS/RDS",
+     "metricName": "EBSByteBalance%",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 96
+   }
+  },
+  {
+   "id": 611,
+   "type": "row",
+   "title": "RDS \u2014 throughput & network (CloudWatch)",
+   "collapsed": false,
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 104
+   }
+  },
+  {
+   "id": 612,
+   "type": "timeseries",
+   "title": "Network throughput (in / out)",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "Bytes over the RDS ENI \u2014 the data trafficking to/from the DB.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "NetworkReceiveThroughput",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    },
+    {
+     "refId": "B",
+     "namespace": "AWS/RDS",
+     "metricName": "NetworkTransmitThroughput",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 105
+   }
+  },
+  {
+   "id": 613,
+   "type": "timeseries",
+   "title": "Disk throughput (read / write)",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "ReadThroughput",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    },
+    {
+     "refId": "B",
+     "namespace": "AWS/RDS",
+     "metricName": "WriteThroughput",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 105
+   }
+  },
+  {
+   "id": 614,
+   "type": "timeseries",
+   "title": "Disk queue depth",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "Outstanding IO. Sustained >5 = storage-bound.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2,
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": 0
+       },
+       {
+        "color": "orange",
+        "value": 5
+       }
+      ]
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "DiskQueueDepth",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 113
+   }
+  },
+  {
+   "id": 615,
+   "type": "timeseries",
+   "title": "Transaction log generation",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "WAL bytes/s \u2014 write pressure proxy.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "TransactionLogsGeneration",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 113
+   }
+  },
+  {
+   "id": 616,
+   "type": "row",
+   "title": "RDS \u2014 DB load (Performance Insights)",
+   "collapsed": false,
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 121
+   }
+  },
+  {
+   "id": 617,
+   "type": "timeseries",
+   "title": "DB load \u2014 average active sessions",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "Average active sessions. Above vCPU count (2) = saturation. Drill into wait events / top SQL in the Performance Insights console.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "DBLoad",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    },
+    {
+     "refId": "B",
+     "namespace": "AWS/RDS",
+     "metricName": "DBLoadCPU",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    },
+    {
+     "refId": "C",
+     "namespace": "AWS/RDS",
+     "metricName": "DBLoadNonCPU",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 122
+   }
+  },
+  {
+   "id": 618,
+   "type": "timeseries",
+   "title": "Max used transaction IDs",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "Wraparound risk \u2014 autovacuum health. Alert well before ~2 billion.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2,
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": 0
+       },
+       {
+        "color": "orange",
+        "value": 1000000000
+       },
+       {
+        "color": "red",
+        "value": 1500000000
+       }
+      ]
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "MaximumUsedTransactionIDs",
+     "statistic": "Average",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 122
+   }
+  },
+  {
+   "id": 619,
+   "type": "row",
+   "title": "Postgres engine health (live SQL)",
+   "collapsed": false,
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 130
+   }
+  },
+  {
+   "id": 620,
+   "type": "stat",
+   "title": "Connections used / max",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "description": "Backends vs the server ceiling.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "string"
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "table",
+     "rawSql": "SELECT (SELECT count(*) FROM pg_stat_activity) || ' / ' || current_setting('max_connections') AS used_max"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 131
+   }
+  },
+  {
+   "id": 621,
+   "type": "stat",
+   "title": "Cache hit ratio",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "description": "Buffer cache effectiveness; <95% suggests memory pressure or cold cache.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent"
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "table",
+     "rawSql": "SELECT round(100.0*sum(blks_hit)/nullif(sum(blks_hit+blks_read),0),2) AS hit FROM pg_stat_database"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 131
+   }
+  },
+  {
+   "id": 622,
+   "type": "stat",
+   "title": "Deadlocks (cumulative)",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "description": "",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "table",
+     "rawSql": "SELECT sum(deadlocks)::bigint AS deadlocks FROM pg_stat_database"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 139
+   }
+  },
+  {
+   "id": 623,
+   "type": "stat",
+   "title": "Blocked backends",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "description": "",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    }
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "colorMode": "value",
+    "graphMode": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "table",
+     "rawSql": "SELECT count(*) AS blocked FROM pg_stat_activity WHERE wait_event_type='Lock'"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 139
+   }
+  },
+  {
+   "id": 624,
+   "type": "table",
+   "title": "Connections by state / application",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "description": "",
+   "fieldConfig": {
+    "defaults": {}
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "table",
+     "rawSql": "SELECT state, coalesce(application_name,'-') AS app, count(*) AS conns, max(now()-xact_start)::text AS longest_txn FROM pg_stat_activity WHERE backend_type='client backend' GROUP BY state, application_name ORDER BY conns DESC"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 147
+   }
+  },
+  {
+   "id": 625,
+   "type": "table",
+   "title": "Top tables by dead tuples (autovacuum pressure)",
+   "datasource": {
+    "type": "postgres",
+    "uid": "rds-postgres"
+   },
+   "description": "",
+   "fieldConfig": {
+    "defaults": {}
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "format": "table",
+     "rawSql": "SELECT relname AS table, n_live_tup AS live, n_dead_tup AS dead, coalesce(last_autovacuum::text,'never') AS last_autovacuum FROM pg_stat_user_tables ORDER BY n_dead_tup DESC LIMIT 15"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 147
+   }
+  },
+  {
+   "id": 626,
+   "type": "row",
+   "title": "PgBouncer \u2014 traffic & wait (Prometheus)",
+   "collapsed": false,
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 155
+   }
+  },
+  {
+   "id": 627,
+   "type": "timeseries",
+   "title": "Bytes through pooler (in / out)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "description": "Traffic across the PgBouncer hop.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(rate(pgbouncer_stats_totals_received_bytes_total[5m]))",
+     "legendFormat": "received"
+    },
+    {
+     "refId": "B",
+     "expr": "sum(rate(pgbouncer_stats_totals_sent_bytes_total[5m]))",
+     "legendFormat": "sent"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 156
+   }
+  },
+  {
+   "id": 628,
+   "type": "timeseries",
+   "title": "Client max wait (queueing)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "description": "Longest a client waited for a server connection \u2014 >0 sustained means the pool is saturated.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max(pgbouncer_pools_client_maxwait_seconds)",
+     "legendFormat": "max wait"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 156
+   }
+  },
+  {
+   "id": 629,
+   "type": "timeseries",
+   "title": "Pooled query & transaction rate",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "description": "",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(rate(pgbouncer_stats_totals_queries_pooled_total[5m]))",
+     "legendFormat": "queries/s"
+    },
+    {
+     "refId": "B",
+     "expr": "sum(rate(pgbouncer_stats_totals_sql_transactions_pooled_total[5m]))",
+     "legendFormat": "txns/s"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 164
+   }
+  },
+  {
+   "id": 630,
+   "type": "timeseries",
+   "title": "Server pool utilisation",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "description": "",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(pgbouncer_pools_server_active_connections)",
+     "legendFormat": "active"
+    },
+    {
+     "refId": "B",
+     "expr": "sum(pgbouncer_databases_max_connections)",
+     "legendFormat": "limit"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 164
+   }
+  },
+  {
+   "id": 631,
+   "type": "row",
+   "title": "Connection failures",
+   "collapsed": false,
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "panels": [],
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 172
+   }
+  },
+  {
+   "id": 632,
+   "type": "timeseries",
+   "title": "IAM auth connection failures",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "description": "IAM-token auth outcomes.",
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "min": 0,
+     "custom": {
+      "fillOpacity": 8,
+      "lineWidth": 2
+     }
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "namespace": "AWS/RDS",
+     "metricName": "IamDbAuthConnectionFailure",
+     "statistic": "Sum",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    },
+    {
+     "refId": "B",
+     "namespace": "AWS/RDS",
+     "metricName": "IamDbAuthConnectionSuccess",
+     "statistic": "Sum",
+     "region": "eu-west-1",
+     "matchExact": true,
+     "dimensions": {
+      "DBInstanceIdentifier": "${rds_instance}"
+     }
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 173
+   }
+  },
+  {
+   "id": 633,
+   "type": "logs",
+   "title": "Connection failures (too-many / auth / pg_hba)",
+   "datasource": {
+    "type": "cloudwatch",
+    "uid": "cloudwatch"
+   },
+   "options": {
+    "showTime": true,
+    "sortOrder": "Descending",
+    "wrapLogMessage": true,
+    "dedupStrategy": "none"
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "queryMode": "Logs",
+     "region": "eu-west-1",
+     "logGroups": [
+      {
+       "name": "/aws/rds/instance/${rds_instance}/postgresql",
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*"
+      }
+     ],
+     "expression": "fields @timestamp, @message | filter @message like /too many clients|remaining connection slots|password authentication failed|no pg_hba.conf entry|FATAL/ | sort @timestamp desc | limit 200"
+    }
+   ],
+   "tags": [
+    "gen:rds-gaps"
+   ],
+   "gridPos": {
+    "h": 9,
+    "w": 12,
+    "x": 12,
+    "y": 173
+   }
+  }
+ ]
 }
