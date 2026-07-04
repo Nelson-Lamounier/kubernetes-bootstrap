@@ -7,7 +7,7 @@
   "title": "Frontend & RUM — portfolio + tucaken",
   "uid": "frontend-rum",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "links": [
     { "title": "Server: Next.js app metrics", "type": "link", "url": "/d/nextjs-app", "icon": "dashboard", "tooltip": "The pod-side counterpart — nextjs_* RED/memory/GC. Client (this dashboard) vs server (there): compare RUM TTFB against server request duration for the same route.", "targetBlank": false },
     { "title": "Networking / ingress", "type": "link", "url": "/d/networking", "icon": "dashboard", "tooltip": "ALB, ingress, and the Faro receiver's network path.", "targetBlank": false }
@@ -246,7 +246,7 @@
       "id": 40, "type": "table", "title": "LCP p75 by page",
       "description": "Worst Largest Contentful Paint per URL — where to optimise first.",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 28 },
       "fieldConfig": { "defaults": { "unit": "ms", "custom": { "filterable": true }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 2500 }, { "color": "red", "value": 4000 }] }, "color": { "mode": "thresholds" } }, "overrides": [
         { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "displayName", "value": "LCP p75" }] }
       ] },
@@ -256,10 +256,23 @@
       ]
     },
     {
+      "id": 42, "type": "table", "title": "CLS p75 by page",
+      "description": "Worst Cumulative Layout Shift per URL — answers 'the rating says needs-improvement, but where?'. Good ≤ 0.1, poor > 0.25. Sort descending to find the shifting page, then reserve space for the late-loading image/embed/font causing it.",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 3, "custom": { "filterable": true }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 0.25 }] }, "color": { "mode": "thresholds" } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "displayName", "value": "CLS p75" }] }
+      ] },
+      "options": { "sortBy": [{ "displayName": "CLS p75", "desc": true }], "showHeader": true },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "loki" }, "queryType": "instant", "format": "table", "instant": true, "expr": "quantile_over_time(0.75, {job=\"faro\"} | logfmt | app_name=~\"$app\" | app_environment=~\"$env\" | type=\"web-vitals\" | cls!=\"\" | unwrap cls [$__range]) by (page_url)" }
+      ]
+    },
+    {
       "id": 41, "type": "table", "title": "Page loads by page",
       "description": "Navigation volume per URL in the range.",
       "datasource": { "type": "loki", "uid": "loki" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 28 },
       "fieldConfig": { "defaults": { "unit": "short", "custom": { "filterable": true } }, "overrides": [
         { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "Page loads" }] }
       ] },
