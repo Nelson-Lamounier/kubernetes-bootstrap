@@ -27,3 +27,7 @@ pgbouncer:
 # ── Metrics exporter — pgbouncer-exporter sidecar on port 9127 ──────────────
 metricsExporter:
   enabled: true
+
+# ── postgres_exporter — RDS engine metrics (pg_stat_*) on port 9187 ─────────
+postgresExporter:
+  enabled: true

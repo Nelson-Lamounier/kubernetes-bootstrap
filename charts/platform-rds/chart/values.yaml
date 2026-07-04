@@ -66,3 +66,12 @@ metricsExporter:
   enabled: false
   image:   prometheuscommunity/pgbouncer-exporter:v0.12.0
   port:    9127
+
+# ── postgres_exporter — RDS engine metrics (pg_stat_*) for Prometheus ────────
+# Standalone Deployment + Service (not a sidecar) connecting directly to RDS.
+# Enable per-env; the database.json engine-health panels then gain a Prometheus
+# source alongside the live-SQL panels, and the PostgresExporterDown alert clears.
+postgresExporter:
+  enabled: false
+  image:   quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+  port:    9187
