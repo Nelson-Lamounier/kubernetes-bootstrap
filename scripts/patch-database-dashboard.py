@@ -14,7 +14,13 @@ import json, sys, pathlib
 
 DASH = pathlib.Path(__file__).resolve().parents[1] / "charts/monitoring/chart/dashboards/database.json"
 INSTANCE = "k8s-dev-platform-rds-iso"
-VAR = "${rds_instance}"
+# Hardcode the instance id directly into CloudWatch dimensions / log groups.
+# A Grafana template variable ($rds_instance) was tried (both `constant` and
+# `custom`) but neither interpolates into CloudWatch metric dimensions under
+# provisioned-JSON: the literal "${rds_instance}" leaks through and every RDS
+# panel reads "No data". The literal id is proven to return data. On a rename,
+# change INSTANCE here and re-run this script (single source of truth).
+VAR = INSTANCE
 REGION = "eu-west-1"
 CW = {"type": "cloudwatch", "uid": "cloudwatch"}
 PG = {"type": "postgres", "uid": "rds-postgres"}
@@ -23,23 +29,11 @@ MARK = "gen:rds-gaps"  # tag on generated rows so re-runs are idempotent
 
 d = json.loads(DASH.read_text())
 
-# ── 1. variable ───────────────────────────────────────────────────────────────
+# ── 1. no template variable (see VAR note above) — drop any stale one ────────
 tlist = d.setdefault("templating", {}).setdefault("list", [])
-if not any(v.get("name") == "rds_instance" for v in tlist):
-    tlist.insert(0, {
-        # custom (not constant): constant variables do not interpolate reliably
-        # in provisioned-JSON dashboards under GitOps, leaking the literal
-        # "${rds_instance}" into CloudWatch dimensions -> silent "No data".
-        "name": "rds_instance", "type": "custom", "label": "RDS instance",
-        "query": INSTANCE,
-        "options": [{"text": INSTANCE, "value": INSTANCE, "selected": True}],
-        "current": {"text": INSTANCE, "value": INSTANCE, "selected": True},
-        "includeAll": False, "multi": False,
-        "hide": 2, "skipUrlSync": False,
-        "description": "RDS DBInstanceIdentifier — change here on a rename",
-    })
+tlist[:] = [v for v in tlist if v.get("name") != "rds_instance"]
 
-# ── 2. repoint existing panels at the variable ───────────────────────────────
+# ── 2. repoint existing panels at the hardcoded instance id ──────────────────
 def repoint(node):
     if isinstance(node, dict):
         if node.get("dimensions", {}).get("DBInstanceIdentifier"):

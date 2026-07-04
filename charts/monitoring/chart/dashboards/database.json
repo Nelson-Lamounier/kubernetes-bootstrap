@@ -23,29 +23,6 @@
  "templating": {
   "list": [
    {
-    "name": "rds_instance",
-    "type": "custom",
-    "label": "RDS instance",
-    "query": "k8s-dev-platform-rds-iso",
-    "options": [
-     {
-      "text": "k8s-dev-platform-rds-iso",
-      "value": "k8s-dev-platform-rds-iso",
-      "selected": true
-     }
-    ],
-    "current": {
-     "text": "k8s-dev-platform-rds-iso",
-     "value": "k8s-dev-platform-rds-iso",
-     "selected": true
-    },
-    "includeAll": false,
-    "multi": false,
-    "hide": 2,
-    "skipUrlSync": false,
-    "description": "RDS DBInstanceIdentifier \u2014 change here on a rename. Custom (not constant) so it interpolates under GitOps provisioning."
-   },
-   {
     "name": "user_email",
     "type": "textbox",
     "label": "User email",
@@ -186,7 +163,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ]
@@ -244,7 +221,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ]
@@ -284,7 +261,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ]
@@ -342,7 +319,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ]
@@ -376,7 +353,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     },
     {
@@ -387,7 +364,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ]
@@ -421,7 +398,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     },
     {
@@ -432,7 +409,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ]
@@ -798,8 +775,8 @@
      "queryMode": "Logs",
      "logGroups": [
       {
-       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*",
-       "name": "/aws/rds/instance/${rds_instance}/postgresql"
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql:*",
+       "name": "/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql"
       }
      ],
      "expression": "fields @timestamp, @message | filter @message like /ERROR|FATAL|PANIC|WARNING/ | sort @timestamp desc | limit 200",
@@ -839,8 +816,8 @@
      "queryMode": "Logs",
      "logGroups": [
       {
-       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*",
-       "name": "/aws/rds/instance/${rds_instance}/postgresql"
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql:*",
+       "name": "/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql"
       }
      ],
      "expression": "filter @message like /ERROR|FATAL|WARNING/ | stats count() as log_count by bin(1m)",
@@ -880,8 +857,8 @@
      "queryMode": "Logs",
      "logGroups": [
       {
-       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*",
-       "name": "/aws/rds/instance/${rds_instance}/postgresql"
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql:*",
+       "name": "/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql"
       }
      ],
      "expression": "filter @message like /connection received|connection authorized|disconnection/ | stats count() as connections by bin(1m)",
@@ -1144,7 +1121,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -1186,7 +1163,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -1228,7 +1205,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -1270,7 +1247,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     },
     {
@@ -1281,7 +1258,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     },
     {
@@ -1292,7 +1269,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -1350,7 +1327,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     },
     {
@@ -1361,7 +1338,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -1403,7 +1380,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     },
     {
@@ -1414,7 +1391,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -1472,7 +1449,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -1514,7 +1491,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -1572,7 +1549,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     },
     {
@@ -1583,7 +1560,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     },
     {
@@ -1594,7 +1571,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -1656,7 +1633,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -2123,7 +2100,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     },
     {
@@ -2134,7 +2111,7 @@
      "region": "eu-west-1",
      "matchExact": true,
      "dimensions": {
-      "DBInstanceIdentifier": "${rds_instance}"
+      "DBInstanceIdentifier": "k8s-dev-platform-rds-iso"
      }
     }
    ],
@@ -2169,8 +2146,8 @@
      "region": "eu-west-1",
      "logGroups": [
       {
-       "name": "/aws/rds/instance/${rds_instance}/postgresql",
-       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/${rds_instance}/postgresql:*"
+       "name": "/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql",
+       "arn": "arn:aws:logs:eu-west-1:771826808455:log-group:/aws/rds/instance/k8s-dev-platform-rds-iso/postgresql:*"
       }
      ],
      "expression": "fields @timestamp, @message | filter @message like /too many clients|remaining connection slots|password authentication failed|no pg_hba.conf entry|FATAL/ | sort @timestamp desc | limit 200"
