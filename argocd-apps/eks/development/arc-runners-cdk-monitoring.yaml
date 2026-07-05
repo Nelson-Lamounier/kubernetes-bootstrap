@@ -32,8 +32,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
-
+  project: infra
   source:
     repoURL: ghcr.io/actions/actions-runner-controller-charts
     chart: gha-runner-scale-set

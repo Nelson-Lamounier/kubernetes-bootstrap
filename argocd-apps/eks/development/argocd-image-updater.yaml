@@ -27,7 +27,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: infra
   source:
     chart: argocd-image-updater
     repoURL: https://argoproj.github.io/argo-helm
