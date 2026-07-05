@@ -50,7 +50,10 @@ metadata:
     argocd.argoproj.io/hook: PostSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
-  ttlSecondsAfterFinished: 300
+  # activeDeadlineSeconds (not ttlSecondsAfterFinished): forces a terminal
+  # state so a stuck ArgoCD PostSync hook fails the sync instead of
+  # wedging it non-terminally. Cleanup is owned by hook-delete-policy.
+  activeDeadlineSeconds: 300
   template:
     spec:
       serviceAccountName: waf-annotator
