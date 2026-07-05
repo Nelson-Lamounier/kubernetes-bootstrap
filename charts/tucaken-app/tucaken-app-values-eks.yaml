@@ -62,12 +62,17 @@ topologySpreadConstraints:
         app: tucaken-app
 
 # ---------------------------------------------------------------------------
-# Resource requests/limits — EKS baseline for accurate Karpenter bin-packing
+# Resource requests/limits — sized from observed usage, not copy-paste
 # ---------------------------------------------------------------------------
+# 24h live profile (Prometheus, 2026-07-05): CPU ~15m avg / 38m max;
+# memory working set 70–157Mi. CPU request anchors the HPA (70% target →
+# scale-out at 35m sustained); 50m keeps the observed 38m blips from
+# flapping replicas while still reserving ⅓ of the old blanket value.
+# Limits follow the base file's SSR-burst sizing (300m/384Mi ≈ 2× peak).
 resources:
   requests:
-    cpu: "100m"
-    memory: "256Mi"
+    cpu: "50m"
+    memory: "160Mi"
   limits:
-    cpu: "500m"
-    memory: "512Mi"
+    cpu: "300m"
+    memory: "384Mi"
