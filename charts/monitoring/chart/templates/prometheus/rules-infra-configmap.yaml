@@ -311,4 +311,76 @@ data:
                 Autovacuum is falling behind on freezing; approaching the ~2.1
                 billion wraparound ceiling risks a forced read-only shutdown.
                 Investigate autovacuum and long-running transactions.
+
+      # ── Cluster networking — VPC CNI IP capacity + ALB edge errors ──────────
+      # CNI series come from the aws-node scrape (awscni_*, verified live).
+      # ALB series come from YACE (aws_applicationelb_*, AWS/ApplicationELB
+      # discovery job) — previously unalertable because a Prometheus rule cannot
+      # evaluate a CloudWatch metric. LB-level series carry no TargetGroup, so
+      # {dimension_TargetGroup=""} isolates them from the per-target-group fan-out.
+      - name: infra:network
+        rules:
+          - alert: VpcCniIpExhaustion
+            expr: |
+              count((awscni_total_ip_addresses - awscni_assigned_ip_addresses) <= 0) > 0
+            for: 5m
+            labels:
+              severity: critical
+              service:  vpc-cni
+              team:     platform
+            annotations:
+              summary: "A node has exhausted its VPC CNI IP pool"
+              description: >
+                One or more nodes have zero free ENI IP addresses — new pods on
+                that node will hang in ContainerCreating (failed to assign an IP).
+                Karpenter should add capacity; if it does not, check the ENI/IP
+                limit for the instance type and the IP-pool utilisation panel.
+                kubectl get pods -A --field-selector status.phase=Pending
+
+          - alert: VpcCniIpPoolHigh
+            expr: |
+              max(awscni_assigned_ip_addresses / clamp_min(awscni_total_ip_addresses, 1)) > 0.9
+            for: 10m
+            labels:
+              severity: warning
+              service:  vpc-cni
+              team:     platform
+            annotations:
+              summary: "VPC CNI IP-pool utilisation > 90% on a node"
+              description: >
+                A node is within 10% of IP exhaustion for > 10m. Pod scheduling
+                headroom on that node is nearly gone. Correlate with the ENI
+                allocated-vs-max and IP-utilisation panels on the Networking
+                dashboard.
+
+          - alert: AlbTarget5xxHigh
+            expr: |
+              sum(aws_applicationelb_httpcode_target_5_xx_count_sum{dimension_TargetGroup=""}) > 10
+            for: 5m
+            labels:
+              severity: warning
+              service:  alb
+              team:     platform
+            annotations:
+              summary: "ALB targets returning > 10 5xx per 5m window"
+              description: >
+                Backends behind the public ALB are erroring. These are
+                target-generated 5xx (the app), not the ALB itself. Check the
+                HTTP-target-codes panel and the failing workload's logs.
+
+          - alert: AlbElb5xxHigh
+            expr: |
+              sum(aws_applicationelb_httpcode_elb_5_xx_count_sum{dimension_TargetGroup=""}) > 5
+            for: 5m
+            labels:
+              severity: critical
+              service:  alb
+              team:     platform
+            annotations:
+              summary: "ALB is generating 5xx (no healthy targets / capacity)"
+              description: >
+                ELB-generated 5xx mean the ALB could not route a request — usually
+                no healthy targets, target group draining, or connection limits.
+                Distinct from target 5xx. Check target-group health and the
+                healthy-host-count panel.
 {{- end }}

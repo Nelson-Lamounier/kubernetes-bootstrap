@@ -7,81 +7,81 @@
   "title": "Networking — ALB Ingress, Faro & VPC CNI",
   "uid": "networking",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "30s",
   "time": { "from": "now-1h", "to": "now" },
   "templating": { "list": [] },
   "panels": [
     { "type": "row", "id": 100, "title": "Edge — ALB (primary ingress)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
     {
-      "id": 101, "type": "timeseries", "title": "ALB request count (Sum)",
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "id": 101, "type": "timeseries", "title": "ALB request count (per 5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
-        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "RequestCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "requests" }
+        { "refId": "A", "expr": "sum(aws_applicationelb_request_count_sum{dimension_TargetGroup=\"\"})", "legendFormat": "requests" }
       ]
     },
     {
       "id": 102, "type": "timeseries", "title": "ALB target p95 response time",
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
       "fieldConfig": { "defaults": { "unit": "s", "min": 0 } },
       "targets": [
-        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "TargetResponseTime", "statistic": "p95", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "p95" }
+        { "refId": "A", "expr": "max(aws_applicationelb_target_response_time_p95{dimension_TargetGroup=\"\"})", "legendFormat": "p95" }
       ]
     },
     {
       "id": 103, "type": "timeseries", "title": "ALB HTTP target codes (2xx / 4xx / 5xx)",
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
-        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_2XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "2xx" },
-        { "refId": "B", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_4XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "4xx" },
-        { "refId": "C", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_5XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "5xx" }
+        { "refId": "A", "expr": "sum(aws_applicationelb_httpcode_target_2_xx_count_sum{dimension_TargetGroup=\"\"})", "legendFormat": "2xx" },
+        { "refId": "B", "expr": "sum(aws_applicationelb_httpcode_target_4_xx_count_sum{dimension_TargetGroup=\"\"})", "legendFormat": "4xx" },
+        { "refId": "C", "expr": "sum(aws_applicationelb_httpcode_target_5_xx_count_sum{dimension_TargetGroup=\"\"})", "legendFormat": "5xx" }
       ]
     },
     {
-      "id": 104, "type": "timeseries", "title": "ALB connections (active / new)",
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "id": 104, "type": "timeseries", "title": "ALB connections (active / new, per 5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
       "targets": [
-        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "ActiveConnectionCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "active" },
-        { "refId": "B", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "NewConnectionCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true, "label": "new" }
+        { "refId": "A", "expr": "sum(aws_applicationelb_active_connection_count_sum{dimension_TargetGroup=\"\"})", "legendFormat": "active" },
+        { "refId": "B", "expr": "sum(aws_applicationelb_new_connection_count_sum{dimension_TargetGroup=\"\"})", "legendFormat": "new" }
       ]
     },
     {
-      "id": 105, "type": "stat", "title": "ALB 5xx (ELB-generated, Sum)",
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "id": 105, "type": "stat", "title": "ALB 5xx (ELB-generated, per 5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 4, "w": 8, "x": 0, "y": 17 },
       "fieldConfig": { "defaults": { "unit": "short", "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_ELB_5XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true }
+        { "refId": "A", "expr": "sum(aws_applicationelb_httpcode_elb_5_xx_count_sum{dimension_TargetGroup=\"\"})" }
       ]
     },
     {
-      "id": 106, "type": "stat", "title": "Rejected connections (Sum)",
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "id": 106, "type": "stat", "title": "Rejected connections (per 5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 4, "w": 8, "x": 8, "y": 17 },
       "fieldConfig": { "defaults": { "unit": "short", "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "RejectedConnectionCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true }
+        { "refId": "A", "expr": "sum(aws_applicationelb_rejected_connection_count_sum{dimension_TargetGroup=\"\"})" }
       ]
     },
     {
-      "id": 107, "type": "stat", "title": "Target connection errors (Sum)",
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "id": 107, "type": "stat", "title": "Target connection errors (per 5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 4, "w": 8, "x": 16, "y": 17 },
       "fieldConfig": { "defaults": { "unit": "short", "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 }] } } },
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
       "targets": [
-        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "TargetConnectionErrorCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605" }, "matchExact": true }
+        { "refId": "A", "expr": "sum(aws_applicationelb_target_connection_error_count_sum{dimension_TargetGroup=\"\"})" }
       ]
     },
 
@@ -89,24 +89,24 @@
     {
       "id": 201, "type": "text", "title": "Flow",
       "gridPos": { "h": 3, "w": 24, "x": 0, "y": 22 },
-      "options": { "mode": "markdown", "content": "**Path:** Browser (Faro SDK) → **ALB** `/faro` → **faro-proxy** (nginx :8080, strips `/faro`) → **Alloy** `faro.receiver` :12347 `/collect` → **Loki** (logs, `job=faro`) + **Tempo** (client spans). Panels below trace each hop: ALB→faro target (CloudWatch) → receiver throughput/latency (Prometheus `faro_receiver_*`, job `alloy`) → events landing in Loki." }
+      "options": { "mode": "markdown", "content": "**Path:** Browser (Faro SDK) → **ALB** `/faro` → **faro-proxy** (nginx :8080, strips `/faro`) → **Alloy** `faro.receiver` :12347 `/collect` → **Loki** (logs, `job=faro`) + **Tempo** (client spans). Panels below trace each hop: ALB→faro target (Prometheus `aws_applicationelb_*` via YACE, `dimension_TargetGroup=~\"faroprox\"`) → receiver throughput/latency (Prometheus `faro_receiver_*`, job `alloy`) → events landing in Loki." }
     },
     {
-      "id": 202, "type": "timeseries", "title": "Faro edge — ALB→target requests & HTTP codes",
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "id": 202, "type": "timeseries", "title": "Faro edge — ALB→target requests & HTTP codes (per 5m)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 },
       "fieldConfig": { "defaults": { "unit": "short", "min": 0 } },
       "options": { "legend": { "displayMode": "table", "placement": "right" } },
       "targets": [
-        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "RequestCount", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "requests" },
-        { "refId": "B", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_2XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "2xx" },
-        { "refId": "C", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_4XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "4xx" },
-        { "refId": "D", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HTTPCode_Target_5XX_Count", "statistic": "Sum", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "5xx" }
+        { "refId": "A", "expr": "sum(aws_applicationelb_request_count_sum{dimension_TargetGroup=~\".*faroprox.*\"})", "legendFormat": "requests" },
+        { "refId": "B", "expr": "sum(aws_applicationelb_httpcode_target_2_xx_count_sum{dimension_TargetGroup=~\".*faroprox.*\"})", "legendFormat": "2xx" },
+        { "refId": "C", "expr": "sum(aws_applicationelb_httpcode_target_4_xx_count_sum{dimension_TargetGroup=~\".*faroprox.*\"})", "legendFormat": "4xx" },
+        { "refId": "D", "expr": "sum(aws_applicationelb_httpcode_target_5_xx_count_sum{dimension_TargetGroup=~\".*faroprox.*\"})", "legendFormat": "5xx" }
       ]
     },
     {
       "id": 203, "type": "timeseries", "title": "Faro edge — target health & p95 latency",
-      "datasource": { "type": "cloudwatch", "uid": "cloudwatch" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 25 },
       "fieldConfig": {
         "defaults": { "unit": "short", "min": 0 },
@@ -115,9 +115,9 @@
         ]
       },
       "targets": [
-        { "refId": "A", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "HealthyHostCount", "statistic": "Average", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "healthy" },
-        { "refId": "B", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "UnHealthyHostCount", "statistic": "Average", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "unhealthy" },
-        { "refId": "C", "region": "eu-west-1", "namespace": "AWS/ApplicationELB", "metricName": "TargetResponseTime", "statistic": "p95", "dimensions": { "LoadBalancer": "app/k8s-public-f8655bfb7e/78080c3d6ec33605", "TargetGroup": "targetgroup/k8s-monitori-faroprox-25fb7e8eec/1717058bc4ff459b" }, "matchExact": true, "label": "p95 latency" }
+        { "refId": "A", "expr": "max(aws_applicationelb_healthy_host_count_average{dimension_TargetGroup=~\".*faroprox.*\"})", "legendFormat": "healthy" },
+        { "refId": "B", "expr": "max(aws_applicationelb_un_healthy_host_count_average{dimension_TargetGroup=~\".*faroprox.*\"})", "legendFormat": "unhealthy" },
+        { "refId": "C", "expr": "max(aws_applicationelb_target_response_time_p95{dimension_TargetGroup=~\".*faroprox.*\"})", "legendFormat": "p95 latency" }
       ]
     },
     {
@@ -302,7 +302,7 @@
     {
       "id": 401, "type": "text", "title": "How to add panels",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 91 },
-      "options": { "mode": "markdown", "content": "### Adding panels\n\n**Datasource UIDs:** `prometheus`, `loki`, `cloudwatch` (eu-west-1), `cloudwatch-edge` (us-east-1), `tempo`.\n\n**Panel-ID convention:** rows are hundreds — `100` ALB, `200` Faro, `300` VPC CNI / DNS, `400` docs. Panels in a row continue from the row ID. Start a new section at the next free hundred (`500`, `600`, …) and keep `gridPos.x/w` on the 24-col grid.\n\n**Where the metrics come from:**\n- **ALB / target groups** → CloudWatch `AWS/ApplicationELB`. Dimensions are **env-specific**: LB `app/k8s-public-f8655bfb7e/78080c3d6ec33605`, faro TG `targetgroup/k8s-monitori-faroprox-25fb7e8eec/…`. Update both when adding a prod overlay.\n- **Faro pipeline** → Prometheus `faro_receiver_*` (scrape job `alloy`); RUM logs/Web-Vitals → Loki `{job=\"faro\"}` (see the **Frontend & RUM** dashboard).\n- **VPC CNI** → Prometheus `awscni_*` (scrape job `aws-node`, pod IP `:61678`).\n- **DNS / node net** → `coredns_*`, `node_network_*`.\n\n**Removed in the EKS migration** (series no longer exist): Traefik `traefik_service_*` / `traefik_tls_*`, Calico `felix_*`, `kubeproxy_sync_*`. Traefik still serves internal IngressRoutes behind its own NLB — add a dedicated section if that path needs visibility (`traefik_entrypoint_*` and CloudWatch `AWS/NetworkELB` are still emitted)." }
+      "options": { "mode": "markdown", "content": "### Adding panels\n\n**Datasource UIDs:** `prometheus`, `loki`, `cloudwatch` (eu-west-1), `cloudwatch-edge` (us-east-1), `tempo`.\n\n**Panel-ID convention:** rows are hundreds — `100` ALB, `200` Faro, `300` VPC CNI / DNS, `400` docs. Panels in a row continue from the row ID. Start a new section at the next free hundred (`500`, `600`, …) and keep `gridPos.x/w` on the 24-col grid.\n\n**Where the metrics come from:**\n- **ALB / target groups** → Prometheus `aws_applicationelb_*` via **YACE** (`AWS/ApplicationELB` discovery job, tag-based, in the monitoring chart). No hardcoded ARNs: YACE fans out on dimensions, so the LB level is `{dimension_TargetGroup=\"\"}` and a target group is `{dimension_TargetGroup=~\"faroprox\"}`. Sum series are 5-min windows (statistic `Sum`), plotted directly (not `rate()`). `p95` is the latency SLO. This survives an ALB/target-group recreate — the old CloudWatch panels pinned exact ARNs and went **No data** on any rename, and the Grafana image-renderer cannot query CloudWatch at all.\n- **Faro pipeline** → Prometheus `faro_receiver_*` (scrape job `alloy`); RUM logs/Web-Vitals → Loki `{job=\"faro\"}` (see the **Frontend & RUM** dashboard).\n- **VPC CNI** → Prometheus `awscni_*` (scrape job `aws-node`, pod IP `:61678`).\n- **DNS / node net** → `coredns_*`, `node_network_*`.\n\n**Removed in the EKS migration** (series no longer exist): Traefik `traefik_service_*` / `traefik_tls_*`, Calico `felix_*`, `kubeproxy_sync_*`. Traefik still serves internal IngressRoutes behind its own NLB — add a dedicated section if that path needs visibility (add `AWS/NetworkELB` to the YACE config for `aws_networkelb_*`, or scrape `traefik_entrypoint_*`)." }
     }
   ]
 }
