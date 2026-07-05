@@ -24,6 +24,22 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # Allow the internet-facing ALB (Ingress class alb, target-type: ip) to
+    # reach pods directly. ALB ENIs live in the public subnets; with the VPC
+    # CNI network-policy agent this path is denied unless explicitly allowed,
+    # which would take api.nelsonlamounier.com down. Kubelet probes originate
+    # from node IPs in the same subnets, so this rule admits them too.
+    # Mirrors the admin-api chart's pattern (live and ALB-proven for 59d).
+    {{- with .Values.albSourceCidrs }}
+    - from:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $.Values.port }}
+    {{- end }}
     # Allow HTTP traffic from Traefik ingress controller
     - from:
         - namespaceSelector:
