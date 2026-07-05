@@ -7,4 +7,9 @@
 aws:
   region: eu-west-1
   ssmPath: /k8s/development/headlamp-viewer-token
-  adminSsmPath: /k8s/development/headlamp-admin-token
+  # adminSsmPath left empty on purpose — the standing cluster-admin token
+  # Secret was removed (admin.yaml). Admin access is now via on-demand
+  # `kubectl create token headlamp-admin -n headlamp --duration=1h`, so there
+  # is no admin token for the token-pusher to read or push to SSM. Emptying
+  # this also drops headlamp-admin-token from the token-pusher Role.
+  adminSsmPath: ""

@@ -11,9 +11,9 @@
 #   aws ssm get-parameter --name /k8s/development/headlamp-viewer-token \
 #     --with-decryption --query Parameter.Value --output text --profile dev-account
 #
-#   Admin (cluster-admin, full access including secrets):
-#   aws ssm get-parameter --name /k8s/development/headlamp-admin-token \
-#     --with-decryption --query Parameter.Value --output text --profile dev-account
+#   Admin (cluster-admin, full access including secrets) — minted on demand,
+#   no standing token Secret exists (see charts/headlamp-config admin.yaml):
+#   kubectl create token headlamp-admin -n headlamp --duration=1h
 #
 # CDK prerequisite: EksPodIdentity-development stack must be deployed first
 # so the headlamp/token-pusher Pod Identity association exists.
