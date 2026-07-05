@@ -1265,6 +1265,7 @@ spec:
               cpu: 200m
               memory: 128Mi
 
+---
 # =============================================================================
 # Migration 011 — Ontology import tracking + developer_tool category
 #
