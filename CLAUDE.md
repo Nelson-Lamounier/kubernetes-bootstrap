@@ -25,8 +25,9 @@ stale config. Both are mandatory for any new workload.
   `ApplicationSet` elsewhere. The root won't see it and the service **never deploys** — no app, no
   pod, no error. (This is exactly how `platform-job-watcher` was absent from dev: it lived only as
   an `ApplicationSet` in `argocd-apps/`, which the non-recursive root never applied.)
-- **Production:** add the explicit app to `argocd-apps/applications-production.yaml` (or the prod
-  app-of-apps path) — prod does not read `eks/development`.
+- **Production:** parked at `argocd-apps/eks/production/` (see its README) — **nothing syncs that
+  directory yet**; the single dev cluster serves production traffic today. Adding a file there
+  deploys nothing until a `root-app-production.yaml` exists.
 - **Verify after merge — do not assume:**
   ```bash
   kubectl get applications -n argocd | grep <service>     # the app must appear
