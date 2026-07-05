@@ -15,17 +15,15 @@ bootstrap:
   image:
     # ECR image for the chart's `bootstrap-job` ledger PostSync hook.
     #
-    # SOURCE OF TRUTH = SSM `/k8s/development/job-images/platform-rds-bootstrap`.
-    # The ai-applications `deploy-platform-rds-bootstrap` workflow builds the
-    # image, pushes it to ECR, writes that SSM parameter, AND applies migrations
-    # directly via an on-demand ledger Job — it does NOT write back to this file.
-    # So this `tag` is NOT auto-bumped; it must be kept in sync with the SSM value
-    # by hand (or via ArgoCD Image Updater once wired — see the follow-up). It
-    # drifted once (c0e075f May vs SSM 2d2774d Jul), which shipped a pre-ledger
-    # runner that re-ran every migration and flooded RDS logs with
-    # `relation "resume_imports" already exists`; re-aligned 2026-07-05.
+    # AUTO-TRACKED by ArgoCD Image Updater (annotations on the platform-rds
+    # Application): newest-build picks the latest platform-rds-bootstrap image
+    # in ECR and writes the tag back to the git override file
+    # (.argocd-source-platform-rds-eks-development.yaml), which overrides the
+    # value below. So this tag is the *seed / fallback*; the override file is
+    # what actually deploys. This replaces the manual SSM-sync that drifted once
+    # (c0e075f May vs SSM 2d2774d Jul) and shipped a pre-ledger runner that
+    # flooded RDS logs with `relation "resume_imports" already exists`.
     #
-    # To update: read the SSM value and paste the `<sha>-r1` tag below.
     # Break-glass manual apply: ai-applications `just db-bootstrap-run`.
     repository: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-rds-bootstrap"
     tag: "2d2774d69827442aebbf659baddb5cb9dd23a10b-r1"
