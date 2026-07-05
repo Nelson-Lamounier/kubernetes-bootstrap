@@ -1,17 +1,33 @@
 ---
 title: PostSync Patcher Pattern — ignoreDifferences + RespectIgnoreDifferences
 type: decision
-tags: [argocd, kubernetes, gitops, traefik, eso, security, helm]
+tags: [argocd, kubernetes, gitops, eso, security, helm, postsync-hook, waf]
 sources:
-  - charts/monitoring/chart/templates/traefik/allowlist-patcher.yaml
-  - argocd-apps/monitoring.yaml
+  - charts/admin-api/chart/templates/waf-annotator-job.yaml
+  - charts/tucaken-app/chart/templates/waf-annotator-job.yaml
+  - argocd-apps/eks/development/admin-api.yaml
 created: 2026-04-28
-updated: 2026-04-28
+updated: 2026-07-05
 ---
 
 # PostSync Patcher Pattern — ignoreDifferences + RespectIgnoreDifferences
 
-Why the monitoring Application uses a PostSync hook Job to patch the Traefik IP allowlist Middleware, and how the `ignoreDifferences` + `RespectIgnoreDifferences` combination prevents ArgoCD selfHeal from immediately reverting the patch — and why omitting either half creates a silent production regression.
+> **Example updated (2026-07-05).** The original example — the monitoring
+> Traefik `allowlist-patcher` — was retired with Traefik
+> ([#220](https://github.com/Nelson-Lamounier/kubernetes-bootstrap/pull/220);
+> see [Traefik → ALB consolidation](./traefik-to-alb-consolidation.md)). The
+> **pattern itself is still in active use**: the `waf-annotator` PostSync Jobs
+> in the `admin-api` and `tucaken-app` charts patch the runtime WAF ACL ARN onto
+> their ALB Ingress, with the same `ignoreDifferences` +
+> `RespectIgnoreDifferences` guard against selfHeal
+> ([charts/admin-api/chart/templates/waf-annotator-job.yaml](../../charts/admin-api/chart/templates/waf-annotator-job.yaml)).
+> The mechanics below are unchanged; read the Traefik middleware references as
+> the historical instance.
+
+Why an Application uses a PostSync hook Job to patch a runtime-only value onto a
+resource, and how the `ignoreDifferences` + `RespectIgnoreDifferences`
+combination prevents ArgoCD selfHeal from immediately reverting the patch — and
+why omitting either half creates a silent production regression.
 
 ## The problem: runtime-only values that cannot live in Git
 
