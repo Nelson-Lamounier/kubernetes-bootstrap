@@ -47,6 +47,14 @@ migration:
   articlesTable: ""
   strategistTable: ""
 
+# ── Legacy per-migration DDL Jobs (templates/ddl-migrations.yaml) ────────────
+# SUPERSEDED by the checksummed migration ledger baked into the
+# platform-rds-bootstrap image (run by bootstrap-job + the ai-applications CI
+# deploy job). Kept off by default; the 12 hand-maintained Jobs re-hit RDS on
+# every sync and caused transient hook failures. Break-glass only.
+legacyDdlMigrations:
+  enabled: false
+
 # ── Observability — neutral chart default; per-env files override ───────────
 # Set env=development in values-development.yaml and env=production in
 # values-production.yaml. This block keeps templates from blowing up when
