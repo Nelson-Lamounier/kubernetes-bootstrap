@@ -8,6 +8,16 @@ metadata:
     {{- include "monitoring.fullLabels" "yace" | nindent 4 }}
 spec:
   replicas: 1
+  # Recreate (not the default RollingUpdate): a rolling update needs a surge
+  # pod, but the monitoring namespace ResourceQuota runs at its memory ceiling,
+  # so the surge pod is refused (FailedCreate / exceeded quota) and the rollout
+  # deadlocks — a reloader-triggered config change then never takes effect (the
+  # ALB metrics migration shipped but YACE kept serving the old config until the
+  # pod was forced). A single-replica exporter needs no surge; kill-then-create
+  # stays within quota. Trade-off: a ~scrape-length metrics gap on each config
+  # change, which is acceptable for a 300s-period exporter.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "monitoring.selectorLabels" "yace" | nindent 6 }}
