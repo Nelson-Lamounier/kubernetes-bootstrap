@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Close the observability gaps on the `database` Grafana dashboard.
 
-1. Introduce a `rds_instance` dashboard variable (default k8s-dev-platform-rds-iso)
-   and repoint every CloudWatch metric dimension + log group at it, so a future
-   instance rename cannot silently break the panels again.
-2. Append the missing rows: compute & burst credits, throughput & network,
+1. Append the missing rows: compute & burst credits, throughput & network,
    Performance Insights DB load, live-SQL Postgres engine health, PgBouncer
    traffic & wait, and connection failures.
+2. Move every CloudWatch AWS/RDS *metric* panel onto Prometheus: YACE scrapes
+   AWS/RDS into `aws_rds_*` series (see docs/projects/rds-observability-yace-
+   migration.md), so the metric panels no longer depend on the Grafana
+   CloudWatch datasource — which does not interpolate a template variable into a
+   metric dimension and cannot be queried by the image-renderer. CloudWatch
+   *logs* panels stay on CloudWatch (YACE does not do logs).
 
-Idempotent: re-running replaces the generated rows (matched by the marker tag).
+Idempotent: re-running replaces the generated rows (matched by the marker tag)
+and re-applies the CloudWatch->Prometheus conversion.
 """
 import json, sys, pathlib
 
@@ -31,6 +35,40 @@ CW = {"type": "cloudwatch", "uid": "cloudwatch"}
 PG = {"type": "postgres", "uid": "rds-postgres"}
 PROM = {"type": "prometheus", "uid": "prometheus"}
 MARK = "gen:rds-gaps"  # tag on generated rows so re-runs are idempotent
+
+# CloudWatch AWS/RDS metric -> YACE Prometheus series. Names verified live in
+# Prometheus (yace is deployed): YACE lower-snakes the metric and suffixes the
+# statistic. Selecting the per-instance series avoids the 4x dimension fan-out
+# (global / EngineName / DatabaseClass / DBInstanceIdentifier).
+RDS_SEL = '{dimension_DBInstanceIdentifier!=""}'
+RDS_METRIC = {
+    "CPUUtilization": "aws_rds_cpuutilization_average",
+    "DatabaseConnections": "aws_rds_database_connections_average",
+    "FreeableMemory": "aws_rds_freeable_memory_average",
+    "FreeStorageSpace": "aws_rds_free_storage_space_average",
+    "ReadIOPS": "aws_rds_read_iops_average",
+    "WriteIOPS": "aws_rds_write_iops_average",
+    "ReadLatency": "aws_rds_read_latency_average",
+    "WriteLatency": "aws_rds_write_latency_average",
+    "CPUCreditBalance": "aws_rds_cpucredit_balance_average",
+    "CPUCreditUsage": "aws_rds_cpucredit_usage_average",
+    "SwapUsage": "aws_rds_swap_usage_average",
+    "BurstBalance": "aws_rds_burst_balance_average",
+    "EBSIOBalance%": "aws_rds_ebsiobalance_percent_average",
+    "EBSByteBalance%": "aws_rds_ebsbyte_balance_percent_average",
+    "NetworkReceiveThroughput": "aws_rds_network_receive_throughput_average",
+    "NetworkTransmitThroughput": "aws_rds_network_transmit_throughput_average",
+    "ReadThroughput": "aws_rds_read_throughput_average",
+    "WriteThroughput": "aws_rds_write_throughput_average",
+    "DiskQueueDepth": "aws_rds_disk_queue_depth_average",
+    "TransactionLogsGeneration": "aws_rds_transaction_logs_generation_average",
+    "DBLoad": "aws_rds_dbload_average",
+    "DBLoadCPU": "aws_rds_dbload_cpu_average",
+    "DBLoadNonCPU": "aws_rds_dbload_non_cpu_average",
+    "MaximumUsedTransactionIDs": "aws_rds_maximum_used_transaction_ids_maximum",
+    "IamDbAuthConnectionFailure": "aws_rds_iam_db_auth_connection_failure_sum",
+    "IamDbAuthConnectionSuccess": "aws_rds_iam_db_auth_connection_success_sum",
+}
 
 d = json.loads(DASH.read_text())
 
@@ -122,7 +160,7 @@ def place(items):
     if x: y += 8
 
 place([
-    row("RDS — compute & burst credits (CloudWatch)"),
+    row("RDS — compute & burst credits (Prometheus / YACE)"),
     ts_cw("CPU credit balance", ["CPUCreditBalance"], "short",
           desc="Burstable t4g credit reserve. Exhaustion throttles to baseline and refuses connections — the failure that forced t4g.micro→small.",
           thresholds=[{"color": "red", "value": 0}, {"color": "orange", "value": 30}, {"color": "green", "value": 60}]),
@@ -131,7 +169,7 @@ place([
     ts_cw("Burst / EBS IO balance", ["BurstBalance", "EBSIOBalance%", "EBSByteBalance%"], "percent",
           desc="gp2 volume + instance IO burst reserves."),
 
-    row("RDS — throughput & network (CloudWatch)"),
+    row("RDS — throughput & network (Prometheus / YACE)"),
     ts_cw("Network throughput (in / out)", ["NetworkReceiveThroughput", "NetworkTransmitThroughput"], "Bps",
           desc="Bytes over the RDS ENI — the data trafficking to/from the DB."),
     ts_cw("Disk throughput (read / write)", ["ReadThroughput", "WriteThroughput"], "Bps"),
@@ -189,6 +227,35 @@ place([
             "fields @timestamp, @message | filter @message like /too many clients|remaining connection slots|password authentication failed|no pg_hba.conf entry|FATAL/ "
             "| sort @timestamp desc | limit 200"),
 ])
+
+# ── final pass: move every CloudWatch AWS/RDS *metric* panel onto Prometheus ──
+# YACE scrapes AWS/RDS into Prometheus (aws_rds_* series), so the metric panels
+# no longer touch the fragile Grafana CloudWatch datasource (no dimension
+# interpolation; the image-renderer cannot query it). CloudWatch *logs* panels
+# (queryMode=Logs, no metricName) are left untouched — YACE does not do logs.
+def cw_to_prom(node):
+    if isinstance(node, dict):
+        tgts = node.get("targets")
+        is_cw = (node.get("datasource") or {}).get("uid") == "cloudwatch"
+        if is_cw and tgts and all(t.get("metricName") for t in tgts):
+            node["datasource"] = PROM
+            node.pop("logGroups", None)
+            new = []
+            for t in tgts:
+                series = RDS_METRIC.get(t["metricName"])
+                if not series:
+                    continue
+                new.append({"refId": t.get("refId", "A"),
+                            "expr": f"{series}{RDS_SEL}",
+                            "legendFormat": t["metricName"]})
+            node["targets"] = new
+        for v in node.values():
+            cw_to_prom(v)
+    elif isinstance(node, list):
+        for v in node:
+            cw_to_prom(v)
+
+cw_to_prom(d["panels"])
 
 DASH.write_text(json.dumps(d, indent=1) + "\n")
 gen = [p for p in d["panels"] if MARK in (p.get("tags") or [])]

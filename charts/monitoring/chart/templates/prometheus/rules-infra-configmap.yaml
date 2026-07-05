@@ -218,4 +218,97 @@ data:
                 pg_up is 0 or absent — the exporter cannot reach Postgres, so
                 engine-health metrics (connections by state, cache hit, deadlocks)
                 are blind. Usually a stale RDS host/password after a rotation.
+
+          # ── RDS infra alerts — now possible because YACE scrapes AWS/RDS
+          # CloudWatch metrics into Prometheus (aws_rds_*). Previously these had
+          # no home: a Prometheus rule cannot evaluate a CloudWatch metric.
+          # The {dimension_DBInstanceIdentifier!=""} selector picks the single
+          # per-instance series (YACE also emits global/EngineName/DatabaseClass).
+          - alert: RdsCpuCreditBalanceLow
+            expr: |
+              min(aws_rds_cpucredit_balance_average{dimension_DBInstanceIdentifier!=""}) < 30
+            for: 10m
+            labels:
+              severity: critical
+              service:  rds
+              team:     platform
+            annotations:
+              summary: "RDS CPU credit balance < 30 — burst exhaustion imminent"
+              description: >
+                The burstable t4g instance is draining CPU credits; at zero it
+                throttles to baseline and refuses connections (the failure that
+                forced t4g.micro -> small). Check the compute & burst-credit row
+                and query load.
+
+          - alert: RdsFreeStorageSpaceLow
+            expr: |
+              min(aws_rds_free_storage_space_average{dimension_DBInstanceIdentifier!=""}) < 2e9
+            for: 5m
+            labels:
+              severity: critical
+              service:  rds
+              team:     platform
+            annotations:
+              summary: "RDS free storage < 2 GB"
+              description: >
+                Free storage on the 20 GiB gp2 volume is below 2 GB. RDS stops
+                accepting writes at zero. Grow allocatedStorage or prune data.
+
+          - alert: RdsFreeableMemoryLow
+            expr: |
+              min(aws_rds_freeable_memory_average{dimension_DBInstanceIdentifier!=""}) < 128e6
+            for: 5m
+            labels:
+              severity: warning
+              service:  rds
+              team:     platform
+            annotations:
+              summary: "RDS freeable memory < 128 MB"
+              description: >
+                Low freeable memory on the 2 GiB instance drives swap and cache
+                eviction. Correlate with SwapUsage and the cache-hit ratio.
+
+          - alert: RdsConnectionsHigh
+            expr: |
+              max(aws_rds_database_connections_average{dimension_DBInstanceIdentifier!=""}) > 145
+            for: 5m
+            labels:
+              severity: warning
+              service:  rds
+              team:     platform
+            annotations:
+              summary: "RDS connections > 145 (~80% of max_connections)"
+              description: >
+                Approaching the ~181 max_connections ceiling for db.t4g.small.
+                PgBouncer should cap this — check for a pool leak or a client
+                bypassing the pooler.
+
+          - alert: RdsDiskQueueDepthHigh
+            expr: |
+              max(aws_rds_disk_queue_depth_average{dimension_DBInstanceIdentifier!=""}) > 5
+            for: 10m
+            labels:
+              severity: warning
+              service:  rds
+              team:     platform
+            annotations:
+              summary: "RDS disk queue depth > 5 sustained — storage-bound"
+              description: >
+                Sustained outstanding IO indicates the gp2 volume is the
+                bottleneck. Check EBS IO balance and throughput panels.
+
+          - alert: RdsTransactionIdWraparoundRisk
+            expr: |
+              max(aws_rds_maximum_used_transaction_ids_maximum{dimension_DBInstanceIdentifier!=""}) > 1.5e9
+            for: 10m
+            labels:
+              severity: critical
+              service:  rds
+              team:     platform
+            annotations:
+              summary: "RDS transaction ID age > 1.5 billion — wraparound risk"
+              description: >
+                Autovacuum is falling behind on freezing; approaching the ~2.1
+                billion wraparound ceiling risks a forced read-only shutdown.
+                Investigate autovacuum and long-running transactions.
 {{- end }}
