@@ -1,17 +1,24 @@
 # @format
 # ARC Runner ServiceAccount + RBAC
 #
-# The runner pod runs as this ServiceAccount and needs cross-namespace
-# permissions to apply the K8s resources that deploy.py manages:
+# The runner pod runs as this ServiceAccount and needs permissions to apply
+# the K8s resources that deploy.py manages. Scoped per-namespace (Roles), NOT
+# cluster-wide, so a compromised CI workflow cannot read Secrets or patch
+# ArgoCD Applications outside the three namespaces it actually deploys to:
 #
-#   admin-api namespace:   Namespace, Secret, ConfigMap, IngressRoute,
-#                          Rollout promote (deploy-admin-api.yml promote job)
-#   public-api namespace:  Namespace, ConfigMap, IngressRoute
-#   argocd namespace:      Application (patch annotations for sync trigger)
+#   admin-api namespace:   Secret (Cognito), ConfigMap, Traefik IngressRoute,
+#                          plus Rollout promote + diagnostics (pods/log, events,
+#                          replicasets/deployments, rollouts, analysisruns)
+#   public-api namespace:  ConfigMap, Traefik IngressRoute
+#   argocd namespace:      Application (patch annotations to trigger a sync)
 #
-# Applied by ArgoCD as part of the arc-controller sync wave.
-# The ServiceAccount is referenced in arc-runners ArgoCD Application
-# via template.spec.serviceAccountName: arc-runner.
+# The only cluster-scoped grant is namespaces get/list/create (a cluster-scoped
+# resource cannot be granted via a namespaced Role) — ensure_namespace() needs
+# it on first deploy.
+#
+# Applied by ArgoCD as part of the arc-controller sync wave. The ServiceAccount
+# is referenced in the arc-runners ArgoCD Application via
+# template.spec.serviceAccountName: arc-runner.
 
 ---
 apiVersion: v1
@@ -22,77 +29,159 @@ metadata:
   labels:
     app.kubernetes.io/part-of: arc
 
+# ---------------------------------------------------------------------------
+# Cluster-scoped: namespace lifecycle only. Everything else is namespaced below.
+# ---------------------------------------------------------------------------
 ---
-# ClusterRole grants cross-namespace permissions.
-# Scoped to exactly what deploy.py and the ArgoCD sync trigger need.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: arc-runner
+  name: arc-runner-namespaces
   labels:
     app.kubernetes.io/part-of: arc
 rules:
-  # Namespace creation — deploy.py calls ensure_namespace() on first deploy
+  # deploy.py calls ensure_namespace() on first deploy.
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "create"]
-
-  # admin-api: Cognito Secret
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "create", "update", "patch", "replace"]
-
-  # admin-api + public-api: infra ConfigMaps
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["get", "create", "update", "patch", "replace"]
-
-  # Promote job: pod listing and log streaming for diagnostics
-  - apiGroups: [""]
-    resources: ["pods", "pods/log"]
-    verbs: ["get", "list", "watch"]
-
-  # Promote job: event inspection for rollout diagnostics
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["get", "list", "watch"]
-
-  # Promote job: Argo Rollouts plugin watches ReplicaSets and Deployments
-  - apiGroups: ["apps"]
-    resources: ["replicasets", "deployments"]
-    verbs: ["get", "list", "watch"]
-
-  # admin-api + public-api: Traefik IngressRoutes
-  # deploy.py is the sole owner — ArgoCD never manages these resources.
-  - apiGroups: ["traefik.io"]
-    resources: ["ingressroutes"]
-    verbs: ["get", "create", "update", "patch", "replace"]
-
-  # ArgoCD sync trigger + promote job ArgoCD app inspection
-  - apiGroups: ["argoproj.io"]
-    resources: ["applications"]
-    verbs: ["get", "list", "watch", "patch", "update"]
-
-  # Promote job: Argo Rollouts — get/watch rollout state, issue promote
-  - apiGroups: ["argoproj.io"]
-    resources: ["rollouts", "rollouts/status"]
-    verbs: ["get", "list", "watch", "patch", "update"]
-
-  # Promote job: AnalysisRun + Experiment inspection
-  - apiGroups: ["argoproj.io"]
-    resources: ["analysisruns", "experiments"]
-    verbs: ["get", "list", "watch"]
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: arc-runner
+  name: arc-runner-namespaces
   labels:
     app.kubernetes.io/part-of: arc
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
+  name: arc-runner-namespaces
+subjects:
+  - kind: ServiceAccount
+    name: arc-runner
+    namespace: arc-runners
+
+# ---------------------------------------------------------------------------
+# admin-api namespace: full deploy + Rollout promote surface.
+# ---------------------------------------------------------------------------
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: arc-runner
+  namespace: admin-api
+  labels:
+    app.kubernetes.io/part-of: arc
+rules:
+  # Cognito Secret
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch", "replace"]
+  # infra ConfigMaps
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update", "patch", "replace"]
+  # Promote job: pod listing + log streaming for diagnostics
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  # Promote job: event inspection for rollout diagnostics
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  # Promote job: Argo Rollouts plugin watches ReplicaSets and Deployments
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "deployments"]
+    verbs: ["get", "list", "watch"]
+  # Traefik IngressRoutes — deploy.py is the sole owner; ArgoCD never manages these.
+  - apiGroups: ["traefik.io"]
+    resources: ["ingressroutes"]
+    verbs: ["get", "create", "update", "patch", "replace"]
+  # Promote job: Argo Rollouts — get/watch state, issue promote
+  - apiGroups: ["argoproj.io"]
+    resources: ["rollouts", "rollouts/status"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  # Promote job: AnalysisRun + Experiment inspection
+  - apiGroups: ["argoproj.io"]
+    resources: ["analysisruns", "experiments"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arc-runner
+  namespace: admin-api
+  labels:
+    app.kubernetes.io/part-of: arc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: arc-runner
+subjects:
+  - kind: ServiceAccount
+    name: arc-runner
+    namespace: arc-runners
+
+# ---------------------------------------------------------------------------
+# public-api namespace: ConfigMap + IngressRoute only.
+# ---------------------------------------------------------------------------
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: arc-runner
+  namespace: public-api
+  labels:
+    app.kubernetes.io/part-of: arc
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update", "patch", "replace"]
+  - apiGroups: ["traefik.io"]
+    resources: ["ingressroutes"]
+    verbs: ["get", "create", "update", "patch", "replace"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arc-runner
+  namespace: public-api
+  labels:
+    app.kubernetes.io/part-of: arc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: arc-runner
+subjects:
+  - kind: ServiceAccount
+    name: arc-runner
+    namespace: arc-runners
+
+# ---------------------------------------------------------------------------
+# argocd namespace: patch Application annotations to trigger a sync.
+# ---------------------------------------------------------------------------
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: arc-runner
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: arc
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: arc-runner
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: arc
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
   name: arc-runner
 subjects:
   - kind: ServiceAccount
