@@ -39,15 +39,33 @@ spec:
       labels:
         app: faro-proxy
     spec:
+      # Run nginx as its unprivileged uid (101); pid/cache dirs on emptyDirs
+      # so the root fs stays read-only. This container terminates
+      # internet-originated RUM traffic behind the ALB — not as root.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: nginx
           image: nginx:1.27-alpine
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 8080
           volumeMounts:
             - name: nginx-conf
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /run
           resources:
             requests:
               cpu: 10m
@@ -59,6 +77,10 @@ spec:
         - name: nginx-conf
           configMap:
             name: faro-proxy-nginx
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
