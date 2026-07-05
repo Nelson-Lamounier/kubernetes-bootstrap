@@ -1,20 +1,24 @@
 ---
 title: Traefik Middleware Not Applying
 type: troubleshooting
-tags: [traefik, kubernetes, ingress, middleware, ip-allowlist, basic-auth, rate-limit, argocd, eso, gitops]
+tags: [traefik, kubernetes, ingress, middleware, ip-allowlist, basic-auth, rate-limit, argocd, eso, gitops, retired]
 sources:
-  - charts/monitoring/chart/templates/traefik/ip-allowlist-middleware.yaml
-  - charts/monitoring/chart/templates/traefik/basicauth-middleware.yaml
-  - charts/monitoring/chart/templates/traefik/rate-limit-middleware.yaml
-  - charts/monitoring/chart/templates/traefik/allowlist-patcher.yaml
-  - charts/monitoring/chart/templates/prometheus/ingressroute.yaml
-  - charts/monitoring/chart/templates/grafana/ingressroute.yaml
-  - argocd-apps/monitoring.yaml
+  - docs/decisions/traefik-to-alb-consolidation.md
+  - docs/concepts/monitoring-access-control.md
 created: 2026-04-28
-updated: 2026-04-28
+updated: 2026-07-05
 ---
 
 # Traefik Middleware Not Applying
+
+> **RETIRED (2026-07-05).** Traefik and its Middlewares were fully removed from
+> the cluster ([0 Traefik CRDs remain](../decisions/traefik-to-alb-consolidation.md)).
+> This troubleshooting guide describes a failure mode of the kubeadm-era Traefik
+> middleware layer that no longer exists. Admin access control is now enforced by
+> the ALB WAF plus per-service nginx basic-auth proxies — see
+> [Monitoring access control](../concepts/monitoring-access-control.md). Retained
+> for historical reference; the `charts/monitoring/chart/templates/traefik/`
+> paths below no longer exist.
 
 Diagnosis and resolution for middleware chains that do not behave as expected — covering the empty-allowlist window, allowlist-patcher failures, `adminAccess.enabled` gate, ESO credential delays, namespace cross-reference errors, and ArgoCD selfHeal reverting the patched sourceRange.
 

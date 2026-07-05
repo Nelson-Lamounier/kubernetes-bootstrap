@@ -1,23 +1,43 @@
 ---
 title: Monitoring Access Control
 type: concept
-tags: [traefik, kubernetes, security, middleware, basicauth, ip-allowlist, rate-limiting, grafana, prometheus]
+tags: [kubernetes, security, alb, waf, basicauth, ip-allowlist, rate-limiting, grafana, prometheus, nginx]
 sources:
-  - charts/monitoring/chart/templates/traefik/ip-allowlist-middleware.yaml
-  - charts/monitoring/chart/templates/traefik/basicauth-middleware.yaml
-  - charts/monitoring/chart/templates/traefik/rate-limit-middleware.yaml
-  - charts/monitoring/chart/templates/traefik/allowlist-patcher.yaml
-  - charts/monitoring/chart/templates/prometheus/ingressroute.yaml
+  - charts/monitoring/chart/templates/prometheus/auth-proxy.yaml
   - charts/monitoring/chart/templates/grafana/ingressroute.yaml
   - charts/monitoring/chart/templates/alloy/ingressroute.yaml
-  - sm-a/argocd/steps/apps.ts
+  - docs/decisions/traefik-to-alb-consolidation.md
 created: 2026-04-28
-updated: 2026-04-28
+updated: 2026-07-05
 ---
 
 # Monitoring Access Control
 
-How the observability endpoints at `ops.nelsonlamounier.com` are protected — three Traefik Middlewares applied selectively per endpoint, basic-auth credentials seeded from SSM at bootstrap time, IP allowlist CIDRs injected by a PostSync Job after each ArgoCD sync, and why the `/faro` Alloy endpoint deliberately bypasses all access control.
+> **Model changed (2026-07-05).** The three-Traefik-Middleware model described
+> below was retired with Traefik
+> ([Traefik → ALB consolidation](../decisions/traefik-to-alb-consolidation.md);
+> 0 Traefik CRDs remain). The **current** access model for
+> `ops.nelsonlamounier.com` is:
+>
+> - **Admin IP allow-listing** is enforced at the edge by the ALB WAF rule
+>   `BlockNonAllowlistedAdminTraffic` (WebACL `eks-public-development`), not by a
+>   Traefik Middleware.
+> - **Prometheus** sits behind an nginx **basic-auth reverse proxy**
+>   ([prometheus/auth-proxy.yaml](../../charts/monitoring/chart/templates/prometheus/auth-proxy.yaml)),
+>   which runs non-root with a read-only root filesystem and reads its htpasswd
+>   from an ESO-synced Secret. The proxy answers `401` unauthenticated.
+> - **Grafana** enforces its own authentication (anonymous access disabled).
+> - **Alloy `/faro`** still deliberately accepts unauthenticated browser RUM
+>   writes with CORS-only controls — see the section below, which remains
+>   accurate.
+>
+> Endpoints are all exposed via ALB `Ingress` objects (joined into the `public`
+> group), not Traefik `IngressRoute`s. The historical model below is retained as
+> a record; its `charts/monitoring/chart/templates/traefik/` references no longer
+> exist.
+
+How the observability endpoints at `ops.nelsonlamounier.com` were protected in
+the kubeadm era — three Traefik Middlewares applied selectively per endpoint, basic-auth credentials seeded from SSM at bootstrap time, IP allowlist CIDRs injected by a PostSync Job after each ArgoCD sync, and why the `/faro` Alloy endpoint deliberately bypasses all access control.
 
 ## Endpoint-to-middleware mapping
 

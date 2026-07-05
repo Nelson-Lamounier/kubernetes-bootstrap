@@ -1,27 +1,28 @@
 ---
 title: Traefik
 type: tool
-tags: [traefik, kubernetes, ingress, tls, cert-manager, middleware, argocd, daemonset, hostnetwork, prometheus, observability]
+tags: [traefik, kubernetes, ingress, tls, cert-manager, middleware, argocd, daemonset, hostnetwork, prometheus, observability, retired]
 sources:
-  - argocd-apps/traefik.yaml
-  - charts/traefik/traefik-values.yaml
-  - charts/monitoring/chart/templates/traefik/basicauth-middleware.yaml
-  - charts/monitoring/chart/templates/traefik/ip-allowlist-middleware.yaml
-  - charts/monitoring/chart/templates/traefik/rate-limit-middleware.yaml
-  - charts/monitoring/chart/templates/traefik/allowlist-patcher.yaml
+  - docs/decisions/traefik-to-alb-consolidation.md
   - gitops/cert-manager/cluster-issuer.yaml
-  - gitops/cert-manager/ops-certificate.yaml
-  - charts/nextjs/chart/templates/ingressroute.yaml
-  - charts/monitoring/chart/templates/grafana/ingressroute.yaml
-  - charts/monitoring/chart/templates/prometheus/ingressroute.yaml
-  - charts/monitoring/chart/templates/alloy/ingressroute.yaml
 created: 2026-04-28
-updated: 2026-04-28
+updated: 2026-07-05
 ---
 
 # Traefik
 
-Traefik runs as a DaemonSet with `hostNetwork: true` — one pod per node bound directly to the node's ethernet interface on ports 80/443. This architecture enables seamless EIP failover across nodes, wildcard TLS termination via a cert-manager-issued certificate stored in etcd, and a consistent Middleware-based access control model for all admin endpoints.
+> **RETIRED (2026-07-05).** Traefik was fully decommissioned in the EKS
+> migration — there is no Traefik controller running and **0 Traefik CRDs**
+> remain in the cluster. Ingress is now handled entirely by the AWS Load
+> Balancer Controller (ALB `Ingress` objects) fronted by WAF, with basic auth
+> served by small nginx reverse-proxy Deployments. See
+> [Consolidate on ALB Ingress and decommission Traefik](../decisions/traefik-to-alb-consolidation.md)
+> and [Monitoring access control](../concepts/monitoring-access-control.md).
+> The content below is retained as a record of the kubeadm-era ingress design
+> and the migration; the `charts/traefik/` and `charts/monitoring/chart/
+> templates/traefik/` paths it references no longer exist.
+
+Traefik ran as a DaemonSet with `hostNetwork: true` — one pod per node bound directly to the node's ethernet interface on ports 80/443. This architecture enables seamless EIP failover across nodes, wildcard TLS termination via a cert-manager-issued certificate stored in etcd, and a consistent Middleware-based access control model for all admin endpoints.
 
 ## Installation
 
