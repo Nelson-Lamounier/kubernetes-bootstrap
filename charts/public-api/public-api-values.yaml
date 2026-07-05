@@ -24,5 +24,9 @@ resources:
     cpu: 200m
     memory: 128Mi
 
+# Re-enabled for EKS (2026-07-05): the kubeadm-era reason to disable it —
+# Calico ignoring ipBlock for host-network Traefik — does not apply here.
+# The ALB (target-type: ip) and kubelet probes are admitted by the
+# albSourceCidrs ipBlock rule, the same pattern admin-api has run live.
 networkPolicy:
-  enabled: false
+  enabled: true

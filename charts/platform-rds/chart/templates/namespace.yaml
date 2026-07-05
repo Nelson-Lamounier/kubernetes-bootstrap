@@ -5,3 +5,9 @@ metadata:
   name: {{ .Values.namespace }}
   labels:
     app.kubernetes.io/managed-by: argocd
+    # Baseline blocks privileged/hostPath/hostNetwork pods at admission;
+    # restricted stays warn/audit until every pod in the namespace carries
+    # a restricted-compliant securityContext.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

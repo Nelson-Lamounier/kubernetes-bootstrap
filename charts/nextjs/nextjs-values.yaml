@@ -45,15 +45,15 @@ ingress:
   enabled: true
   host: "nelsonlamounier.com"
 
-# Calico does not enforce K8s NetworkPolicy ipBlock rules for traffic
-# originating from the host network namespace (kubelet probes, Traefik
-# hostNetwork). The ipBlock: 10.0.0.0/16 rule in the chart default never
-# applied to host→pod traffic — it silently blocked both liveness probes
-# and Traefik upstream connections. The IngressRoute X-CloudFront-Origin-Secret
-# header requirement is the actual bypass-prevention layer, so disabling
-# the NetworkPolicy here does not reduce the effective security posture.
+# Re-enabled for EKS (2026-07-05). The old disable rationale was
+# kubeadm-specific: Calico did not enforce ipBlock rules for traffic from
+# the host network namespace (kubelet probes, hostNetwork Traefik), so the
+# policy silently blocked probes. On EKS the VPC CNI network-policy agent
+# enforces ipBlock normally, the ALB (target-type: ip) and kubelet probes
+# both arrive from 10.0.0.0/16 sources that the template's ipBlock rule
+# admits, and admin-api has run the same pattern live without incident.
 networkPolicy:
-  enabled: false
+  enabled: true
 
 # Blue-green auto-promotion — ArgoCD Image Updater + Argo Rollouts promote the
 # rollout themselves; the deploy pipeline has no manual promote step (mirrors

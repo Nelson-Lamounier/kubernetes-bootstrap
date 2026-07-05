@@ -26,6 +26,11 @@ metadata:
     # managedNamespaceMetadata (which only governs ArgoCD-auto-created
     # namespaces).
     tucaken.com/redis-cache-client: "true"
+    # Baseline blocks privileged/hostPath/hostNetwork pods at admission;
+    # restricted stays warn/audit until verified against every container.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
 
 ---
 # ============================================================

@@ -117,6 +117,13 @@ networkPolicy:
   enabled: true
   podCidr: "192.168.0.0/16"
 
+# CIDRs the internet-facing ALB's ENIs (and node kubelets) live in — the
+# cluster's two public subnets. Consumed by the NetworkPolicy ALB rule;
+# empty list disables that rule. Mirrors charts/admin-api.
+albSourceCidrs:
+  - 10.0.0.0/24
+  - 10.0.1.0/24
+
 # ---------------------------------------------------------------------------
 # Resource Quota (namespace-level limits)
 # ---------------------------------------------------------------------------
