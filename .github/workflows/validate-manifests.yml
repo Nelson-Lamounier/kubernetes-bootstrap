@@ -1,0 +1,50 @@
+# @format
+# Validate the deployment surface on every PR that touches it.
+#
+# Before this gate, nothing validated charts/ or argocd-apps/ — a Helm
+# template error or schema-invalid manifest merged green and only failed
+# when ArgoCD tried to sync it. scripts/validate-manifests.py re-renders
+# every in-repo Helm source with the exact valueFiles/values the synced
+# Applications declare (mirroring ArgoCD), then kubeconform-checks the
+# rendered output plus every Application/ApplicationSet manifest.
+
+name: Validate Charts & ArgoCD Apps
+
+on:
+  pull_request:
+    paths:
+      - "charts/**"
+      - "argocd-apps/**"
+      - "gitops/**"
+      - "scripts/validate-manifests.py"
+      - ".github/workflows/validate-manifests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: helm template + kubeconform
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KUBECONFORM_VERSION: v0.6.7
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | tar xz kubeconform
+          sudo mv kubeconform /usr/local/bin/
+          kubeconform -v
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      - name: Validate charts and Application manifests
+        run: python3 scripts/validate-manifests.py
