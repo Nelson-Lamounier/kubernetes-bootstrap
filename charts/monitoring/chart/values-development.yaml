@@ -84,24 +84,6 @@ loki:
       memory: 512Mi
   pvc:
     size: 50Gi
-  # Expose the push endpoint so GitHub Actions can write deploy markers.
-  # Provision /k8s/development/loki-push-basic-auth in SSM first
-  # (htpasswd line — see external-secrets/loki-push-basic-auth.yaml).
-  pushIngress:
-    enabled:  true
-    hostname: loki-push.nelsonlamounier.com
-
-# Pushgateway external endpoint — same auth as Loki push, distinct hostname.
-pushgateway:
-  pushIngress:
-    enabled:  true
-    hostname: pushgateway.nelsonlamounier.com
-
-# MTTR webhook /ack endpoint — external pager → in-cluster sink.
-mttrWebhook:
-  pushIngress:
-    enabled:  true
-    hostname: mttr-webhook.nelsonlamounier.com
 
 tempo:
   resources:
