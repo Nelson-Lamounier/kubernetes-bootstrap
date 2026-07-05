@@ -126,14 +126,6 @@ grafana:
 # ---------------------------------------------------------------------------
 loki:
   image: grafana/loki:3.5.0
-  # ── External push endpoint for GH Actions deploy markers ────────────────
-  # Exposes `/loki/api/v1/push` only via Traefik with basic auth.
-  # OFF by default; turn on per environment via values-{env}.yaml when the
-  # ExternalSecret `loki-push-basic-auth-secret` is provisioned in SSM at
-  # /k8s/{env}/loki-push-basic-auth (htpasswd format: "user:bcrypt_hash").
-  pushIngress:
-    enabled:  false
-    hostname: ""    # e.g. loki-push.nelsonlamounier.com
   replicas: 1
   resources:
     requests:
@@ -480,12 +472,6 @@ pushgateway:
     # pods racing for the same volume during rollouts.
     flushInterval:   1m
     mountPath:       /data/pushgateway-state
-  # External push endpoint for GH Actions DORA leg. Reuses the Loki
-  # push-auth Middleware (same htpasswd, same SSM path) since both surface
-  # write-only to the same caller.
-  pushIngress:
-    enabled:  false
-    hostname: ""    # e.g. pushgateway.nelsonlamounier.com
 
 # ---------------------------------------------------------------------------
 # MTTR webhook — Alertmanager → Prometheus exposition bridge.
@@ -504,13 +490,6 @@ mttrWebhook:
     limits:   { cpu: 100m, memory: 96Mi }
   service:
     port: 8080
-  # External /ack endpoint for paging tools (PagerDuty, OpsGenie, custom
-  # webhook). Reuses loki-push-basic-auth Middleware (shared credential
-  # rotation; same SSM source). OFF by default — turn on per env when a
-  # pager is wired.
-  pushIngress:
-    enabled:  false
-    hostname: ""    # e.g. mttr-webhook.nelsonlamounier.com
 
 alertmanager:
   enabled: true
