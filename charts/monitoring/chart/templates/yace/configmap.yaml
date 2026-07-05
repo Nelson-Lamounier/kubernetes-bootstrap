@@ -1,13 +1,19 @@
 {{- if .Values.yace.enabled }}
-# YACE config — discovers AWS/RDS instances by tag (resourcegroupstaggingapi)
-# and pulls their CloudWatch metrics via GetMetricData, re-exposing them as
-# aws_rds_* Prometheus series. Tag-based discovery means an instance rename or
-# a new instance is picked up automatically — no hardcoded DBInstanceIdentifier
-# (the failure that broke the old Grafana CloudWatch panels).
+# YACE config — discovers AWS resources by tag (resourcegroupstaggingapi) and
+# pulls their CloudWatch metrics via GetMetricData, re-exposing them as
+# aws_<service>_* Prometheus series. Tag-based discovery means a rename or a new
+# resource is picked up automatically — no hardcoded identifiers (the failure
+# that broke the old Grafana CloudWatch panels for both RDS and the ALB).
+#
+# Two discovery jobs:
+#   - AWS/RDS            -> aws_rds_*             (platform Postgres)
+#   - AWS/ApplicationELB -> aws_applicationelb_*  (public ingress ALB + target
+#                                                  groups; feeds the Networking
+#                                                  dashboard's edge + Faro rows)
 #
 # period/length {{ .Values.yace.period }}s matches the scrape economics in
 # docs/projects/rds-observability-yace-migration.md (~$2/mo at 300s). Statistics
-# are Average for gauges, Sum for the IAM-auth connection counters.
+# are Average for gauges, Sum for counters, p95 for the ALB latency SLO.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,6 +29,8 @@ data:
       exportedTagsOnMetrics:
         AWS/RDS:
           - Name
+        AWS/ApplicationELB:
+          - ingress.k8s.aws/stack
       jobs:
         - type: AWS/RDS
           regions:
@@ -91,4 +99,46 @@ data:
               statistics: [Sum]
             - name: IamDbAuthConnectionSuccess
               statistics: [Sum]
+        # ── Application Load Balancer — public ingress edge ──────────────────
+        # Discovered by the AWS LB Controller tags on the ALB (searchTags empty
+        # => every ALB in the region; there is one public ALB in this account).
+        # Metrics exist at two dimension levels: LoadBalancer only, and
+        # LoadBalancer+TargetGroup. dimensionNameRequirements is left empty so
+        # YACE fans out both — the Networking dashboard selects the LB level with
+        # {dimension_TargetGroup=""} and a per-target-group level with
+        # {dimension_TargetGroup=~"..."}, mirroring the RDS dimension pattern.
+        - type: AWS/ApplicationELB
+          regions:
+            - {{ .Values.yace.region }}
+          period: {{ .Values.yace.period }}
+          length: {{ .Values.yace.period }}
+          searchTags: []
+          metrics:
+            # ── request volume, latency, HTTP codes (LB + per-target-group) ──
+            - name: RequestCount
+              statistics: [Sum]
+            - name: TargetResponseTime
+              statistics: [Average, p95]
+            - name: HTTPCode_Target_2XX_Count
+              statistics: [Sum]
+            - name: HTTPCode_Target_4XX_Count
+              statistics: [Sum]
+            - name: HTTPCode_Target_5XX_Count
+              statistics: [Sum]
+            # ── connection health (LB level) ─────────────────────────────────
+            - name: ActiveConnectionCount
+              statistics: [Sum]
+            - name: NewConnectionCount
+              statistics: [Sum]
+            - name: RejectedConnectionCount
+              statistics: [Sum]
+            - name: TargetConnectionErrorCount
+              statistics: [Sum]
+            - name: HTTPCode_ELB_5XX_Count
+              statistics: [Sum]
+            # ── target-group host health (per-target-group) ──────────────────
+            - name: HealthyHostCount
+              statistics: [Average]
+            - name: UnHealthyHostCount
+              statistics: [Average]
 {{- end }}
