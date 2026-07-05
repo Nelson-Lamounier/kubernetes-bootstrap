@@ -59,10 +59,15 @@ spec:
             resources:
               requests:
                 cpu: 50m
-                # Working set sits at 102–128Mi warming the 1d cost-aggregation
-                # cache; a 128Mi limit OOMKilled the pod ~hourly (52 restarts
-                # observed 2026-07-05). Request 128Mi, cap at 256Mi for headroom.
-                memory: 128Mi
+                # Request stays 64Mi — the `monitoring` namespace has a
+                # ResourceQuota (requests.memory=3Gi) already at ~2992Mi, so a
+                # 128Mi request breaches it and the pod cannot be created. The
+                # OOM fix only needs the LIMIT raised: the working set warms the
+                # 1d cost-aggregation cache to 102–128Mi and OOMKilled against
+                # the old 128Mi limit (52 restarts 2026-07-05). A request is a
+                # scheduling reservation, not a cap — 64Mi request / 256Mi limit
+                # lets the pod reach its real working set without breaching quota.
+                memory: 64Mi
               limits:
                 cpu: 200m
                 memory: 256Mi
