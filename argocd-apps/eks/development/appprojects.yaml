@@ -1,0 +1,216 @@
+# @format
+# Scoped AppProjects — blast-radius containment for the app-of-apps.
+#
+# Before this file every Application used the auto-created `default`
+# AppProject (sourceRepos "*", all destinations, all cluster resources),
+# so anyone able to patch one Application (e.g. via CI runner RBAC) could
+# deploy any resource kind from any repo into any namespace, and automated
+# prune+selfHeal would enforce it. Each project below pins:
+#
+#   - sourceRepos:   exactly the repos its apps actually pull from
+#                    (this repo in both HTTPS and SSH forms — image-updater
+#                    write-back apps use the SSH URL — plus the upstream
+#                    chart registries per group)
+#   - destinations:  exactly the namespaces its apps manage resources in
+#   - clusterResourceWhitelist: exactly the cluster-scoped kinds observed
+#                    on the live Applications (kubectl status.resources
+#                    audit, 2026-07-05) — nothing speculative
+#
+# Synced by eks-root-development like any other file in this directory;
+# wave -20 puts the projects in place before the Applications that
+# reference them (root app itself runs at wave -10, children later).
+#
+# The `default` project is pinned down at the bottom of this file: only
+# the root app remains on it, so it is reduced to "may create Application
+# and AppProject objects in the argocd namespace from this repo" — the
+# root app's exact job, nothing more.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: infra
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+    kubernetes.io/description: "Cluster plumbing: ARC, ArgoCD periphery, cert-manager, ESO, metrics-server, rollouts, headlamp, reloader"
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  description: Cluster plumbing and controllers
+  sourceRepos:
+    - https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    - git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    - ghcr.io/actions/actions-runner-controller-charts
+    - https://argoproj.github.io/argo-helm
+    - https://charts.jetstack.io
+    - https://charts.external-secrets.io
+    - https://kubernetes-sigs.github.io/headlamp/
+    - https://kubernetes-sigs.github.io/metrics-server/
+    - https://stakater.github.io/stakater-charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: arc-runners
+    - server: https://kubernetes.default.svc
+      namespace: arc-systems
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: argo-rollouts
+    - server: https://kubernetes.default.svc
+      namespace: cert-manager
+    - server: https://kubernetes.default.svc
+      namespace: external-secrets
+    - server: https://kubernetes.default.svc
+      namespace: headlamp
+    - server: https://kubernetes.default.svc
+      namespace: kube-system
+    - server: https://kubernetes.default.svc
+      namespace: reloader
+    # arc-config manages the CI runner's namespaced Roles/RoleBindings in
+    # the namespaces deploy.py targets (see gitops/arc/runner-rbac.yaml).
+    - server: https://kubernetes.default.svc
+      namespace: admin-api
+    - server: https://kubernetes.default.svc
+      namespace: public-api
+  clusterResourceWhitelist:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+    - group: apiregistration.k8s.io
+      kind: APIService
+    - group: external-secrets.io
+      kind: ClusterSecretStore
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: monitoring
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+    kubernetes.io/description: "Observability stack + FinOps (monitoring namespace)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  description: Observability and cost visibility
+  sourceRepos:
+    - https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    - git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+    - https://opencost.github.io/opencost-helm-chart
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: monitoring
+  clusterResourceWhitelist:
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+    - group: storage.k8s.io
+      kind: StorageClass
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+    kubernetes.io/description: "Data tier: RDS bootstrap/pgbouncer, Redis broker+cache, job watcher"
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  description: Data tier and platform services
+  sourceRepos:
+    - https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    - git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: platform
+    - server: https://kubernetes.default.svc
+      namespace: redis-broker
+    - server: https://kubernetes.default.svc
+      namespace: redis-cache
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: workloads
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+    kubernetes.io/description: "Business services: web tier + pipeline jobs"
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  description: Business workloads
+  sourceRepos:
+    - https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    - git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: admin-api
+    - server: https://kubernetes.default.svc
+      namespace: public-api
+    - server: https://kubernetes.default.svc
+      namespace: nextjs-app
+    - server: https://kubernetes.default.svc
+      namespace: tucaken-app
+    - server: https://kubernetes.default.svc
+      namespace: ingestion
+    - server: https://kubernetes.default.svc
+      namespace: job-strategist
+    - server: https://kubernetes.default.svc
+      namespace: tech-extractor
+    - server: https://kubernetes.default.svc
+      namespace: resume-import
+    - server: https://kubernetes.default.svc
+      namespace: article-pipeline
+    - server: https://kubernetes.default.svc
+      namespace: ontology-importer
+  clusterResourceWhitelist:
+    # public-api manages its Namespace object explicitly.
+    - group: ""
+      kind: Namespace
+---
+# Pin down the auto-created `default` project. Only eks-root-development
+# remains on it; its job is creating Application/AppProject objects in the
+# argocd namespace from this repo — grant exactly that. Cluster-scoped
+# resources: none (empty whitelist denies all).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+    kubernetes.io/description: "Restricted: root app-of-apps only (Application/AppProject in argocd ns from this repo)"
+  labels:
+    app.kubernetes.io/part-of: argocd
+spec:
+  description: Root app-of-apps only
+  sourceRepos:
+    - https://github.com/Nelson-Lamounier/kubernetes-bootstrap.git
+    - git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: argoproj.io
+      kind: Application
+    - group: argoproj.io
+      kind: AppProject

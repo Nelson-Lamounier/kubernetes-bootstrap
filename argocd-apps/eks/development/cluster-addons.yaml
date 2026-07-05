@@ -21,8 +21,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
-
+  project: infra
   source:
     repoURL: git@github.com:Nelson-Lamounier/kubernetes-bootstrap.git
     targetRevision: main

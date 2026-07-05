@@ -31,8 +31,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
-
+  project: infra
   source:
     chart: reloader
     repoURL: https://stakater.github.io/stakater-charts
