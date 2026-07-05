@@ -51,9 +51,20 @@ spec:
         spec:
           serviceAccountName: {{ .Values.pipelineServiceAccount.name }}
           restartPolicy: Never
+          # Image runs as appuser (uid 1001, ai-applications Dockerfile).
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: rag-eval
               image: {{ .Values.ragEval.image | quote }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               command: ["node", "dist/evals/rag/run-rag-eval.js"]
               env:
                 - name: RUN_RAG_EVAL

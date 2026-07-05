@@ -280,7 +280,9 @@ githubActionsExporter:
 # Steampipe (AWS compliance)
 # ---------------------------------------------------------------------------
 steampipe:
-  image: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/steampipe-aws:latest
+  # Pinned to the immutable sha tag that :latest pointed at (pushed
+  # 2026-04-11) — mutable tags make deploys non-reproducible.
+  image: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/steampipe-aws:93007fb07202af7c4fa277fc16a9e43533819ee1
   replicas: 1
   resources:
     requests:
@@ -597,7 +599,10 @@ syntheticMonitor:
   # (helm.image-name -> .repository, helm.image-tag -> .tag) on each CI push.
   image:
     repository: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/synthetic-monitor"
-    tag: "latest"
+    # No :latest tag exists in this ECR repo — the old value could never
+    # pull. Pinned to the newest immutable CI tag for when this feature
+    # (enabled: false above) is switched on.
+    tag: "106d9e2f5da19a7067f57cdc7116329cce475ae3-r1"
   schedule: "*/15 * * * *"
   activeDeadlineSeconds: 300
   pollTimeoutMs: "180000"

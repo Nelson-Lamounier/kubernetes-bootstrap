@@ -23,10 +23,25 @@ spec:
         app: platform-job-watcher
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
+      # Image runs as appuser (uid 1001, ai-applications Dockerfile).
+      # Restricted-PSA-compliant: non-root, no privilege escalation, no caps,
+      # read-only root fs (the watcher writes nothing; /tmp is an emptyDir
+      # in case a library needs scratch space).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: watcher
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           command: ["node", "dist/run-watcher.js"]
           ports:
             - containerPort: 9100
@@ -57,6 +72,8 @@ spec:
             - name: watcher-config
               mountPath: /etc/watcher
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /readyz
@@ -80,3 +97,5 @@ spec:
         - name: watcher-config
           configMap:
             name: platform-job-watcher-config
+        - name: tmp
+          emptyDir: {}

@@ -35,6 +35,9 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
+            runAsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
           nodeSelector: {{- toYaml .Values.nodeSelector | nindent 12 }}
           {{- with .Values.tolerations }}
           tolerations: {{- toYaml . | nindent 12 }}
@@ -42,6 +45,10 @@ spec:
           containers:
             - name: import
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               command: ["node", "dist/run-import.js"]
               env:
