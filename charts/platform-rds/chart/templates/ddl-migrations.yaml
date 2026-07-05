@@ -13,11 +13,18 @@
 #        sync-wave; within a wave ordering is non-deterministic, so make
 #        each migration self-contained and idempotent).
 #
-# Adding a new migration:
-#   1. Add a new Job block below (increment NN).
-#   2. Write idempotent SQL (IF NOT EXISTS / ON CONFLICT DO NOTHING).
-#   3. Commit — ArgoCD will re-run all jobs on next sync (BeforeHookCreation
-#      deletes the previous completed job before creating a new one).
+# SUPERSEDED (2026-07-05) — gated off by default.
+# These 12 hand-maintained migration Jobs are now redundant. The checksummed
+# migration ledger (ai-applications #243/#247), baked into the
+# platform-rds-bootstrap image and run once by the chart's single `bootstrap-job`
+# PostSync hook (and the ai-applications deploy workflow's on-demand Job),
+# applies every numbered migration against the live DB. Running these 12 Jobs in
+# addition just re-hits RDS on every sync (12 direct connections racing the
+# bootstrap + CI jobs), which caused transient `backoff limit` failures
+# (e.g. migration-009) even though every table already exists. The ledger is the
+# single migration path; flip `legacyDdlMigrations.enabled=true` only as a
+# break-glass fallback.
+{{- if .Values.legacyDdlMigrations.enabled }}
 ---
 # =============================================================================
 # Migration 001 — repository_profiles + repository_profile_embeddings
@@ -1500,3 +1507,4 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+{{- end }}
