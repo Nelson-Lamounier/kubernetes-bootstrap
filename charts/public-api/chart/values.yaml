@@ -111,6 +111,15 @@ awsRegion: "eu-west-1"
 allowedOrigins: "https://nelsonlamounier.com,http://localhost:3000"
 
 # ---------------------------------------------------------------------------
+# Portfolio owner pinning — internal user id (users.id in platform RDS) the
+# owner-scoped /api/projects[/:slug] routes filter on. Deliberately an id,
+# not a GitHub username: oauth_connections.username is not unique and
+# usernames can be renamed/reclaimed. Unset ⇒ the routes fail closed
+# (empty list / 404) rather than guessing an owner.
+# ---------------------------------------------------------------------------
+portfolioOwnerUserId: "1d4c645a-447e-4b5b-924d-19a3c75a84db"
+
+# ---------------------------------------------------------------------------
 # Network Policy — Default-deny; allow from Traefik + same namespace
 # ---------------------------------------------------------------------------
 networkPolicy:
