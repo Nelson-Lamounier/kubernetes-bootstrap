@@ -8,7 +8,12 @@ serviceAccount:
 # repository/tag split so ArgoCD Image Updater writes the new tag on each CI push.
 image:
   repository: "771826808455.dkr.ecr.eu-west-1.amazonaws.com/ontology-importer"
-  tag: "latest"
+  # Fallback only — ArgoCD Image Updater writes the live tag into
+  # .argocd-source-*.yaml (sha-regexp strategy). No :latest tag exists in
+  # this ECR repo, so the old fallback could never pull; pin it to the
+  # tag currently running so a fresh install without the write-back file
+  # still deploys.
+  tag: "106d9e2f5da19a7067f57cdc7116329cce475ae3-r1"
   pullPolicy: IfNotPresent
 
 # Monthly full import (registry pull → categorize → LLM batch for the tail).

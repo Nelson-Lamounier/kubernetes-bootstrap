@@ -55,7 +55,11 @@ spec:
             serviceAccountName: arc-runner
             containers:
               - name: runner
-                image: ghcr.io/nelson-lamounier/cdk-monitoring/arc-runner:latest
+                # Pinned by digest — a mutable :latest tag on the CI runner
+                # image is a tag-poisoning vector straight into the runner's
+                # cluster RBAC. Digest = :latest as of 2026-07-05; bump
+                # explicitly (git-visible) when a new runner image ships.
+                image: ghcr.io/nelson-lamounier/cdk-monitoring/arc-runner@sha256:d768c1ccafcc550d2fddbf399c12c53222e831bdf4d3e6d9fca4cc21b86ad808
                 command: ["/home/runner/run.sh"]
 
   destination:
