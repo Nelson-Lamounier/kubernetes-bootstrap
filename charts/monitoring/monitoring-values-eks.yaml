@@ -100,12 +100,20 @@ alloy:
     lambdaLogs:
       enabled: false
 
-# Raise CPU request quota to fit all pods incl. Pyroscope.
-# Default values.yaml has 1000m which is exhausted at ~955m leaving no
-# headroom for Pyroscope (100m) or Alloy restarts.
+# Namespace-level ResourceQuota — caps the SUM of requests across ALL pods in
+# the monitoring namespace (23 pods: prometheus, tempo, loki, pyroscope,
+# steampipe, grafana + renderer, exporters, alloy, yace, ...). It is not
+# per-workload; whichever pod asks when the budget is full is refused.
+#
+# requests.memory 3Gi -> 4Gi: measured steady-state was 3056Mi/3072Mi (16Mi
+# free), so a rolling update — which needs a transient +1 surge pod — had
+# nowhere to place it. That deadlocked YACE's reloader-triggered restart
+# (FailedCreate: exceeded quota) and blocked monitoring-allowlist-patcher.
+# 4Gi leaves ~1Gi headroom, enough for the largest single surge pod
+# (prometheus ~784Mi) during any component's rollout. CPU is fine (825m/1500m).
 resourceQuota:
   hard:
     requests.cpu: "1500m"
-    requests.memory: 3Gi
+    requests.memory: 4Gi
     limits.cpu: "6"
     limits.memory: 8Gi
