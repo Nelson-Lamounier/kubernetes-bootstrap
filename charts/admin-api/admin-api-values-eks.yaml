@@ -43,12 +43,19 @@ topologySpreadConstraints:
         app.kubernetes.io/name: admin-api
 
 # ---------------------------------------------------------------------------
-# Resource requests/limits — EKS baseline for accurate Karpenter bin-packing
+# Resource requests/limits — sized from observed usage, not copy-paste
 # ---------------------------------------------------------------------------
+# 24h live profile (Prometheus, 2026-07-05): CPU ~30m avg with bursts to
+# 332m; memory working set 110–144Mi. Requests are what Karpenter reserves
+# (cost); the old blanket 100m/256Mi block reserved ~3× actual use across
+# the web tier. CPU request also anchors the HPA (70% target → scale-out
+# at 35m sustained), so it stays at 50m rather than lower to avoid
+# burst-flapping. CPU limit keeps 500m for the observed 332m bursts —
+# the base file's 300m would throttle them.
 resources:
   requests:
-    cpu: "100m"
-    memory: "256Mi"
+    cpu: "50m"
+    memory: "160Mi"
   limits:
     cpu: "500m"
     memory: "512Mi"

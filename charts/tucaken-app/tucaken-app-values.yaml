@@ -31,16 +31,21 @@ resources:
     cpu: 300m
     memory: 384Mi
 
-# Sized for the blue/green peak: 2 active + 2 preview = 4 pods running at once.
-#   requests: 4 × (50m / 128Mi) = 200m / 512Mi
-#   limits:   4 × (300m / 384Mi) = 1200m / 1536Mi
-# Quota carries headroom above those peaks so a rollout can never be quota-blocked.
+# Sized for the blue/green peak: 2 active + 2 preview = 4 pods at once, using
+# the EKS overlay's live per-pod values (req 50m/160Mi, lim 300m/384Mi).
+#   steady rollout: 4 × (50m/160Mi req, 300m/384Mi lim) = 200m/640Mi, 1200m/1536Mi
+# The worst case is the FIRST rollout onto these reduced requests, where the
+# active RS is still on the old 256Mi/500m-lim pods while the preview RS is on
+# the new ones:
+#   req: 2×256Mi + 2×160Mi = 832Mi ; lim-cpu: 2×500m + 2×300m = 1600m
+# The old 768Mi / 1500m-cpu quota could not fit that transient and would stall
+# the rollout at preview. These values clear it with headroom.
 resourceQuota:
   hard:
     requests.cpu: "600m"
-    requests.memory: 768Mi
-    limits.cpu: "1500m"
-    limits.memory: 1792Mi
+    requests.memory: 1024Mi
+    limits.cpu: "2000m"
+    limits.memory: 2048Mi
     persistentvolumeclaims: "1"
 
 # ---------------------------------------------------------------------------

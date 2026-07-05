@@ -28,12 +28,15 @@ topologySpreadConstraints:
         app.kubernetes.io/name: public-api
 
 # ---------------------------------------------------------------------------
-# Resource requests/limits — EKS baseline for accurate Karpenter bin-packing
+# Resource requests/limits — sized from observed usage, not copy-paste
 # ---------------------------------------------------------------------------
+# 24h live profile (Prometheus, 2026-07-05): CPU ~4m; memory working set
+# ~75Mi peak. The lightest service on the tier — matches the base file's
+# limits (200m/128Mi); the old 100m/256Mi request reserved ~25× actual CPU.
 resources:
   requests:
-    cpu: "100m"
-    memory: "256Mi"
+    cpu: "25m"
+    memory: "96Mi"
   limits:
-    cpu: "500m"
-    memory: "512Mi"
+    cpu: "200m"
+    memory: "128Mi"

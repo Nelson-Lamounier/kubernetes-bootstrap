@@ -28,12 +28,15 @@ topologySpreadConstraints:
         app: nextjs
 
 # ---------------------------------------------------------------------------
-# Resource requests/limits — EKS baseline for accurate Karpenter bin-packing
+# Resource requests/limits — sized from observed usage, not copy-paste
 # ---------------------------------------------------------------------------
+# 24h live profile (Prometheus, 2026-07-05): CPU ~45m avg / 57m max;
+# memory working set 127–185Mi. Single replica, HPA disabled — request
+# only needs steady-state + margin. Limit 384Mi is ~2× the observed peak.
 resources:
   requests:
-    cpu: "100m"
-    memory: "256Mi"
+    cpu: "50m"
+    memory: "192Mi"
   limits:
-    cpu: "500m"
-    memory: "512Mi"
+    cpu: "300m"
+    memory: "384Mi"
