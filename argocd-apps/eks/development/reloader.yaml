@@ -61,14 +61,15 @@ spec:
               limits:
                 cpu: 100m
                 memory: 128Mi
-            # Schedule on the general workload pool. The value must match a
-            # real node label — `node-pool: general` (the old value) exists on
-            # no node or Karpenter NodePool, so the pod sat Pending and the
-            # reload controller never ran. Live nodes are labeled
-            # `node-pool: workloads-default` (workload) and `node-pool: system`
-            # (tainted `dedicated=system`, which this pod does not tolerate).
-            nodeSelector:
-              node-pool: workloads-default
+            # No nodeSelector — schedule on any untainted node, exactly like
+            # the sibling workloads (admin-api, nextjs, tucaken-app all run
+            # with none). The workload nodes are the only untainted ones; the
+            # system nodes carry `dedicated=system:NoSchedule`, untolerated
+            # here, so the pod lands on a workload node naturally. The
+            # Karpenter NodePool labels nodes `node-role=workload` and
+            # `karpenter.sh/nodepool=workloads-default` but NOT `node-pool`,
+            # so any selector keyed on `node-pool` matched no node and left
+            # the pod Pending.
 
           isOpenshift: false
 
