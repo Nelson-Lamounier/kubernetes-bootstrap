@@ -10,7 +10,7 @@
 #   - Cost allocation using AWS Price List API
 #   - Prometheus metrics for Grafana dashboards
 #
-# Resource overhead: ~128Mi memory, ~100m CPU
+# Resource overhead: req 128Mi / limit 256Mi memory, ~100m CPU
 # Cost: Free (OpenCost is CNCF open-source)
 
 apiVersion: argoproj.io/v1alpha1
@@ -59,10 +59,13 @@ spec:
             resources:
               requests:
                 cpu: 50m
-                memory: 64Mi
+                # Working set sits at 102–128Mi warming the 1d cost-aggregation
+                # cache; a 128Mi limit OOMKilled the pod ~hourly (52 restarts
+                # observed 2026-07-05). Request 128Mi, cap at 256Mi for headroom.
+                memory: 128Mi
               limits:
                 cpu: 200m
-                memory: 128Mi
+                memory: 256Mi
 
           # Prometheus integration — scrape from existing Prometheus
           prometheus:
