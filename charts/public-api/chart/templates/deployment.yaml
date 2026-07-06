@@ -105,6 +105,10 @@ spec:
               value: {{ .Values.awsRegion | quote }}
             - name: ALLOWED_ORIGINS
               value: {{ .Values.allowedOrigins | quote }}
+            {{- if .Values.portfolioOwnerUserId }}
+            - name: PORTFOLIO_OWNER_USER_ID
+              value: {{ .Values.portfolioOwnerUserId | quote }}
+            {{- end }}
             - name: REDIS_CACHE_HOST
               value: {{ .Values.redisCache.host | quote }}
             - name: REDIS_CACHE_PORT
