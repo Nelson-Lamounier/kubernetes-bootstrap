@@ -186,6 +186,9 @@ spec:
                 name: admin-api-bedrock
                 optional: true
             - secretRef:
+                name: admin-api-article-assets
+                optional: true
+            - secretRef:
                 name: admin-api-github
                 optional: true
             - secretRef:

@@ -1,0 +1,26 @@
+# @format
+# ExternalSecret: admin-api-article-assets
+#
+# Publishes the dedicated public article-media bucket name (Task 1,
+# ai-applications data-stack). Optional at the pod level: admin-api boots
+# without it and the presign route answers 503 until the secret lands.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: admin-api-article-assets
+  namespace: admin-api
+  annotations:
+    kubernetes.io/description: "admin-api article assets bucket — lands when ai-applications data-stack deploys"
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    name: aws-ssm
+    kind: ClusterSecretStore
+  target:
+    name: admin-api-article-assets
+    creationPolicy: Owner
+    deletionPolicy: Delete
+  data:
+    - secretKey: ARTICLE_ASSETS_BUCKET_NAME
+      remoteRef:
+        key: /bedrock-dev/article-assets-bucket-name

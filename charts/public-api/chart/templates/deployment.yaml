@@ -145,6 +145,9 @@ spec:
                 name: public-api-bedrock
                 optional: true
             - secretRef:
+                name: public-api-article-assets
+                optional: true
+            - secretRef:
                 name: public-api-strategist
                 optional: true
             - secretRef:
