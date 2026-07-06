@@ -11,7 +11,11 @@
 # the dedicated `general` ASG.
 hpa:
   enabled: true
-  minReplicas: 1
+  # Floor of 2 (was 1): during the 2026-07-05 admin-api outage the HPA had
+  # scaled to one replica and that pod wedged (pg pool exhausted), leaving the
+  # Service with zero ready endpoints. A second replica keeps the API serving
+  # while a bad pod self-heals.
+  minReplicas: 2
   maxReplicas: 3
   targetCPUUtilization: 70
 

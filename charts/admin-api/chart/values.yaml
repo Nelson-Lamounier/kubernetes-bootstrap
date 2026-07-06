@@ -219,13 +219,16 @@ service:
 # Disabled by default; the EKS overlay (admin-api-values-eks.yaml) enables it.
 hpa:
   enabled: false
-  minReplicas: 1
+  # Floor of 2: with a single replica, one unhealthy pod is a total outage —
+  # on 2026-07-05 a wedged pod (pg pool exhausted, readyz 503, livez 200) was
+  # the only replica and took the whole admin API down for an hour.
+  minReplicas: 2
   maxReplicas: 3
   targetCPUUtilization: 70
 
 # ── PodDisruptionBudget ───────────────────────────────────────────────────────
-# Prevents the sole admin-api replica from being evicted simultaneously
-# during CA scale-down or node drain events.
+# With the HPA floor of 2, maxUnavailable: 1 keeps at least one replica
+# serving through CA scale-down or node drain events.
 pdb:
   enabled: true
   maxUnavailable: 1
