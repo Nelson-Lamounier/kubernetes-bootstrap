@@ -294,16 +294,21 @@ reconcileGithubInstallations:
 # ---------------------------------------------------------------------------
 # Deferred-enrichment backlog sweep
 # ---------------------------------------------------------------------------
-# Daily drain of chunks left enrichment_status IN ('pending','skipped_quota')
-# by a deferred/deadline-stopped ingestion pass. Dispatches one run-reenrich
-# Job (ingestion image) per user with a backlog — PREMIUM/ADMIN users only
-# (LLM enrichment is a paid entitlement); free-tier backlogs are logged and
-# drain deterministically on their next ordinary sync. Source:
-# admin-api/src/scripts/reenrich-sweep.ts. Job creation in the ingestion
-# namespace is granted by the admin-api-job-creator RoleBinding
-# (charts/ingestion). Verify: kubectl -n admin-api get cronjob reenrich-sweep
+# RETIRED (2026-07-06): LLM chunk enrichment is disabled for every tier —
+# the golden-set A/B (rag_eval_runs cff9c15b vs 5515e590, recall@8 identical)
+# and a real-JD replay (run f133155f, 5/5 queries byte-identical top-15)
+# showed no retrieval benefit for ~99% of ingestion LLM spend. The sweep is
+# therefore suspended: admin-api's enrichmentEnv() kill switch already makes
+# every dispatched Job exit before any Bedrock call, so this flag is the
+# belt-and-braces layer that stops the no-op dispatches too. Re-enable only
+# alongside reverting enrichmentEnv() (tucaken-app admin-api/src/lib/
+# entitlements.ts) — e.g. for a contextual-embedding trial.
+# Original purpose: daily drain of chunks left enrichment_status IN
+# ('pending','skipped_quota') by a deferred/deadline-stopped ingestion pass,
+# one run-reenrich Job per premium/admin user with a backlog. Source:
+# admin-api/src/scripts/reenrich-sweep.ts.
 reenrichSweep:
-  enabled:          true
+  enabled:          false
   # 04:30 UTC daily — after the 03:00/03:30 sweeps, still in the quiet window.
   schedule:         "30 4 * * *"
   # Cap dispatched Jobs per run (Bedrock stampede guard).
