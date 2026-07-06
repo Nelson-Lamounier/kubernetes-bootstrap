@@ -154,10 +154,10 @@ data:
                 | grep auth_rate_limited
 
       # -------------------------------------------------------------------
-      # Database — PgBouncer pool health + postgres_exporter liveness.
-      # CloudWatch-sourced RDS alarms (CPU credits, memory, storage, disk
-      # queue, connections) live with the RDS stack as CloudWatch Alarms —
-      # Prometheus cannot see AWS/RDS metrics.
+      # Database — PgBouncer pool health + postgres_exporter liveness, plus
+      # RDS instance alarms. RDS alerts live here (not only as CloudWatch
+      # Alarms) because YACE scrapes the AWS/RDS namespace into Prometheus as
+      # aws_rds_* — so a Prometheus rule CAN now evaluate them.
       # -------------------------------------------------------------------
       - name: infra:database
         rules:
@@ -383,4 +383,102 @@ data:
                 no healthy targets, target group draining, or connection limits.
                 Distinct from target 5xx. Check target-group health and the
                 healthy-host-count panel.
+
+      # -------------------------------------------------------------------
+      # Capacity — early-warning tiers surfaced by the 2026-07 metrics
+      # review. These fire before the tight/critical thresholds above so the
+      # constraint is visible with runway to act, not at the cliff edge.
+      # -------------------------------------------------------------------
+      - name: infra:capacity
+        rules:
+          # Early-warning companion to RdsFreeableMemoryLow (128 MB). AWS's
+          # recommended alarm line is 500 MB; below it the OS begins swapping,
+          # which collapses DB performance well before the 128 MB critical.
+          - alert: RdsFreeableMemoryHeadroomLow
+            expr: |
+              min(aws_rds_freeable_memory_average{dimension_DBInstanceIdentifier!=""}) < 500e6
+            for: 15m
+            labels:
+              severity: warning
+              service:  rds
+              team:     platform
+            annotations:
+              summary: "RDS freeable memory < 500 MB (AWS best-practice warn line)"
+              description: >
+                Freeable memory has dropped under the 500 MB AWS-recommended
+                threshold on the 2 GiB instance — early warning before the
+                128 MB RdsFreeableMemoryLow critical. Correlate with SwapUsage
+                and the buffer-cache hit ratio; consider a larger instance class
+                if sustained.
+
+          # Node root filesystem filling. node-exporter reads the host /; on EKS
+          # this is image layers + ephemeral pod storage. 80% is the conventional
+          # first-warning; disk-full evicts pods and can wedge the kubelet.
+          - alert: NodeRootDiskHigh
+            expr: |
+              (
+                1 - node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"}
+                    / node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"}
+              ) > 0.80
+            for: 15m
+            labels:
+              severity: warning
+              service:  node
+              team:     platform
+            annotations:
+              summary: "{{`{{ $labels.instance }}`}} root filesystem > 80% used"
+              description: >
+                A node's root filesystem is over 80% full for 15m. On EKS this is
+                usually accumulated image layers and ephemeral pod storage; a full
+                disk evicts pods and can stall the kubelet. Check container image
+                garbage collection and large ephemeral writers on the node.
+
+          # Node approaching its per-instance pod cap (ENI/IP-bound on EKS).
+          # Karpenter ranks by CPU/memory and is BLIND to the pod cap, so a node
+          # can hit 100% of pod slots with idle CPU and block scheduling. See the
+          # tucaken-infra Karpenter system-pool pod-density runbook.
+          - alert: NodePodDensityHigh
+            expr: |
+              count by (node) (
+                (kube_pod_status_phase{phase=~"Running|Pending"} == 1)
+                * on (namespace, pod) group_left(node) kube_pod_info
+              )
+              /
+              max by (node) (kube_node_status_allocatable{resource="pods"})
+              > 0.90
+            for: 15m
+            labels:
+              severity: warning
+              service:  node
+              team:     platform
+            annotations:
+              summary: "{{`{{ $labels.node }}`}} at > 90% of its pod capacity"
+              description: >
+                A node is running over 90% of its allocatable pods (the EKS ENI
+                pod cap — e.g. 35 on a t3.large). Karpenter cannot see this limit,
+                so new pods may stay Pending with CPU idle. Constrain the pool's
+                instance sizes or add capacity.
+
+          # Prometheus TSDB cardinality approaching the pod's memory budget. At
+          # ~5.5 KiB/series the 2 GiB limit implies a ceiling near ~370k series;
+          # warn at 300k so there is runway to relabel the largest job (the
+          # ontology-importer-followup cronjob dominated cardinality in the
+          # 2026-07 review).
+          - alert: PrometheusHeadSeriesHigh
+            expr: |
+              max(prometheus_tsdb_head_series) > 300000
+            for: 30m
+            labels:
+              severity: warning
+              service:  prometheus
+              team:     platform
+            annotations:
+              summary: "Prometheus active series > 300k — approaching the 2 GiB budget"
+              description: >
+                Active series have exceeded 300k, nearing the ~370k practical
+                ceiling for the 2 GiB memory limit at ~5.5 KiB/series. Identify the
+                biggest contributor with
+                topk(10, count by (job) ({__name__=~".+"})) and drop or aggregate
+                high-cardinality labels via metric_relabel_configs before the pod
+                OOMs.
 {{- end }}
