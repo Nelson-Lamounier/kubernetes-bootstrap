@@ -1,7 +1,7 @@
 helm:
   parameters:
   - name: image.tag
-    value: ab857bcedd2bdf0cd3fe27f38033915b6778ed54-r1
+    value: d6e857532327ade62f8f324313c94c1538673110-r1
     forcestring: true
   - name: image.repository
     value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/nextjs-frontend
