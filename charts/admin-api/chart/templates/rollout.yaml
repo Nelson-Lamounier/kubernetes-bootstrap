@@ -174,8 +174,9 @@ spec:
           #                            the corresponding fields optional and
           #                            the consuming routes return 503 until
           #                            populated.
-          #   admin-api-job-images     OPTIONAL — Phase 4 K8s Job image URIs;
-          #                            consumed via volumeMount at startup.
+          #   admin-api-article-assets OPTIONAL — article content delivery assets.
+          #   admin-api-github         OPTIONAL — GitHub webhook + API credentials.
+          #   admin-api-redis-cache    OPTIONAL — Redis cache credentials.
           # ---------------------------------------------------------------
           envFrom:
             - secretRef:

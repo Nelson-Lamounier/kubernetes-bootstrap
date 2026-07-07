@@ -122,13 +122,15 @@ spec:
           # ExternalSecret in charts/public-api/external-secrets/ produces
           # one Secret with a specific failure-blast-radius:
           #
-          #   public-api-core         REQUIRED — the only mandatory keys.
-          #                           If this fails to sync the pod won't
-          #                           pass the config.ts fail-fast check.
-          #   public-api-bedrock      OPTIONAL — Bedrock chatbot config.
+          #   public-api-core         REQUIRED — core portfolio configuration.
+          #   platform-rds-credentials REQUIRED — PG host/port/db/user/pass.
+          #   public-api-auth         REQUIRED — authentication credentials.
+          #   public-api-bedrock      OPTIONAL — Bedrock chatbot configuration.
           #                           Routes return 503 until populated.
-          #   public-api-strategist   OPTIONAL — strategist table refs.
+          #   public-api-article-assets OPTIONAL — article content delivery assets.
+          #   public-api-strategist   OPTIONAL — strategist table references.
           #                           /api/resumes/active returns 204.
+          #   public-api-redis-cache  OPTIONAL — Redis cache credentials.
           #
           # `optional: true` on the OPTIONAL refs lets the pod boot before
           # the corresponding Bedrock CDK stack has deployed. Reloader picks
