@@ -23,7 +23,10 @@ config:
     # fields are REQUIRED; the resume_imports defaults would error + mis-sweep.
     - namespace: job-strategist
       dbTable: pipeline_runs
-      staleAfterMinutes: 15
+      # 30 min (matches production): the strategist writer alone can stream for
+      # 11-17 min; at 15 min the sweep marked ACTIVE runs failed mid-write
+      # (run 30fe4f66, 2026-07-08) and the job died before persisting.
+      staleAfterMinutes: 30
       statusColumn: status
       staleColumn: created_at
       errorColumn: error_message
