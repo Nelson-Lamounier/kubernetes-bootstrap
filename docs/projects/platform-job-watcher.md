@@ -5,9 +5,9 @@ tags: [kubernetes, controller, rbac, argocd, postgresql, observability, argocd-i
 sources:
   - charts/platform-job-watcher/chart/templates/clusterrole.yaml
   - charts/platform-job-watcher/chart/templates/deployment.yaml
-  - argocd-apps/platform-job-watcher.yaml
+  - argocd-apps/eks/development/platform-job-watcher.yaml
 created: 2026-06-16
-updated: 2026-06-16
+updated: 2026-07-07
 ---
 
 ## What it does
@@ -148,10 +148,13 @@ helm template platform-job-watcher charts/platform-job-watcher/chart \
 
 ## Deploy
 
-Deployed by an ArgoCD `ApplicationSet` from
-[argocd-apps/platform-job-watcher.yaml](../../argocd-apps/platform-job-watcher.yaml)
-into the `platform` namespace with `prune`, `selfHeal`, and
-`CreateNamespace=true`. **ArgoCD Image Updater** watches the ECR repository with
+Deployed by the ArgoCD `Application`
+[argocd-apps/eks/development/platform-job-watcher.yaml](../../argocd-apps/eks/development/platform-job-watcher.yaml)
+(project `platform`, path `charts/platform-job-watcher/chart`) into the
+`platform` namespace with `prune`, `selfHeal`, and `CreateNamespace=true`.
+The kubeadm-era root-level `ApplicationSet` variant was removed in the
+2026-07 legacy purge (#206); the synced tree is `argocd-apps/eks/development/`
+only. **ArgoCD Image Updater** watches the ECR repository with
 the `newest-build` strategy (tags matching `^[0-9a-f]{7,40}(-r[0-9]+)?$`) and
 git-writes the new tag into
 `chart/.argocd-source-platform-job-watcher.yaml`, so a CI image push
@@ -181,6 +184,6 @@ Evidence trail (auto-generated):
 - Source: charts/platform-job-watcher/chart/templates/service.yaml (read on 2026-06-16)
 - Source: charts/platform-job-watcher/chart/templates/configmap.yaml (read on 2026-06-16)
 - Source: charts/platform-job-watcher/platform-job-watcher-values.yaml (read on 2026-06-16)
-- Source: argocd-apps/platform-job-watcher.yaml (read on 2026-06-16)
+- Source: argocd-apps/eks/development/platform-job-watcher.yaml (updated ref 2026-07; original read 2026-06-16)
 - Source: charts/platform-job-watcher/chart/.argocd-source-platform-job-watcher.yaml (read on 2026-06-16)
 -->
