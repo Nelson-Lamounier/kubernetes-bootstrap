@@ -116,4 +116,10 @@ resourceQuota:
     requests.cpu: "1500m"
     requests.memory: 4Gi
     limits.cpu: "6"
-    limits.memory: 8Gi
+    # 8Gi -> 12Gi (2026-07): summed pod limits reached exactly 8Gi and the
+    # quota refused even a 32Mi surge pod, deadlocking rollouts (the
+    # auth-proxy checksum/config roll hit FailedCreate the same way YACE
+    # and the allowlist-patcher did before it). Limits are overcommit caps,
+    # not reservations — 12Gi restores rolling-update headroom while
+    # requests (the real scheduling reservation) stay capped at 4Gi.
+    limits.memory: 12Gi
