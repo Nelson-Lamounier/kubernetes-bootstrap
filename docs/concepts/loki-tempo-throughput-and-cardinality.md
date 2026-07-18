@@ -7,7 +7,7 @@ sources:
   - charts/monitoring/chart/templates/tempo
   - charts/monitoring/chart/dashboards/background-jobs.json
 created: 2026-07-06
-updated: 2026-07-06
+updated: 2026-07-07
 ---
 
 # Loki and Tempo throughput, streams, and deployment mode
@@ -29,7 +29,10 @@ microservices only when a single process can no longer keep up
 ([Grafana Loki deployment modes](https://grafana.com/docs/loki/latest/get-started/deployment-modes/)).
 At this cluster's ingest — see below — monolithic is the right call: it avoids
 the operational weight of the microservices topology for volume a single process
-handles comfortably.
+handles comfortably. Quantified against Grafana's guidance (monolithic up to
+~20 GB/day, Simple Scalable to ~1 TB/day): ~28 KB/s is **≈ 2.5 GB/day, about
+12% of the monolithic ceiling** — roughly 8× headroom before the next topology
+tier is even a conversation.
 
 ## Loki throughput (live, 2026-07-06)
 
@@ -75,7 +78,20 @@ clean** — monolithic mode matched to the load, stream cardinality kept low (25
 and zero rate-limit discards. The metrics that would signal trouble at higher
 volume — rising stream count, non-zero `loki_discarded_samples_total`, ingester
 memory growth — are all healthy, so the design has clear headroom before the
-microservices split becomes necessary.
+microservices split becomes necessary. Re-verified 2026-07-07: 164.6 lines/s,
+258 streams, 2.65 spans/s, still 0 discards — stable within noise of the
+figures above.
+
+## Watch-item: the loki-data volume
+
+`loki-data` (10Gi) sits at **42.3% used** (2026-07-07) — the same
+slow-fill class of risk that took Prometheus down for 22h when its PVC
+filled on 2026-07-17
+([fix #241](https://github.com/Nelson-Lamounier/kubernetes-bootstrap/pull/241)).
+The guard pattern established there — size-bounded retention under a volume
+whose StorageClass now has `allowVolumeExpansion: true` — is the named
+follow-up for Loki if growth continues; `tempo-data` is at 1.1% and needs
+nothing.
 
 ## Related
 
