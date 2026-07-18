@@ -28,6 +28,17 @@ data:
           proxy_pass http://prometheus.{{ .Values.namespace }}.svc.cluster.local:9090/prometheus/-/healthy;
         }
 
+        # External dead-man's-switch probe (Route53 health check via the
+        # public ALB — EksDeadmanStack in tucaken-infra). Exact-match, so
+        # it takes precedence over the authenticated /prometheus/ prefix
+        # below. Liveness-only: proxies Prometheus's own /-/healthy and
+        # exposes no metric data. Without this the external path returned
+        # nginx's 401 regardless of Prometheus health, which is why the
+        # 2026-07-17 22h crashloop was invisible from outside.
+        location = /prometheus/-/healthy {
+          proxy_pass http://prometheus.{{ .Values.namespace }}.svc.cluster.local:9090/prometheus/-/healthy;
+        }
+
         # All Prometheus UI + API paths — basic auth required
         location /prometheus/ {
           auth_basic           "Prometheus";
