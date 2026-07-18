@@ -10,5 +10,12 @@ metadata:
 provisioner: ebs.csi.aws.com
 volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Delete
+# Required for online PVC growth (EBS supports it natively; gp3 resizes
+# without detach). Without this, editing a PVC's requested size is REJECTED
+# by the API server — which blocked the prometheus-data expansion when the
+# TSDB filled its 10Gi volume (2026-07 crashloop: "preallocate: no space
+# left on device"). allowVolumeExpansion is one of the few mutable
+# StorageClass fields, so this applies in place to the live class.
+allowVolumeExpansion: true
 parameters:
   type: gp3

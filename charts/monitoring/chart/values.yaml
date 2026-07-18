@@ -61,9 +61,18 @@ prometheus:
       cpu: 500m
       memory: 2Gi
   pvc:
-    size: 10Gi
+    # 10Gi filled on 2026-07-17 (TSDB was already 67% on 2026-07-05 and
+    # growing ~3%/day): Prometheus crashlooped 245× on
+    # "panic: preallocate: no space left on device" during WAL replay.
+    # 20Gi gives ~2× headroom; retentionSize below is the hard guard.
+    size: 20Gi
     storageClass: "ebs-sc"
   retention: 15d
+  # Size-based cap for TSDB blocks (WAL is NOT counted, so leave margin
+  # under the PVC: 16GB blocks + WAL/checkpoint headroom < 20Gi). Whichever
+  # of retention/retentionSize triggers first wins — this is what prevents
+  # a growing series count from ever filling the volume again.
+  retentionSize: 16GB
   scrapeInterval: 30s
   ingress:
     enabled: true
