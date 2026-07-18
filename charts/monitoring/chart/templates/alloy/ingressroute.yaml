@@ -13,44 +13,6 @@
 #     cors_allowed_origins config (verified working). nginx must NOT add
 #     headers on that path or the duplicate ACAO would also break CORS.
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: faro-proxy-nginx
-  namespace: {{ .Values.namespace }}
-  labels: {{- include "monitoring.fullLabels" "alloy" | nindent 4 }}
-data:
-  nginx.conf: |
-    events {}
-    http {
-      # Echo only origins Alloy already trusts (same values list drives
-      # Alloy's cors_allowed_origins). Unknown origins map to "" — nginx
-      # drops add_header with an empty value, so they get no CORS headers.
-      map $http_origin $cors_origin {
-        default "";
-        {{- range .Values.alloy.ingress.corsAllowedOrigins }}
-        {{ . | quote }} $http_origin;
-        {{- end }}
-      }
-      server {
-        listen 8080;
-        location /faro/ {
-          # See ConfigMap header comment: preflights must not reach Alloy.
-          if ($request_method = OPTIONS) {
-            add_header Access-Control-Allow-Origin $cors_origin always;
-            add_header Access-Control-Allow-Methods "POST, OPTIONS" always;
-            add_header Access-Control-Allow-Headers "content-type, x-faro-session-id, x-api-key, traceparent" always;
-            add_header Access-Control-Max-Age "3600" always;
-            add_header Vary "Origin" always;
-            return 204;
-          }
-          proxy_pass http://alloy.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.alloy.service.faroPort }}/;
-          proxy_set_header Host $host;
-          proxy_set_header X-Real-IP $remote_addr;
-        }
-      }
-    }
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -64,6 +26,10 @@ spec:
       app: faro-proxy
   template:
     metadata:
+      annotations:
+        # Roll on nginx ConfigMap change — same checksum/config rule as the
+        # prometheus auth-proxy; nginx loads its config only at startup.
+        checksum/config: {{ include (print $.Template.BasePath "/alloy/faro-proxy-configmap.yaml") . | sha256sum }}
       labels:
         app: faro-proxy
     spec:
