@@ -174,8 +174,6 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: job-strategist
     - server: https://kubernetes.default.svc
-      namespace: tech-extractor
-    - server: https://kubernetes.default.svc
       namespace: resume-import
     - server: https://kubernetes.default.svc
       namespace: article-pipeline
