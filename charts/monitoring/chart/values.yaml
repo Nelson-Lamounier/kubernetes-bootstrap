@@ -461,10 +461,18 @@ pushgateway:
       memory: 128Mi
     limits:
       cpu: 100m
-      # Bumped 128Mi -> 256Mi on 2026-07-01: the pod was OOMKilled (exit 137)
-      # repeatedly. Pushgateway holds all pushed metric groups in memory (plus
-      # the persisted state it reloads on start), so the working set grows with
-      # the number of distinct job/instance label sets pushed.
+      # Bumped 128Mi -> 256Mi on 2026-07-01 after repeated OOMKills (exit 137).
+      # That was a band-aid: the pod OOMKilled again (141× by 2026-07-20). ROOT
+      # CAUSE was app-side, not the limit — several batch jobs pushed with a
+      # per-run instance key (Date.now/pipelineRunId/importId), and Pushgateway
+      # retains every {job,instance} group in memory forever (plus the persisted
+      # state it reloads on start), so cardinality grew unbounded (peaked at
+      # 1,290 groups). Fixed permanently in ai-applications by bounding every
+      # instance key (userId / "global") + a source-scan test that fails CI on
+      # regression; the PushgatewayGroupCardinalityHigh alert (see
+      # rules-observability-configmap.yaml) is the early-warning net. 256Mi is
+      # now ample headroom for the bounded working set — do NOT treat a future
+      # OOM here as "needs more memory" without first checking group cardinality.
       memory: 256Mi
   service:
     port: 9091

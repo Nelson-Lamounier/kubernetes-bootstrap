@@ -52,6 +52,36 @@ data:
                 Remove prometheus.io/scrape from the pushgateway Service (see
                 charts/monitoring/chart/templates/pushgateway/service.yaml).
 
+          # Pushgateway metric-group cardinality leak. Pushgateway retains every
+          # distinct {job,instance} group in memory forever; a batch job that
+          # pushes with a per-run instance key (Date.now/pipelineRunId/importId)
+          # leaks one group per run until the pod OOMKills. This exact failure
+          # accumulated 1,290 groups (1,132 from ontology-importer-followup) and
+          # crash-looped the gateway 141×. Bounded keys were enforced app-side
+          # (ai-applications: pushFinalMetrics bounded-key fix + source-scan
+          # test), so steady-state is a handful of groups per job. This alert is
+          # the early-warning net: it fires long before the ~256Mi OOM ceiling if
+          # cardinality ever creeps back — whether from a code regression the
+          # source-scan test can't see, or a new/third-party pusher.
+          - alert: PushgatewayGroupCardinalityHigh
+            expr: |
+              count(push_time_seconds) > 150
+            for: 15m
+            labels:
+              severity: warning
+              team:     platform
+              area:     observability
+            annotations:
+              summary: "Pushgateway is holding an unusual number of metric groups"
+              description: >
+                count(push_time_seconds) has exceeded 150 distinct {job,instance}
+                groups for 15m (normal steady-state is a handful per job).
+                Pushgateway holds every group in memory until OOM, so this is an
+                early sign of a per-run instance-key leak re-emerging. Identify
+                the offending job via
+                `sum by (job) (count by (job,instance) (push_time_seconds))`
+                and switch it back to a bounded instance key (userId / "global").
+
           # Auth dashboard has no data source. auth_provision_total is the only
           # metric behind "Auth — Sign-In / Sign-Up Workflow"; if it vanishes,
           # admin-api stopped emitting it (middleware/registry regression).
