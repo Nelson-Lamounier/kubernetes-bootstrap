@@ -4,5 +4,5 @@ helm:
     value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-job-watcher
     forcestring: true
   - name: image.tag
-    value: fecb457262ebcb69948056bfd993ff489b4daf03-r1
+    value: bb751f6d1f503b893c6c2a5afb5eca5c5cf9109e-r1
     forcestring: true
