@@ -16,6 +16,15 @@ rules:
   - apiGroups: [""]
     resources: [nodes, nodes/proxy, nodes/metrics, services, endpoints, pods]
     verbs: [get, list, watch]
+  # EndpointSlice discovery. On Kubernetes v1.33+ the v1 Endpoints API is
+  # deprecated and Prometheus v3.x's `role: endpoints` kubernetes_sd resolves
+  # targets via discovery.k8s.io EndpointSlices. Without this the SD produces
+  # ZERO endpoint targets (kube-state-metrics, node-exporter, service-endpoints,
+  # alertmanager, …) — the whole scrape surface collapses to Prometheus itself
+  # (observed: 1 active target, ~594 series). Grant read on endpointslices.
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
   - apiGroups: [extensions, networking.k8s.io]
     resources: [ingresses]
     verbs: [get, list, watch]
