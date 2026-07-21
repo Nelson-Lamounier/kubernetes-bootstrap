@@ -57,3 +57,11 @@ config:
       # the resume_imports `import-id`. Without this the event fast path no-ops
       # and failures reconcile only via the 30-min stale sweep above.
       jobLabelKey:       pipeline-run-id
+      # Fail the linked job_applications row (reference_id -> id) when its latest
+      # pipeline_run fails and it's still 'analysing', so the application tag
+      # never stays stuck spinning "Analysing".
+      linkedTable:        job_applications
+      linkedVia:          reference_id
+      linkedStatusColumn: kanban_status
+      linkedFromValue:    analysing
+      linkedToValue:      failed

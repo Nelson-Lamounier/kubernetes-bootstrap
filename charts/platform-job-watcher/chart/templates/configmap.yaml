@@ -40,4 +40,19 @@ data:
         {{- with .jobLabelKey }}
         jobLabelKey: {{ . }}
         {{- end }}
+        {{- with .linkedTable }}
+        linkedTable: {{ . }}
+        {{- end }}
+        {{- with .linkedVia }}
+        linkedVia: {{ . }}
+        {{- end }}
+        {{- with .linkedStatusColumn }}
+        linkedStatusColumn: {{ . }}
+        {{- end }}
+        {{- with .linkedFromValue }}
+        linkedFromValue: {{ . }}
+        {{- end }}
+        {{- with .linkedToValue }}
+        linkedToValue: {{ . }}
+        {{- end }}
     {{- end }}
