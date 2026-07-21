@@ -1,0 +1,8 @@
+helm:
+  parameters:
+  - name: bootstrap.image.repository
+    value: 771826808455.dkr.ecr.eu-west-1.amazonaws.com/platform-rds-bootstrap
+    forcestring: true
+  - name: bootstrap.image.tag
+    value: f8f8004f7b0f58158d75418079ead9715f41d8bc-r1
+    forcestring: true
