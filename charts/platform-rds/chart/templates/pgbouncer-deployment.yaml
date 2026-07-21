@@ -29,6 +29,19 @@ metadata:
     app.kubernetes.io/component: connection-pooler
 spec:
   replicas: {{ .Values.pgbouncer.replicas }}
+  # Zero-downtime rolls. pgbouncer is the single DB front door for every job;
+  # the default RollingUpdate (25% maxUnavailable) removes the only dev replica
+  # BEFORE its replacement is Ready, opening a connection-refused gap on every
+  # image bump / Reloader secret roll. An in-flight strategist run hit that gap
+  # (ECONNREFUSED, run bd55b680, 2026-07-20) and died with no retry. maxSurge:1
+  # + maxUnavailable:0 brings the new pod up and Ready first, then drains the
+  # old — no gap, even at replicas:1 (the brief 2-pod overlap is transient, and
+  # pgbouncer opens server conns lazily so it does not double the RDS pool).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: pgbouncer
