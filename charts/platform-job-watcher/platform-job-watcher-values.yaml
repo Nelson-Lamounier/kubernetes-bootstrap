@@ -36,3 +36,7 @@ config:
       terminalStatuses:
         - complete
         - failed
+      # Strategist/coach Jobs stamp `pipeline-run-id` (= pipeline_runs PK), not
+      # the resume_imports `import-id`. Without this the event fast path no-ops
+      # and failures reconcile only via the 30-min stale sweep above.
+      jobLabelKey: pipeline-run-id

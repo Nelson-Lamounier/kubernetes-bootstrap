@@ -37,4 +37,7 @@ data:
           - {{ . | quote }}
           {{- end }}
         {{- end }}
+        {{- with .jobLabelKey }}
+        jobLabelKey: {{ . }}
+        {{- end }}
     {{- end }}
