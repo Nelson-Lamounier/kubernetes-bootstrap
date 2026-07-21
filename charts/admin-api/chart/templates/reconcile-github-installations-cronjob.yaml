@@ -79,10 +79,16 @@ spec:
                 - name: AWS_REGION
                   value: {{ .Values.awsRegion | default "eu-west-1" | quote }}
               envFrom:
-                # GITHUB_APP_ID / GITHUB_PRIVATE_KEY live in admin-api-secrets;
+                # GITHUB_APP_ID / GITHUB_PRIVATE_KEY live in admin-api-github
+                # (dedicated ESO secret — they were moved out of admin-api-secrets;
+                # the rollout already reads admin-api-github but this CronJob was
+                # left pointing at the old secret, so it failed every run with
+                # "GITHUB_APP_ID / GITHUB_PRIVATE_KEY not set — cannot reconcile").
                 # PG_* in platform-rds-credentials — same as the API rollout.
                 - secretRef:
                     name: {{ .Values.secrets.name }}
+                - secretRef:
+                    name: admin-api-github
                 - secretRef:
                     name: platform-rds-credentials
               resources:
