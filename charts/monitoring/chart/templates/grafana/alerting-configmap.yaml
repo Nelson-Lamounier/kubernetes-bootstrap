@@ -89,6 +89,15 @@ data:
           - uid: alert-node-down
             title: Node Down
             condition: C
+            # Key on node READINESS, not the node-exporter scrape `up`. A
+            # Karpenter-consolidated node drains while still Ready and then its
+            # kube_node_status_condition series simply disappears — so it never
+            # trips this rule (noDataState: OK resolves the vanished instance).
+            # The old `up{job="node-exporter"} == 0` fired for ~2 min on every
+            # scale-down (target unreachable before service-discovery dropped it),
+            # then self-resolved via MissingSeries — pure node-churn alert spam.
+            # Now only a node that EXISTS and stays NotReady for 5m pages.
+            noDataState: OK
             data:
               - refId: A
                 relativeTimeRange:
@@ -96,7 +105,7 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: up{job="node-exporter"}
+                  expr: kube_node_status_condition{condition="Ready",status="true"}
                   refId: A
               - refId: B
                 relativeTimeRange:
@@ -118,12 +127,12 @@ data:
                         type: lt
                         params: [1]
                   refId: C
-            for: 2m
+            for: 5m
             labels:
               severity: critical
             annotations:
-              summary: "Node exporter target is down"
-              description: "A node-exporter target has been unreachable for more than 2 minutes."
+              summary: "Node {{ "{{$labels.node}}" }} is NotReady"
+              description: "A Kubernetes node has been NotReady for more than 5 minutes (node still exists — not a scale-down). Check the node and its kubelet."
 
           - uid: alert-high-cpu
             title: High Node CPU Usage
@@ -320,7 +329,11 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: kube_job_failed{condition="true"} == 1
+                  # Exclude rag-eval: a weekly, non-production quality eval whose
+                  # failure is a signal to look at eval quality, not a cluster
+                  # incident — it should never page critical. Real batch failures
+                  # (migrations, reconcilers, bootstrap) still fire.
+                  expr: kube_job_failed{condition="true", job_name!~"rag-eval.*"} == 1
                   refId: A
               - refId: B
                 datasourceUid: __expr__
