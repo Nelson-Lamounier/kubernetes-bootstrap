@@ -105,7 +105,16 @@ data:
                   to: 0
                 datasourceUid: prometheus
                 model:
-                  expr: kube_node_status_condition{condition="Ready",status="true"}
+                  # Only ESTABLISHED nodes. A freshly-provisioned Karpenter node
+                  # is legitimately NotReady for several minutes while it boots,
+                  # registers with the kubelet and the CNI comes up — keying on
+                  # readiness alone (the previous fix) still tripped on that window
+                  # and then resolved via MissingSeries when the node became Ready
+                  # or was consolidated. The `and on(node) time()-kube_node_created
+                  # > 900` guard drops any node younger than 15 min from the query
+                  # entirely, so provisioning churn never fires; only a node that
+                  # has existed >15 min and then goes NotReady (for: 5m) pages.
+                  expr: kube_node_status_condition{condition="Ready",status="true"} and on(node) (time() - kube_node_created > 900)
                   refId: A
               - refId: B
                 relativeTimeRange:
